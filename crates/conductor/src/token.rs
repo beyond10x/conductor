@@ -162,7 +162,8 @@ fn unmet(unmet: UnmetObligation) -> anyhow::Error {
 // The pool
 // ---------------------------------------------------------------------------------------------
 
-/// The token an agent runs on: its id, owner and seat.
+/// The token an agent runs on: its id, owner, seat, the secret that holds its value and its
+/// kind.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Lease {
     /// The token.
@@ -171,6 +172,17 @@ pub struct Lease {
     pub owner: OperatorName,
     /// Its seat.
     pub seat: Seat,
+    /// The secret that holds its value.
+    pub secret: SecretName,
+    /// Its kind ([`kind_of`]).
+    pub kind: ModelTokenKind,
+}
+
+/// The kind of `token` (`story:pool-token-kind-files-source`): a token recorded before the kind
+/// existed is an `ApiKey`, the route every pool token took then.
+#[must_use]
+pub fn kind_of(token: &PoolTokenData) -> ModelTokenKind {
+    token.kind.unwrap_or(ModelTokenKind::ApiKey)
 }
 
 fn instant(at: &str) -> Option<OffsetDateTime> {
@@ -270,9 +282,11 @@ pub fn lease(
 ) -> Result<Result<Lease, NoTokenAvailable>> {
     if let Some(held) = held_by(&store, agent) {
         return Ok(Ok(Lease {
+            kind: kind_of(&held.data),
             token_id: held.data.token_id,
             owner: held.data.owner,
             seat: held.data.seat,
+            secret: held.data.secret,
         }));
     }
     let tokens = store.pool_tokens();
@@ -287,6 +301,12 @@ pub fn lease(
         return Ok(Err(NoTokenAvailable {
             instance: instance.clone(),
         }));
+    };
+    let Some(picked) = tokens
+        .into_iter()
+        .find(|token| token.data.token_id == token_id)
+    else {
+        bail!("the picked token is gone");
     };
     let mut generated = Generated::new(Ports { store });
     let outcome = generated
@@ -309,6 +329,8 @@ pub fn lease(
             token_id: token_leased.token_id,
             owner: token_leased.owner,
             seat: token_leased.seat,
+            kind: kind_of(&picked.data),
+            secret: picked.data.secret,
         })),
         LeaseTokenOutcome::NoneAvailable { error } => Ok(Err(error)),
         LeaseTokenOutcome::WrongState { error } => {
@@ -343,18 +365,24 @@ pub fn release(store: Store, agent: &AgentName, actor: Actor) -> Result<Option<T
     Ok(matches!(outcome, ReleaseTokenOutcome::Released { .. }).then_some(held.data.token_id))
 }
 
-/// `MarkTokenLimited` of the token `agent` holds, until [`LIMIT_WINDOW`] from now; answers the
-/// token as it was.
+/// `MarkTokenLimited` of the token `agent` holds, until `until`, the reset the limit's text
+/// named (`story:limit-resume-at-reset`), else [`LIMIT_WINDOW`] from now; answers the token as it
+/// was.
 ///
 /// # Errors
 ///
 /// The store cannot be written.
-pub fn limit(store: Store, agent: &AgentName, actor: Actor) -> Result<Option<PoolTokenData>> {
+pub fn limit(
+    store: Store,
+    agent: &AgentName,
+    actor: Actor,
+    until: Option<OffsetDateTime>,
+) -> Result<Option<PoolTokenData>> {
     let Some(held) = held_by(&store, agent) else {
         return Ok(None);
     };
-    let now_at = OffsetDateTime::now_utc();
-    let until = (now_at + LIMIT_WINDOW)
+    let until = until
+        .unwrap_or_else(|| OffsetDateTime::now_utc() + LIMIT_WINDOW)
         .format(&Rfc3339)
         .context("format the end of a usage limit")?;
     let mut generated = Generated::new(Ports { store });
@@ -424,8 +452,9 @@ fn segment(text: &str) -> String {
 }
 
 /// `ContributeToken`: `value` into the secrets source under a name of its own, then the token in
-/// the pool, Available and Ok, with its owner and seat. Answers the outcome, or why the source
-/// refused the value.
+/// the pool, Available and Ok, with its owner, seat and kind. Answers the outcome, or why the
+/// source refused the value. Under the `files` source the value is the file of that name in its
+/// directory, owner-only (`story:pool-token-kind-files-source`), and no secret is on record.
 ///
 /// # Errors
 ///
@@ -433,24 +462,33 @@ fn segment(text: &str) -> String {
 pub fn contribute(
     mut store: Store,
     secrets: &crate::secret::Secrets,
-    actor: Actor,
-    instance: &InstanceName,
-    owner: &OperatorName,
-    seat: &Seat,
+    contribution: &Contribution,
     value: SecretValue,
 ) -> Result<Result<ContributeTokenOutcome, String>> {
     let at = now()?;
+    let actor = &contribution.actor;
     if actor.kind != ActorKind::Human {
         return Ok(Err(format!(
             "ActorNotHuman: {}",
-            crate::actor::not_human(&actor)
+            crate::actor::not_human(actor)
         )));
     }
     let name = SecretName(format!(
         "claude-token/{}/{}",
-        segment(&instance.0),
+        segment(&contribution.instance.0),
         segment(&eventlog_core::new_event_id())
     ));
+    match secrets.write_pool_token(&name, &value) {
+        Ok(true) => {
+            let recorded = contribute_token(store, contribution, name.clone(), at);
+            if recorded.is_err() {
+                let _ = secrets.remove_pool_token(&name);
+            }
+            return recorded.map(Ok);
+        }
+        Ok(false) => {}
+        Err(refusal) => return Ok(Err(refusal)),
+    }
     let put = secrets.put(
         &mut store,
         &PutSecret {
@@ -485,14 +523,44 @@ pub fn contribute(
             )));
         }
     }
+    contribute_token(store, contribution, name, at).map(Ok)
+}
+
+/// Who contributes which token to which pool: the input of [`contribute`] but the value.
+#[derive(Debug, Clone)]
+pub struct Contribution {
+    /// Who contributes it, a person.
+    pub actor: Actor,
+    /// The instance whose pool it joins.
+    pub instance: InstanceName,
+    /// Its owner.
+    pub owner: OperatorName,
+    /// Its seat.
+    pub seat: Seat,
+    /// Its kind.
+    pub kind: ModelTokenKind,
+}
+
+/// The `ContributeToken` of [`contribute`], once the value is in the source under `secret`.
+///
+/// # Errors
+///
+/// The store cannot be written.
+fn contribute_token(
+    store: Store,
+    contribution: &Contribution,
+    secret: SecretName,
+    at: Timestamp,
+) -> Result<ContributeTokenOutcome> {
     let mut generated = Generated::new(Ports { store });
     let outcome = generated
         .contribute_token(ContributeToken {
-            actor,
-            instance: instance.clone(),
-            owner: owner.clone(),
-            seat: seat.clone(),
-            secret: name,
+            actor: contribution.actor.clone(),
+            instance: contribution.instance.clone(),
+            owner: contribution.owner.clone(),
+            seat: contribution.seat.clone(),
+            secret,
+            kind: contribution.kind,
             contributed_at: at,
         })
         .map_err(unmet)?;
@@ -501,7 +569,7 @@ pub fn contribute(
         .store
         .check()
         .map_err(|error| anyhow!("record the token: {error}"))?;
-    Ok(Ok(outcome))
+    Ok(outcome)
 }
 
 /// One row of `GET /v1/instances/{name}/tokens` (`conductor.token.Tokens`): never a value, nor
@@ -528,6 +596,8 @@ pub struct TokenRow {
     pub contributed_at: String,
     /// Who last moved it.
     pub actor: String,
+    /// `SubscriptionToken` or `ApiKey` ([`kind_of`]).
+    pub kind: &'static str,
 }
 
 /// The rows of `instance`'s pool, withdrawn tokens included, by contribution time.
@@ -540,6 +610,7 @@ pub fn rows(store: &Store, instance: &InstanceName) -> Vec<TokenRow> {
         .map(|token| {
             let data = token.data;
             TokenRow {
+                kind: crate::store::token_kind_name(kind_of(&data)),
                 token_id: data.token_id.0.0,
                 state: crate::store::token_state_name(token.state),
                 instance: data.instance.0,
@@ -777,6 +848,16 @@ fn apply_subscription(
     secrets: &conductor_model::config::SecretsSource,
 ) -> Result<(), String> {
     let what = format!("the model_token of instance {}", instance.name.0);
+    let value = subscription_value(&what, secret, secrets)?;
+    apply_subscription_value(launch, &what, value, false)
+}
+
+/// The value of the subscription token `what` names, read from `secrets` under `secret` now.
+fn subscription_value(
+    what: &str,
+    secret: &SecretName,
+    secrets: &conductor_model::config::SecretsSource,
+) -> Result<String, String> {
     let source = crate::secret::open(secrets).map_err(|unusable| unusable.to_string())?;
     let value = match source.reveal(secret) {
         Ok(Some(value)) => value,
@@ -797,7 +878,7 @@ fn apply_subscription(
             format!("{what}: its value is no one line of text, which {OAUTH_VARIABLE} holds")
         })?
         .to_owned();
-    apply_subscription_value(launch, &what, value)
+    Ok(value)
 }
 
 /// Puts `value`, the subscription token `what` names, into `launch`: as [`OAUTH_VARIABLE`] of
@@ -805,7 +886,13 @@ fn apply_subscription(
 /// launch's settings copied as [`apply`] copies them, without a [`HELPER_KEY`], which would
 /// outrank the variable. One the settings named is left out, and one line of standard error says
 /// so, without its text. The value is in no argument, no file and no line written.
-fn apply_subscription_value(launch: &mut Launch, what: &str, value: String) -> Result<(), String> {
+/// `remote_control` adds `--remote-control <session name>`, as [`apply`] does.
+fn apply_subscription_value(
+    launch: &mut Launch,
+    what: &str,
+    value: String,
+    remote_control: bool,
+) -> Result<(), String> {
     if value.chars().any(char::is_control) {
         return Err(format!(
             "{what}: its value is no one line of text, which {OAUTH_VARIABLE} holds"
@@ -815,7 +902,7 @@ fn apply_subscription_value(launch: &mut Launch, what: &str, value: String) -> R
     let file = copy_settings(
         launch,
         |settings| held = settings.remove(HELPER_KEY).is_some(),
-        false,
+        remote_control,
     )
     .map_err(|error| format!("{error:#}"))?;
     if held {
@@ -893,7 +980,7 @@ pub fn lease_into(
     let Some(lease) = lease_for_start(instance, role, &name, headroom)? else {
         if let Some(value) = boxed_subscription_token(instance) {
             let what = format!("the model_token of instance {}", instance.name.0);
-            apply_subscription_value(launch, &what, value)?;
+            apply_subscription_value(launch, &what, value, false)?;
         } else if let Some(secret) = &instance.model_token
             && !crate::placement::boxed(instance)
             && let Some(daemon) = daemon_config().filter(|daemon| daemon.unattended)
@@ -914,21 +1001,43 @@ pub fn lease_into(
         }
         return Ok(None);
     };
-    if let Err(error) = apply(launch, &lease, role.token_owner.is_some()) {
+    if let Err(error) = apply_lease(launch, &lease, role.token_owner.is_some()) {
         let _ = release_for_stop(instance, &name);
-        return Err(format!("{error:#}"));
+        return Err(error);
     }
     Ok(Some(lease))
 }
 
+/// Puts the leased token into `launch` by its kind (`story:pool-token-kind-files-source`): an
+/// `ApiKey` through [`apply`]; a `SubscriptionToken` read from the daemon's secrets source now,
+/// at this session's start, as [`OAUTH_VARIABLE`] ([`apply_subscription_value`]), its settings
+/// naming no [`HELPER_KEY`].
+fn apply_lease(launch: &mut Launch, lease: &Lease, remote_control: bool) -> Result<(), String> {
+    match lease.kind {
+        ModelTokenKind::ApiKey => apply(launch, lease, remote_control)
+            .map(drop)
+            .map_err(|error| format!("{error:#}")),
+        ModelTokenKind::SubscriptionToken => {
+            let what = format!("the pool token {}", lease.token_id.0.0);
+            let daemon = daemon_config().ok_or_else(|| {
+                format!(
+                    "{what}: the config file that names the daemon's secrets source is not read"
+                )
+            })?;
+            let value = subscription_value(&what, &lease.secret, &daemon.secrets)?;
+            apply_subscription_value(launch, &what, value, remote_control)
+        }
+    }
+}
+
 /// What the loop does on a usage-limit stop of `session` (module documentation): marks its
-/// token Limited; answers whether another token of the pool is Available, so the session is
-/// resumed at once rather than once the account has headroom.
+/// token Limited until `until` ([`limit`]); answers whether another token of the pool is
+/// Available, so the session is resumed at once rather than once the account has headroom.
 ///
 /// # Errors
 ///
 /// The store cannot be written.
-pub fn on_limit(instance: &Instance, session: &str) -> Result<bool> {
+pub fn on_limit(instance: &Instance, session: &str, until: Option<OffsetDateTime>) -> Result<bool> {
     let Some(store) = runtime_store() else {
         return Ok(false);
     };
@@ -936,7 +1045,7 @@ pub fn on_limit(instance: &Instance, session: &str) -> Result<bool> {
     if held_by(&store, &agent).is_none() {
         return Ok(false);
     }
-    limit(store, &agent, crate::actor::agent(instance, session))?;
+    limit(store, &agent, crate::actor::agent(instance, session), until)?;
     let Some(store) = runtime_store() else {
         return Ok(false);
     };
@@ -1006,6 +1115,9 @@ pub struct Daemon<'a> {
 struct JoinBody {
     seat: Option<String>,
     token: String,
+    /// `SubscriptionToken` or `ApiKey`; absent, `SubscriptionToken`.
+    #[serde(default)]
+    kind: Option<String>,
 }
 
 const fn grant_of(grant: OperatorGrant) -> Grant {
@@ -1091,6 +1203,21 @@ pub fn join_route(
                 json!({"error": "the body is not a join: write {\"seat\", \"token\"}"}),
             );
         }
+    };
+    let kind = match request.kind.as_deref() {
+        None => ModelTokenKind::SubscriptionToken,
+        Some(name) => match crate::store::token_kind_of(name) {
+            Some(kind) => kind,
+            None => {
+                return (
+                    400,
+                    "Bad Request",
+                    json!({"error": format!(
+                        "the kind {name:?} is none of SubscriptionToken, ApiKey"
+                    )}),
+                );
+            }
+        },
     };
     let value = match SecretValue::new(request.token.into_bytes()) {
         Ok(value) if !value.is_empty() => value,
@@ -1181,15 +1308,14 @@ pub fn join_route(
     }
     let seat = Seat(request.seat.unwrap_or_else(|| operator.to_owned()));
     let owner = OperatorName(operator.to_owned());
-    match contribute(
-        generated.ports,
-        &secrets,
+    let contribution = Contribution {
         actor,
-        &instance.name,
-        &owner,
-        &seat,
-        value,
-    ) {
+        instance: instance.name.clone(),
+        owner: owner.clone(),
+        seat: seat.clone(),
+        kind,
+    };
+    match contribute(generated.ports, &secrets, &contribution, value) {
         Ok(Ok(ContributeTokenOutcome::Contributed { token_contributed })) => {
             println!(
                 "conductord: {} joined {} with grants {}; token {} contributed, seat {}",
@@ -1212,6 +1338,7 @@ pub fn join_route(
                     "grants": grants.iter().map(|grant| crate::store::grant_name(*grant)).collect::<Vec<_>>(),
                     "token_id": token_contributed.token_id.0.0,
                     "seat": seat.0,
+                    "kind": crate::store::token_kind_name(kind),
                     "state": "Available",
                 }),
             )
@@ -1228,11 +1355,12 @@ pub fn join_route(
 
 /// `POST /v1/instances/{name}/leave` as `operator`: `LeaveInstance`, then `WithdrawToken` of each
 /// token of the instance's pool the operator owns; each agent on one is named for the loop to
-/// resume on another token ([`WITHDRAWN_FILE`]).
+/// resume on another token ([`WITHDRAWN_FILE`]). Under the `files` source the file of each token
+/// withdrawn is removed (`story:pool-token-kind-files-source`).
 #[must_use]
 pub fn leave_route(daemon: &Daemon<'_>, name: &str, operator: &str) -> Answer {
-    let instance = match instance_of(daemon, name) {
-        Ok(Some((instance, _))) => instance,
+    let (instance, source) = match instance_of(daemon, name) {
+        Ok(Some(found)) => found,
         Ok(None) => {
             return (
                 404,
@@ -1275,18 +1403,37 @@ pub fn leave_route(daemon: &Daemon<'_>, name: &str, operator: &str) -> Answer {
     if let Err(error) = store.check() {
         return failed(&anyhow!("record the leave: {error}"));
     }
-    let owned: Vec<TokenId> = pool(&store, &instance.name)
+    let owned: Vec<(TokenId, SecretName)> = pool(&store, &instance.name)
         .into_iter()
         .filter(|token| token.data.owner == owner)
-        .map(|token| token.data.token_id)
+        .map(|token| (token.data.token_id, token.data.secret))
         .collect();
+    let files = if source.source == conductor_model::secret::Source::Files {
+        match crate::secret::open(&source) {
+            Ok(secrets) => Some(secrets),
+            Err(unusable) => {
+                return (
+                    503,
+                    "Service Unavailable",
+                    json!({"error": unusable.to_string()}),
+                );
+            }
+        }
+    } else {
+        None
+    };
     let mut withdrawn = Vec::new();
     let mut resume = Vec::new();
-    for token_id in owned {
+    for (token_id, secret) in owned {
         match withdraw(store, &token_id, actor.clone()) {
             Ok((WithdrawTokenOutcome::Withdrawn { .. }, agent)) => {
                 withdrawn.push(token_id.0.0.clone());
                 resume.extend(agent.map(|agent| agent.0));
+                if let Some(secrets) = &files
+                    && let Err(error) = secrets.remove_pool_token(&secret)
+                {
+                    return failed(&error);
+                }
             }
             Ok(_) => {}
             Err(error) => return failed(&error),
@@ -1383,7 +1530,7 @@ pub fn join(args: &JoinArgs, daemon: Option<&str>) -> Result<ExitCode> {
     let value = crate::secret::value_from_stdin("your Claude token").context(WHAT)?;
     let token = String::from_utf8(value.expose().to_vec())
         .map_err(|_| anyhow!("{WHAT}: the token on standard input is no text"))?;
-    let body = json!({"seat": args.seat, "token": token});
+    let body = json!({"seat": args.seat, "token": token, "kind": args.kind});
     drop(token);
     let (status, answer) = crate::remote::call(
         url,
@@ -1400,7 +1547,7 @@ pub fn join(args: &JoinArgs, daemon: Option<&str>) -> Result<ExitCode> {
     let mut out = std::io::stdout().lock();
     writeln!(
         out,
-        "joined {} as {} (grants {}): token {} in its pool, seat {}, {}",
+        "joined {} as {} (grants {}): token {} in its pool, seat {}, kind {}, {}",
         answer["instance"].as_str().unwrap_or(instance),
         answer["operator"].as_str().unwrap_or_default(),
         answer["grants"]
@@ -1415,6 +1562,7 @@ pub fn join(args: &JoinArgs, daemon: Option<&str>) -> Result<ExitCode> {
             .unwrap_or_default(),
         answer["token_id"].as_str().unwrap_or_default(),
         answer["seat"].as_str().unwrap_or_default(),
+        answer["kind"].as_str().unwrap_or_default(),
         answer["state"].as_str().unwrap_or_default(),
     )
     .context(WHAT)?;
@@ -1599,6 +1747,7 @@ mod tests {
                 owner: OperatorName(owner.to_owned()),
                 seat: Seat(format!("{owner}@example-org.example")),
                 secret: SecretName(format!("claude-token/example-org/{id}")),
+                kind: None,
                 token_state: conductor_model::token::TokenState::Ok,
                 limited_until: until.map(|at| Timestamp(at.to_owned())),
                 agent: None,

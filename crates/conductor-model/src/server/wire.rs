@@ -1,5 +1,5 @@
 // generated from conductor v1
-// contract digest 7578a10cc04cfe745727906384787e01024a2731ead7f2fb1023e14b672f398b
+// contract digest 20ddd37e2cbb8b4d6af341870bbfad2afae45b8659a4f31603258eb2dc514f07
 // do not edit: regenerate with `ess synthesize --layout crate`
 //! Every generated declaration, as JSON, in the renderings the published wire contracts fix.
 //!
@@ -7570,6 +7570,7 @@ pub fn encode_conductor_host_build_lane(value: &crate::host::BuildLane, out: &mu
     match value {
         crate::host::BuildLane::Regular => json::push_text(out, "Regular"),
         crate::host::BuildLane::Short => json::push_text(out, "Short"),
+        crate::host::BuildLane::Gate => json::push_text(out, "Gate"),
     }
 }
 
@@ -7579,10 +7580,11 @@ pub fn encode_conductor_host_build_lane(value: &crate::host::BuildLane, out: &mu
 ///
 /// [`json::DecodeError`] naming the path and what the declaration says belongs there.
 pub fn decode_conductor_host_build_lane(value: &json::Value, at: &str) -> Result<crate::host::BuildLane, json::DecodeError> {
-    Ok(match json::text_at(value, at, "one of `Regular`, `Short`")? {
+    Ok(match json::text_at(value, at, "one of `Regular`, `Short`, `Gate`")? {
         "Regular" => crate::host::BuildLane::Regular,
         "Short" => crate::host::BuildLane::Short,
-        other => return Err(json::DecodeError { at: at.to_owned(), expected: "one of `Regular`, `Short`".to_owned(), found: format!("`{other}`") }),
+        "Gate" => crate::host::BuildLane::Gate,
+        other => return Err(json::DecodeError { at: at.to_owned(), expected: "one of `Regular`, `Short`, `Gate`".to_owned(), found: format!("`{other}`") }),
     })
 }
 
@@ -12252,6 +12254,10 @@ pub fn encode_conductor_token_join_daemon(value: &crate::token::JoinDaemon, out:
         json::member(out, "seat");
         encode_conductor_token_seat(&*held0, out);
     }
+    if let Some(held0) = &value.kind {
+        json::member(out, "kind");
+        encode_conductor_config_model_token_kind(&*held0, out);
+    }
     out.push('}');
 }
 
@@ -12261,7 +12267,7 @@ pub fn encode_conductor_token_join_daemon(value: &crate::token::JoinDaemon, out:
 ///
 /// [`json::DecodeError`] naming the path and what the declaration says belongs there.
 pub fn decode_conductor_token_join_daemon(value: &json::Value, at: &str) -> Result<crate::token::JoinDaemon, json::DecodeError> {
-    json::closed_at(value, at, &["instance", "seat"])?;
+    json::closed_at(value, at, &["instance", "seat", "kind"])?;
     Ok(crate::token::JoinDaemon {
         instance: match value.member("instance") {
             None | Some(json::Value::Null) => None,
@@ -12275,6 +12281,13 @@ pub fn decode_conductor_token_join_daemon(value: &json::Value, at: &str) -> Resu
             Some(member1) => {
                 let at1 = json::nested(at, "seat");
                 Some(decode_conductor_token_seat(member1, &at1)?)
+            }
+        },
+        kind: match value.member("kind") {
+            None | Some(json::Value::Null) => None,
+            Some(member2) => {
+                let at2 = json::nested(at, "kind");
+                Some(decode_conductor_config_model_token_kind(member2, &at2)?)
             }
         },
     })
@@ -18060,6 +18073,8 @@ pub fn encode_event_conductor_token_token_contributed(value: &crate::token::Toke
     encode_conductor_token_seat(&value.seat, out);
     json::member(out, "secret");
     encode_conductor_secret_secret_name(&value.secret, out);
+    json::member(out, "kind");
+    encode_conductor_config_model_token_kind(&value.kind, out);
     json::member(out, "contributed_at");
     json::push_text(out, &value.contributed_at.0);
     out.push('}');
@@ -18102,10 +18117,15 @@ pub fn decode_event_conductor_token_token_contributed(value: &json::Value, at: &
             let member5 = json::member_at(value, at, "secret")?;
             decode_conductor_secret_secret_name(member5, &at5)?
         },
+        kind: {
+            let at6 = json::nested(at, "kind");
+            let member6 = json::member_at(value, at, "kind")?;
+            decode_conductor_config_model_token_kind(member6, &at6)?
+        },
         contributed_at: {
-            let at6 = json::nested(at, "contributed_at");
-            let member6 = json::member_at(value, at, "contributed_at")?;
-            crate::primitives::Timestamp(json::timestamp_at(member6, &at6, "an RFC 3339 instant")?.to_owned())
+            let at7 = json::nested(at, "contributed_at");
+            let member7 = json::member_at(value, at, "contributed_at")?;
+            crate::primitives::Timestamp(json::timestamp_at(member7, &at7, "an RFC 3339 instant")?.to_owned())
         },
     })
 }
@@ -21184,6 +21204,10 @@ pub fn encode_view_conductor_token_tokens(value: &crate::token::Tokens, out: &mu
     json::push_text(out, &value.contributed_at.0);
     json::member(out, "actor");
     encode_conductor_operator_actor(&value.actor, out);
+    if let Some(held0) = &value.kind {
+        json::member(out, "kind");
+        encode_conductor_config_model_token_kind(&*held0, out);
+    }
     out.push('}');
 }
 
@@ -34167,6 +34191,8 @@ pub fn encode_command_conductor_token_contribute_token(value: &crate::token::Con
     encode_conductor_token_seat(&value.seat, out);
     json::member(out, "secret");
     encode_conductor_secret_secret_name(&value.secret, out);
+    json::member(out, "kind");
+    encode_conductor_config_model_token_kind(&value.kind, out);
     json::member(out, "contributed_at");
     json::push_text(out, &value.contributed_at.0);
     out.push('}');
@@ -34178,7 +34204,7 @@ pub fn encode_command_conductor_token_contribute_token(value: &crate::token::Con
 ///
 /// [`json::DecodeError`] naming the path and what the declaration says belongs there.
 pub fn decode_command_conductor_token_contribute_token(value: &json::Value, at: &str) -> Result<crate::token::ContributeToken, json::DecodeError> {
-    json::closed_at(value, at, &["actor", "instance", "owner", "seat", "secret", "contributed_at"])?;
+    json::closed_at(value, at, &["actor", "instance", "owner", "seat", "secret", "kind", "contributed_at"])?;
     Ok(crate::token::ContributeToken {
         actor: {
             let at0 = json::nested(at, "actor");
@@ -34205,10 +34231,15 @@ pub fn decode_command_conductor_token_contribute_token(value: &json::Value, at: 
             let member4 = json::member_at(value, at, "secret")?;
             decode_conductor_secret_secret_name(member4, &at4)?
         },
+        kind: {
+            let at5 = json::nested(at, "kind");
+            let member5 = json::member_at(value, at, "kind")?;
+            decode_conductor_config_model_token_kind(member5, &at5)?
+        },
         contributed_at: {
-            let at5 = json::nested(at, "contributed_at");
-            let member5 = json::member_at(value, at, "contributed_at")?;
-            crate::primitives::Timestamp(json::timestamp_at(member5, &at5, "an RFC 3339 instant")?.to_owned())
+            let at6 = json::nested(at, "contributed_at");
+            let member6 = json::member_at(value, at, "contributed_at")?;
+            crate::primitives::Timestamp(json::timestamp_at(member6, &at6, "an RFC 3339 instant")?.to_owned())
         },
     })
 }

@@ -113,13 +113,17 @@ impl Deliverer for Recorder {
     }
 }
 
-/// The headroom of a child run: `yes` in `fake/headroom`.
+/// The headroom of a child run: `yes` in `fake/headroom`; each probe is counted, one line in
+/// `fake/headroom.calls`.
 struct FileHeadroom {
     dir: PathBuf,
 }
 
 impl Headroom for FileHeadroom {
     fn headroom(&self) -> Result<bool> {
+        let mut calls = fs::read_to_string(self.dir.join("headroom.calls")).unwrap_or_default();
+        calls.push_str("probe\n");
+        fs::write(self.dir.join("headroom.calls"), calls).expect("count a probe");
         Ok(fs::read_to_string(self.dir.join("headroom")).is_ok_and(|text| text.trim() == "yes"))
     }
 }
@@ -1389,6 +1393,221 @@ fn a_second_usage_limit_after_a_resume_is_reported_in_one_line() {
         case.lines_of(&again)[0]["reason"],
         "second usage limit after a resume"
     );
+}
+
+// ---------------------------------------------------------------------------------------------
+// story:limit-resume-at-reset
+// ---------------------------------------------------------------------------------------------
+
+/// The usage limits the loop keeps, `<state>/run/limited.json`.
+fn limited(case: &Case) -> Value {
+    fs::read_to_string(case.state().join("run/limited.json"))
+        .ok()
+        .and_then(|text| serde_json::from_str(&text).ok())
+        .unwrap_or_else(|| json!({}))
+}
+
+/// The reset the loop keeps for `session`.
+fn reset_of(case: &Case, session: &str) -> OffsetDateTime {
+    let kept = limited(case);
+    let at = kept[session]["resets_at"]
+        .as_str()
+        .unwrap_or_else(|| panic!("a reset is kept for {session}: {kept}"));
+    OffsetDateTime::parse(at, &Rfc3339).expect("the reset is RFC 3339")
+}
+
+/// Moves the reset kept for `session` to a minute ago, as the clock passing it would.
+fn reset_passed(case: &Case, session: &str) {
+    let mut kept = limited(case);
+    kept[session]["resets_at"] = json!(
+        (OffsetDateTime::now_utc() - time::Duration::minutes(1))
+            .format(&Rfc3339)
+            .expect("the clock")
+    );
+    write(&case.state().join("run/limited.json"), &kept.to_string());
+}
+
+/// A limit text's reset `hours` from now, as the harness writes it (`resets 3:07pm (UTC)`), and
+/// the instant it names.
+fn reset_in(hours: i64) -> (String, OffsetDateTime) {
+    let at = (OffsetDateTime::now_utc() + time::Duration::hours(hours))
+        .replace_second(0)
+        .and_then(|at| at.replace_nanosecond(0))
+        .expect("a whole minute");
+    let (hour, half) = match at.hour() {
+        0 => (12, "am"),
+        hour @ 1..=11 => (hour, "am"),
+        12 => (12, "pm"),
+        hour => (hour - 12, "pm"),
+    };
+    (format!("resets {hour}:{:02}{half} (UTC)", at.minute()), at)
+}
+
+/// How many times the child runs probed the headroom.
+fn probes(case: &Case) -> usize {
+    fs::read_to_string(case.fake().join("headroom.calls"))
+        .unwrap_or_default()
+        .lines()
+        .count()
+}
+
+/// A usage limit whose line names its reset keeps that reset; with no `ais` on the host the
+/// session waits for it (the probe is unknown, not an error), and the first tick after it
+/// resumes the session from its transcript with no headroom probe.
+#[test]
+fn a_limited_session_is_resumed_at_the_reset_its_line_names_without_a_headroom_probe() {
+    let case = Case::new("limit-at-reset");
+    case.ok(&["spawn", "--repository", "alpha"]);
+    case.live("alpha", FIRST, false);
+    write(&case.fake().join("headroom"), "no");
+    let (resets, at) = reset_in(3);
+
+    let marked = case.tick(&[&format!(
+        "usage limit: You've hit your limit · {resets}; 1 sessions: ex-alpha"
+    )]);
+    assert_eq!(actions(&marked), ["usage-limit"], "{marked}");
+    assert_eq!(reset_of(&case, "ex-alpha"), at);
+    assert_eq!(limited(&case)["ex-alpha"]["repo"], "alpha");
+    assert_eq!(limited(&case)["ex-alpha"]["attempts"], 0);
+
+    fs::remove_file(case.bin().join("ais")).expect("no ais on the host");
+    let (waiting, said) = case.child_said(json!({"do": "lines", "ais": true}));
+    assert_eq!(actions(&waiting), Vec::<String>::new(), "{waiting}");
+    assert!(!said.contains("ais status"), "{said}");
+    assert!(limited(&case).get("ex-alpha").is_some());
+
+    reset_passed(&case, "ex-alpha");
+    let before = probes(&case);
+    let resumed = case.tick(&[]);
+    assert_eq!(actions(&resumed), ["resumed"], "{resumed}");
+    assert_eq!(probes(&case), before, "no headroom probe");
+    let calls = case.claude_calls();
+    assert!(
+        calls
+            .iter()
+            .any(|call| call == &format!("--bg --resume {FIRST} -n")),
+        "{calls:?}"
+    );
+    assert!(limited(&case).get("ex-alpha").is_none());
+
+    // The same with no `ais` at all.
+    case.tick(&[&format!(
+        "usage limit: You've hit your limit · {}; 1 sessions: ex-alpha",
+        reset_in(4).0
+    )]);
+    reset_passed(&case, "ex-alpha");
+    let resumed = case.child(json!({"do": "lines", "ais": true}));
+    assert_eq!(actions(&resumed), ["resumed"], "{resumed}");
+}
+
+/// A usage limit after the loop resumed the session at its reset backs off: five minutes after
+/// the second, ten after the third, whatever the headroom says; never before a reset the new
+/// line names.
+#[test]
+fn a_second_limit_after_a_resume_at_reset_backs_off() {
+    let case = Case::new("limit-backoff");
+    case.ok(&["spawn", "--repository", "alpha"]);
+    case.live("alpha", FIRST, false);
+    write(&case.fake().join("headroom"), "no");
+    case.tick(&[&format!(
+        "usage limit: You've hit your limit · {}; 1 sessions: ex-alpha",
+        reset_in(3).0
+    )]);
+    reset_passed(&case, "ex-alpha");
+    assert_eq!(actions(&case.tick(&[])), ["resumed"]);
+
+    let minutes = |wait: time::Duration| wait.whole_seconds() as f64 / 60.0;
+    let before = OffsetDateTime::now_utc();
+    let again = case.tick(&["usage limit: You've hit your limit; 1 sessions: ex-alpha"]);
+    assert_eq!(actions(&again), ["usage-limit"], "{again}");
+    assert_eq!(limited(&case)["ex-alpha"]["attempts"], 1);
+    let wait = minutes(reset_of(&case, "ex-alpha") - before);
+    assert!((4.5..=5.5).contains(&wait), "{wait} minutes");
+    write(&case.fake().join("headroom"), "yes");
+    assert_eq!(
+        actions(&case.tick(&[])),
+        Vec::<String>::new(),
+        "it backs off whatever the headroom"
+    );
+
+    reset_passed(&case, "ex-alpha");
+    assert_eq!(actions(&case.tick(&[])), ["resumed"]);
+    let before = OffsetDateTime::now_utc();
+    case.tick(&["usage limit: You've hit your limit; 1 sessions: ex-alpha"]);
+    assert_eq!(limited(&case)["ex-alpha"]["attempts"], 2);
+    let wait = minutes(reset_of(&case, "ex-alpha") - before);
+    assert!((9.5..=10.5).contains(&wait), "{wait} minutes");
+
+    reset_passed(&case, "ex-alpha");
+    assert_eq!(actions(&case.tick(&[])), ["resumed"]);
+    let (resets, at) = reset_in(3);
+    case.tick(&[&format!(
+        "usage limit: You've hit your limit · {resets}; 1 sessions: ex-alpha"
+    )]);
+    assert_eq!(limited(&case)["ex-alpha"]["attempts"], 3);
+    assert_eq!(
+        reset_of(&case, "ex-alpha"),
+        at,
+        "never before the reset named"
+    );
+}
+
+/// A `Running` controller whose session a usage limit stopped and whose process is gone gives
+/// its `controllers.max_working` place back: the cycle records it stopped (`usage limit`), keeps
+/// its limit, and does not start it again; at its reset, once a place is free, it is resumed
+/// from its transcript and recorded running again.
+#[test]
+fn a_cycle_stops_a_limited_session_whose_process_is_gone_and_resumes_it_at_reset() {
+    let case = Case::new("reconcile-limited");
+    case.configure("{provider: none}", "{max_working: 1}");
+    write(
+        &case.charter("beta"),
+        "# Charter: beta\n\nKeep main green.\n",
+    );
+    case.ok(&["spawn", "--repository", "alpha"]);
+    case.dispatch("alpha");
+    mark_active(&case, "beta");
+    write(&case.fake().join("headroom"), "no");
+    case.tick(&[&format!(
+        "usage limit: You've hit your limit · {}; 1 sessions: ex-alpha",
+        reset_in(3).0
+    )]);
+
+    let tick = case.child(json!({
+        "do": "cycle",
+        "program": case.bin().join("conductor-steps"),
+    }));
+    assert_eq!(states_of(&case, "alpha"), ["Stopped"], "{tick}");
+    assert_eq!(states_of(&case, "beta"), ["Running"], "{tick}");
+    assert_eq!(case.launched(), ["ex-alpha", "ex-beta"], "{tick}");
+    let said = cycle_said(&case, &tick);
+    assert!(
+        said.contains("stopped alpha (ex-alpha): usage limit"),
+        "{said}"
+    );
+    assert!(!said.contains("restarted alpha"), "{said}");
+    assert!(limited(&case).get("ex-alpha").is_some());
+
+    reset_passed(&case, "ex-alpha");
+    assert_eq!(
+        actions(&case.tick(&[])),
+        Vec::<String>::new(),
+        "no place is free"
+    );
+    assert!(limited(&case).get("ex-alpha").is_some());
+
+    case.configure("{provider: none}", "{max_working: 2}");
+    let resumed = case.tick(&[]);
+    assert_eq!(actions(&resumed), ["resumed"], "{resumed}");
+    let calls = case.claude_calls();
+    assert!(
+        calls
+            .iter()
+            .any(|call| call == &format!("--bg --resume {FIRST} -n")),
+        "{calls:?}"
+    );
+    assert_eq!(states_of(&case, "alpha"), ["Stopped", "Running"]);
+    assert!(limited(&case).get("ex-alpha").is_none());
 }
 
 /// `PR checks done`, `CI red on main` and `CI green again` reach the live controller as

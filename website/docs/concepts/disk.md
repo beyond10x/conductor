@@ -84,6 +84,7 @@ starts.
 | a cargo-based command | `RUSTC_WRAPPER=sccache`, the repository's `SCCACHE_DIR` and `SCCACHE_SERVER_PORT` (4300–5299), one server per repository that ends itself when idle; without `sccache` on `PATH`, nothing, and one line says so | `thresholds.repo_cache`, `repo_cache_size` (2G) |
 | a cargo-based command | `CARGO_PROFILE_DEV_DEBUG` and `CARGO_PROFILE_TEST_DEBUG` set to `line-tables-only`, unless the environment or the manifest sets `debug` | `thresholds.lean_debuginfo` |
 | a short command | a short-lane slot beside the regular ones, at most 4 jobs: at least 3 runs in 14 days with a p90 at most `short_lane_max`; a run over twice that is marked `lane_overrun` and leaves the lane for 24 hours | `thresholds.short_lane_slots` (1), `short_lane_max` (3m) |
+| a command with `SLOT_GATE` naming slot's gate directory and `slot` on `PATH` | runs it as `slot run -- <command>` on that gate, in the `Gate` lane: no build slot and no `CARGO_BUILD_JOBS` or `MAKEFLAGS`, since slot's pool sets the job count; the disk reservation and the watchdog stay. A `SLOT_GATE` naming no directory, or no `slot`, is said in one line and the run takes a build slot | none |
 
 ## 4. Escalate
 

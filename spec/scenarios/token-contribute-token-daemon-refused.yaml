@@ -16,6 +16,7 @@ timeline:
       owner: alice
       seat: alice@example-org.example
       secret: example-org-claude-alice
+      kind: SubscriptionToken
       contributed_at: 2026-11-08T09:00:00Z
     outcome: actor-not-human
     error:

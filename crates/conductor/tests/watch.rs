@@ -679,6 +679,65 @@ fn a_usage_limit_text_is_reported_again_24_hours_after_its_last_report() {
     );
 }
 
+fn noon_and_five() -> OffsetDateTime {
+    OffsetDateTime::parse("2026-10-07T12:05:00Z", &Rfc3339).expect("a fixed instant")
+}
+
+fn noon_and_ten() -> OffsetDateTime {
+    OffsetDateTime::parse("2026-10-07T12:10:00Z", &Rfc3339).expect("a fixed instant")
+}
+
+/// `story:limit-resume-at-reset`: a limit text reported less than a day ago is reported again
+/// once a session that shows it was resumed by the loop since that report, as the loop keeps it
+/// in `<state>/run/resumed.json`; once only.
+#[test]
+fn a_usage_limit_text_is_reported_again_for_a_session_resumed_since_its_report() {
+    let case = Case::new("limit-after-resume");
+    let projects = case.dir.join("projects");
+    let dir = projects.join("-fixture-home-example-org-alpha");
+    fs::create_dir_all(&dir).expect("create the transcript's directory");
+    let limit_at = |at: &str| {
+        let line = json!({"type": "assistant", "timestamp": at, "error": "rate_limit",
+                          "message": {"role": "assistant",
+                                      "content": [{"type": "text", "text": LIMIT}]}});
+        fs::write(
+            dir.join("a1a1a1a1-0000-4000-8000-000000000001.jsonl"),
+            format!("{line}\n"),
+        )
+        .expect("write the transcript");
+    };
+    case.sessions(&[stopped(alpha())]);
+    let at = |clock: fn() -> OffsetDateTime| {
+        let mut sources = case.sources(None);
+        sources.projects.clone_from(&projects);
+        sources.clock = clock;
+        pass(&mut Watch::new(sources, case.state()))
+    };
+    let line = format!("usage limit: {LIMIT}; 1 sessions: alpha");
+
+    limit_at("2026-10-07T11:59:00Z");
+    assert_eq!(at(noon), [line.as_str()]);
+    limit_at("2026-10-07T12:04:00Z");
+    assert_eq!(at(noon_and_five), NOTHING, "no resume since the report");
+
+    let resumed = OffsetDateTime::parse("2026-10-07T12:02:00Z", &Rfc3339)
+        .expect("a fixed instant")
+        .unix_timestamp_nanos();
+    let run = case.dir.join("state/run");
+    fs::create_dir_all(&run).expect("create the loop's directory");
+    fs::write(
+        run.join("resumed.json"),
+        json!({"alpha": {"at": resumed.to_string(), "attempts": 0}}).to_string(),
+    )
+    .expect("keep the resume");
+    assert_eq!(
+        at(noon_and_five),
+        [line.as_str()],
+        "resumed after the report"
+    );
+    assert_eq!(at(noon_and_ten), NOTHING, "reported once after the resume");
+}
+
 #[test]
 fn a_rate_limit_of_two_hours_ago_is_not_reported() {
     let case = Case::new("limit-stale");

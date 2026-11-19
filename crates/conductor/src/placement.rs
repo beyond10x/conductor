@@ -1185,7 +1185,7 @@ pub enum Bind {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Mount {
     /// What it is to the runtime: `state`, `records`, `cache`, `store`, `binary`, `harness`,
-    /// `checkouts`, `config`, `forge-cli` or `forge-login`.
+    /// `harness-versions`, `checkouts`, `config`, `forge-cli` or `forge-login`.
     pub what: &'static str,
     /// The path on the host; of a file, with every symlink on its way resolved.
     pub host_path: String,
@@ -1487,8 +1487,9 @@ fn shares(mount: &str, config: &[String], daemon: Option<&str>) -> Option<String
 /// | `trees` | the managed trees root (`checkouts.trees`), when it is outside the checkouts root | writes, root `trees-<instance>` |
 /// | `binary` | the conductor binary's directory (it carries the role profiles) | reads |
 /// | `harness` | the harness's directory on `PATH` | reads |
+/// | `harness-versions` | the directory of the file the harness's name on `PATH` links to (its installer's versions), when it is a link | reads |
 /// | `config` | the config file | reads, one file |
-/// | `harness` | the file the harness's name on `PATH` links to | reads, one file |
+/// | `harness` | the file the harness's name on `PATH` names, when no directory above holds it | reads, one file |
 /// | `forge-cli` | the CLI of each forge among the sources (`gh`, `glab`) | reads, one file |
 /// | `forge-login` | that CLI's login files under `HOME` | reads, one file each |
 /// | `git-config`, `worktree-config` | git's global configuration and the `worktree` CLI's ([`HOME_FILES`]) | reads, one file each |
@@ -1607,6 +1608,17 @@ fn layout(
             .as_deref()
             .and_then(Path::parent)
             .map(|dir| ("harness", dir.to_owned())),
+    );
+    // The harness's name on PATH as its installer leaves it, a link to one file of a directory
+    // of versions: the directory, so the link still resolves once an update on the host points
+    // it at a version written after the box opened (`story:box-harness-versions-dir`).
+    read.extend(
+        harness
+            .as_deref()
+            .map(|found| (real(found), clean(found)))
+            .filter(|(target, found)| target != found)
+            .and_then(|(target, _)| target.parent().map(Path::to_owned))
+            .map(|dir| ("harness-versions", dir)),
     );
     // The first directory named by its entries, and what of the instance it holds (`records`).
     let mut split: Option<(String, String)> = None;

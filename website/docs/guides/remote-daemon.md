@@ -113,13 +113,17 @@ or `ActorNotHuman` for a principal that is not a person.
 
 ```console
 $ conductor join --daemon https://conductor.example.com:7443 --instance platform < ~/claude-token
-joined platform as engineer@example.com (grants AnswerDecisions,ChangeSettings,UpgradeInstances,Join): token <id> in its pool, seat engineer@example.com, Available
+joined platform as engineer@example.com (grants AnswerDecisions,ChangeSettings,UpgradeInstances,Join): token <id> in its pool, seat engineer@example.com, kind SubscriptionToken, Available
 ```
 
 `join` makes you an operator of the instance with the grants `daemon.operators` gives you, and
 puts your Claude token, read from standard input, into the instance's pool. The value goes into
-the daemon's secrets source. The pool records its owner, seat and state, never the value.
-`--seat` names the Claude login the token draws on, your operator name by default. It needs the
+the daemon's secrets source; under the `files` source it is a file of `daemon.secrets.dir`,
+owner-only, which `leave` removes. The pool records its owner, seat, kind and state, never the
+value. `--seat` names the Claude login the token draws on, your operator name by default.
+`--kind` says what the token is: `SubscriptionToken` (the default), the long-lived token of a
+subscription login, which an agent gets as `CLAUDE_CODE_OAUTH_TOKEN`; or `ApiKey`, which it gets
+through its settings' `apiKeyHelper`. It needs the
 `join` grant, and an agent's session is refused `ActorNotHuman`.
 
 The daemon of section 1 cannot store the value yet, and `join` exits 1:

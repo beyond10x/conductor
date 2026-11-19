@@ -72,15 +72,16 @@
 //! pins, release chores, retrofit, publish); or every path it touches is a docs, CI, planning,
 //! markdown or lockfile path. A commit on several branches counts once.
 //!
-//! # In an instance pod
+//! # In an instance pod or a box
 //!
-//! In a runtime alone in a pod ([`checkouts::in_pod`], `story:pod-source-checkouts`), [`collect`]
+//! In a runtime alone in a pod or in a substrate box ([`checkouts::clones`],
+//! `story:pod-source-checkouts`, `story:box-source-checkouts`), [`collect`]
 //! first brings each repository a source includes to its checkout ([`checkouts::bring`]): it
 //! clones each one with no checkout that is not archived, and fetches each one with a checkout,
 //! which is then read without a fetch of its own. Each repository that could not be cloned or
 //! fetched is one member failure of this collector, named as its row is, and the others are read
-//! and recorded as they are. Nothing of this runs outside a pod or for a source without
-//! `include`.
+//! and recorded as they are. Nothing of this runs outside a pod or a box, or for a source
+//! without `include`.
 //!
 //! An instance with `forge_access: anonymous` (story:forge-access-anonymous) asks its forge
 //! nothing: each owner's repositories are its `include` entries, each `Public`, not archived and
@@ -334,7 +335,7 @@ pub fn collect(record: &mut Recorder<'_>) -> Result<()> {
         &origins,
         &exclude,
         &Forge::all(instance),
-        checkouts::in_pod().then_some(instance),
+        checkouts::clones(instance).then_some(instance),
         instance.forge_access == Some(ForgeAccess::Anonymous),
         record,
     )
@@ -393,11 +394,11 @@ pub fn collect_with_gitlab(
     pass(sources, origins, exclude, forges, None, false, record)
 }
 
-/// [`collect_with_gitlab`], and, for the instance `pod` of a runtime alone in a pod
-/// ([`checkouts::in_pod`], `story:pod-source-checkouts`), each repository a source includes
-/// brought to its checkout first ([`bring_checkouts`]); and, for an instance with
-/// `forge_access: anonymous` (`anonymous`, story:forge-access-anonymous), nothing asked of the
-/// forge, as the module documentation says.
+/// [`collect_with_gitlab`], and, for the instance `pod` of a runtime alone in a pod or in a box
+/// ([`checkouts::clones`], `story:pod-source-checkouts`, `story:box-source-checkouts`), each
+/// repository a source includes brought to its checkout first ([`bring_checkouts`]); and, for
+/// an instance with `forge_access: anonymous` (`anonymous`, story:forge-access-anonymous),
+/// nothing asked of the forge, as the module documentation says.
 fn pass(
     sources: &Sources,
     origins: &Origins,

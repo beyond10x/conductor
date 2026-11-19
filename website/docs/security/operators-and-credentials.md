@@ -142,9 +142,10 @@ and its writes are recorded as the operator's. The guard's
 An operator who joins an instance contributes a Claude token to a pool its sessions lease from.
 `join` and `leave` need the `join` grant.
 
-- `conductor join [--instance <name>] [--seat <seat>]` puts the token from standard input into the
-  daemon's secrets source, and records owner, seat (default: the operator name)
-  and state.
+- `conductor join [--instance <name>] [--seat <seat>] [--kind <kind>]` puts the token from
+  standard input into the daemon's secrets source, and records owner, seat (default: the operator
+  name), kind (`SubscriptionToken` by default, or `ApiKey`) and state. Under the `files` source
+  the value is a file of `daemon.secrets.dir`, mode 0600, which `leave` removes.
 - `conductor leave` withdraws the caller's tokens. Only an owner withdraws. Each session on one is
   named in `<state>/run/tokens-withdrawn.json`, and the loop resumes it on another token.
 - `GET /v1/instances/<name>/tokens` lists owners, seats and states, never a value or a secret's
@@ -152,8 +153,11 @@ An operator who joins an instance contributes a Claude token to a pool its sessi
 - `spawn` and `session start` lease one token per start: the Available one leased fewest times,
   ties by `token_id`. A controller role's `token_owner` takes that owner's tokens only, and starts
   with `--remote-control <session name>`. With none Available it refuses `NoTokenAvailable`.
-- The session's settings copy names `conductor token reveal --token <id>` as its `apiKeyHelper`.
-  It prints the value of a `Leased` token and refuses any other with `TokenStateConflict`.
+- For an `ApiKey` token the session's settings copy names `conductor token reveal --token <id>`
+  as its `apiKeyHelper`. It prints the value of a `Leased` token and refuses any other with
+  `TokenStateConflict`. A `SubscriptionToken` is read once at the session's start and set as
+  `CLAUDE_CODE_OAUTH_TOKEN` in the harness's environment; its settings copy names no
+  `apiKeyHelper`. A token recorded before the kind existed is an `ApiKey`.
 - A usage-limit stop marks the token Limited for 5 hours. With an empty pool a start is unchanged.
 
 ## Secrets

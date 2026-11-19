@@ -29,7 +29,7 @@ use conductor_model::behaviour::{ControllerStorage, SnapshotStorage};
 use conductor_model::dispatch::ControllerState;
 use serde_json::{Value, json};
 use time::format_description::well_known::Rfc3339;
-use time::{Date, OffsetDateTime, PrimitiveDateTime, Time, UtcOffset};
+use time::{Date, OffsetDateTime};
 
 use super::{ago, excerpt, exited, optional, rfc3339};
 use crate::config;
@@ -37,9 +37,6 @@ use crate::store::Store;
 
 /// Decision rows the page carries.
 const RECENT: usize = 10;
-
-/// Where the host keeps its time zones, which a usage-limit line names its reset in.
-const ZONEINFO: &str = "/usr/share/zoneinfo";
 
 /// The dispatch events after which a dispatch is no longer open.
 const CLOSED: [&str; 3] = ["done", "cancelled", "failed"];
@@ -586,7 +583,7 @@ fn limits(dir: &Path, now: OffsetDateTime, errors: &mut Vec<String>) -> Option<V
     }
     let mut kept: Vec<(Option<OffsetDateTime>, Limit)> = found
         .into_iter()
-        .map(|limit| (reset(&limit.text, limit.seen), limit))
+        .map(|limit| (crate::limit::reset(&limit.text, limit.seen), limit))
         .filter(|(reset, limit)| reset.map_or(limit.current, |reset| reset > now))
         .collect();
     kept.sort_by_key(|(reset, _)| (reset.is_none(), *reset));
@@ -616,168 +613,9 @@ fn date(text: &str) -> Option<Date> {
     Date::from_calendar_date(year, month, u8::try_from(day).ok()?).ok()
 }
 
-/// The reset a limit text names, `resets 7:50pm (Europe/Berlin)`, `resets 11am (UTC)` or
-/// `resets 19:50`, as the first instant of that clock time in that zone (UTC when it names none)
-/// at or after `seen`; none when the text names no reset this reads.
-fn reset(text: &str, seen: OffsetDateTime) -> Option<OffsetDateTime> {
-    let (_, rest) = text.split_once("resets ")?;
-    let (clock, rest) = rest.split_once(' ').unwrap_or((rest, ""));
-    let clock = clock.trim_end_matches([',', '.', ';']).to_ascii_lowercase();
-    let (digits, pm) = match (clock.strip_suffix("am"), clock.strip_suffix("pm")) {
-        (Some(digits), _) => (digits, Some(false)),
-        (_, Some(digits)) => (digits, Some(true)),
-        _ => (clock.as_str(), None),
-    };
-    let (hour, minute) = match digits.split_once(':') {
-        Some((hour, minute)) => (hour.parse::<u8>().ok()?, minute.parse::<u8>().ok()?),
-        None => (digits.parse::<u8>().ok()?, 0),
-    };
-    let hour = match pm {
-        Some(_) if hour == 0 || hour > 12 => return None,
-        Some(pm) => hour % 12 + if pm { 12 } else { 0 },
-        None => hour,
-    };
-    let clock = Time::from_hms(hour, minute, 0).ok()?;
-    let zone = rest
-        .trim()
-        .strip_prefix('(')
-        .and_then(|zone| zone.split_once(')'))
-        .map(|(zone, _)| zone.trim());
-    let offset = |at: OffsetDateTime| zone.map_or(Some(UtcOffset::UTC), |zone| offset(zone, at));
-    let local = seen.to_offset(offset(seen)?);
-    let at = |day: Date| -> Option<OffsetDateTime> {
-        let wall = PrimitiveDateTime::new(day, clock);
-        Some(wall.assume_offset(offset(wall.assume_utc())?))
-    };
-    let today = at(local.date())?;
-    if today >= seen {
-        return Some(today);
-    }
-    at(local.date().next_day()?)
-}
-
-/// The offset of the time zone `zone` at `at`: UTC for `UTC` and its names, else from the host's
-/// zone file; none for a name that is no zone file's.
-fn offset(zone: &str, at: OffsetDateTime) -> Option<UtcOffset> {
-    if matches!(zone, "UTC" | "Etc/UTC" | "GMT" | "Etc/GMT" | "Z") {
-        return Some(UtcOffset::UTC);
-    }
-    let plain = !zone.is_empty()
-        && zone
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '/' | '_' | '-' | '+'))
-        && zone
-            .split('/')
-            .all(|part| !part.is_empty() && !part.starts_with('-'));
-    if !plain {
-        return None;
-    }
-    let bytes = std::fs::read(Path::new(ZONEINFO).join(zone)).ok()?;
-    tzif_offset(&bytes, at.unix_timestamp())
-}
-
-/// The offset a TZif file `bytes` gives at the Unix time `at`: that of the last transition at or
-/// before it, from the 64-bit block of a version 2 file and the 32-bit block of a version 1 one;
-/// the first local time type before every transition.
-fn tzif_offset(bytes: &[u8], at: i64) -> Option<UtcOffset> {
-    fn counts(block: &[u8]) -> Option<[usize; 6]> {
-        if block.get(..4)? != b"TZif" {
-            return None;
-        }
-        let mut counts = [0; 6];
-        for (index, count) in counts.iter_mut().enumerate() {
-            let at = 20 + 4 * index;
-            let raw: [u8; 4] = block.get(at..at + 4)?.try_into().ok()?;
-            *count = usize::try_from(u32::from_be_bytes(raw)).ok()?;
-        }
-        Some(counts)
-    }
-    let [ut, std, leap, times, types, chars] = counts(bytes)?;
-    let (block, width) = if *bytes.get(4)? >= b'2' {
-        let skip = 44 + times * 5 + types * 6 + chars + leap * 8 + std + ut;
-        (bytes.get(skip..)?, 8)
-    } else {
-        (bytes, 4)
-    };
-    let [_, _, _, times, types, _] = counts(block)?;
-    let data = block.get(44..)?;
-    let transition = |index: usize| -> Option<i64> {
-        let raw = data.get(index * width..(index + 1) * width)?;
-        Some(if width == 8 {
-            i64::from_be_bytes(raw.try_into().ok()?)
-        } else {
-            i64::from(i32::from_be_bytes(raw.try_into().ok()?))
-        })
-    };
-    let indices = data.get(times * width..times * width + times)?;
-    let infos = data.get(times * width + times..times * width + times + types * 6)?;
-    let mut kind = 0;
-    for index in 0..times {
-        if transition(index)? > at {
-            break;
-        }
-        kind = usize::from(*indices.get(index)?);
-    }
-    let info: [u8; 4] = infos.get(kind * 6..kind * 6 + 4)?.try_into().ok()?;
-    UtcOffset::from_whole_seconds(i32::from_be_bytes(info)).ok()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    /// A version 1 TZif file of two types, +01:00 then +02:00 from the Unix time 1000.
-    fn tzif() -> Vec<u8> {
-        let mut bytes = b"TZif".to_vec();
-        bytes.push(0);
-        bytes.extend([0; 15]);
-        for count in [0_u32, 0, 0, 1, 2, 4] {
-            bytes.extend(count.to_be_bytes());
-        }
-        bytes.extend(1000_i32.to_be_bytes());
-        bytes.push(1);
-        bytes.extend(3600_i32.to_be_bytes());
-        bytes.extend([0, 0]);
-        bytes.extend(7200_i32.to_be_bytes());
-        bytes.extend([1, 0]);
-        bytes.extend(b"AB\0\0");
-        bytes
-    }
-
-    #[test]
-    fn a_tzif_file_gives_the_offset_of_the_last_transition_before_the_instant() {
-        let hour = |hours: i8| UtcOffset::from_hms(hours, 0, 0).ok();
-        assert_eq!(tzif_offset(&tzif(), 999), hour(1));
-        assert_eq!(tzif_offset(&tzif(), 1000), hour(2));
-        assert_eq!(tzif_offset(&tzif(), 5000), hour(2));
-        assert_eq!(tzif_offset(b"nope", 0), None);
-    }
-
-    #[test]
-    fn a_reset_is_the_next_instant_of_its_clock_time_after_it_was_seen() {
-        let seen = OffsetDateTime::parse("2026-10-17T14:07:00Z", &Rfc3339).expect("an instant");
-        let at = |text: &str| reset(text, seen).map(rfc3339);
-        assert_eq!(
-            at("You've hit your limit · resets 7:50pm (UTC)").as_deref(),
-            Some("2026-10-17T19:50:00Z")
-        );
-        assert_eq!(
-            at("limit · resets 11am (UTC)").as_deref(),
-            Some("2026-10-18T11:00:00Z"),
-            "a clock time already past that day is the next day's"
-        );
-        assert_eq!(
-            at("limit · resets 12:30am").as_deref(),
-            Some("2026-10-18T00:30:00Z")
-        );
-        assert_eq!(
-            at("limit · resets 16:00").as_deref(),
-            Some("2026-10-17T16:00:00Z")
-        );
-        assert_eq!(at("Usage limit reached"), None);
-        assert_eq!(at("limit · resets 13pm (UTC)"), None);
-        assert_eq!(at("limit · resets 7pm (../../etc/passwd)"), None);
-    }
 
     #[test]
     fn an_h_item_s_action_is_the_command_it_quotes() {

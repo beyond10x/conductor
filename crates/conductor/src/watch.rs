@@ -55,9 +55,10 @@
 //!   (`story:watch-two-conductors`). Once per set of ids (`conductors.reported`), which is
 //!   forgotten once fewer than two are live.
 //! - **usage limit** for a `"error":"rate_limit"` line of the last [`LIMIT_WITHIN`], once per
-//!   limit text per [`LIMIT_AGAIN`] from its last report, with a desktop notification to the
-//!   operator through [`Sources::notify`], titled `<instance>: usage limit`, because conductor is
-//!   stopped by the same limit.
+//!   limit text per [`LIMIT_AGAIN`] from its last report, and again once a session that shows it
+//!   was resumed by the loop since that report (`story:limit-resume-at-reset`), with a desktop
+//!   notification to the operator through [`Sources::notify`], titled `<instance>: usage limit`,
+//!   because conductor is stopped by the same limit.
 //! - **banner** for a pane that stands on the harness's stop banner, `Usage limit reached` alone
 //!   or `Usage limit reached · limit resets <when>`, among its last lines and in no tool's output
 //!   ([`stopped`]; the words quoted elsewhere, and the harness's other banners, are no stop)
@@ -1465,7 +1466,8 @@ impl Watch {
     // -----------------------------------------------------------------------------------------
 
     /// Each usage limit a session's transcript tail shows, once per text per [`LIMIT_AGAIN`]
-    /// from its last report, with a notification.
+    /// from its last report, with a notification; again for a session the loop resumed since
+    /// that report ([`Watch::resumed`], `story:limit-resume-at-reset`).
     fn limits(
         &mut self,
         now: OffsetDateTime,
@@ -1499,10 +1501,31 @@ impl Watch {
             .filter(|(_, at)| now - *at < LIMIT_AGAIN)
             .collect();
         let texts: BTreeSet<&str> = found.iter().map(|(text, _)| text.as_str()).collect();
+        // Each session the loop resumed whose transcript shows a limit after that resume, and when
+        // it was resumed.
+        let resumed = self.resumed();
+        let fresh: BTreeMap<&str, OffsetDateTime> = sessions
+            .iter()
+            .filter_map(|session| {
+                let nanos = resumed
+                    .get(&session.name)
+                    .and_then(crate::limit::resumed_at)?;
+                let at =
+                    OffsetDateTime::from_unix_timestamp_nanos(i128::try_from(nanos).ok()?).ok()?;
+                rate_limit(&self.transcript(session), at.max(since))?;
+                Some((session.name.as_str(), at))
+            })
+            .collect();
         let mut again = false;
         for text in texts {
-            if reported.contains_key(text) {
-                continue;
+            if let Some(at) = reported.get(text) {
+                let since = found
+                    .iter()
+                    .filter(|(limit, _)| limit == text)
+                    .any(|(_, name)| fresh.get(*name).is_some_and(|resumed| resumed > at));
+                if !since {
+                    continue;
+                }
             }
             reported.insert(text.to_owned(), now);
             again = true;
@@ -1537,6 +1560,17 @@ impl Watch {
             replace(&reported_file, &kept)?;
         }
         Ok(())
+    }
+
+    /// The sessions the loop resumed after a usage limit, as it keeps them beside the watch's
+    /// directory ([`crate::limit::RESUMED`] in `<state>/run/`); none when it keeps none.
+    fn resumed(&self) -> Value {
+        self.dir
+            .parent()
+            .map(|state| state.join(crate::run::RUN_DIR).join(crate::limit::RESUMED))
+            .and_then(|file| fs::read_to_string(file).ok())
+            .and_then(|text| serde_json::from_str(&text).ok())
+            .unwrap_or(Value::Null)
     }
 
     /// The panes on [`BANNER`] (`story:auto-resume`). Those not resumed since they turned to it

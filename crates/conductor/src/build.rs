@@ -99,6 +99,16 @@
 //!     between trees; the dependencies come from the repository's compile cache (7.). A shared
 //!     target an earlier version left under the instance's cache ([`targets_root`]) is an idle
 //!     cargo target to the host reclaim, and `conductor gc` removes it.
+//! 11. **Through slot's gate** (`story:build-run-through-slot-gate`). With [`SLOT_GATE_VARIABLE`]
+//!     naming a directory (slot's gate: a FIFO jobserver handed into a sandbox) and `slot` on
+//!     `PATH` ([`Sources::slot`]), the command runs as `slot run -- <command>` on that gate, which
+//!     takes the build's share of the cores from slot's pool. The request is in the `Gate` lane:
+//!     it waits for no conductor build slot and takes none (`thresholds.build_slots`, the short
+//!     lane), and the command gets no `CARGO_BUILD_JOBS` or `MAKEFLAGS` from `build run`, so a
+//!     build is counted once, in slot's pool. The disk reservation, its queue, reclaim, the
+//!     watchdog, the process group and the release are as without it; the ledger keys and
+//!     measures the command as written, not its `slot run` prefix. A `SLOT_GATE` that names no
+//!     directory, or no `slot` on `PATH`, is said in one line and the run goes the path above.
 
 use std::collections::HashSet;
 use std::ffi::OsString;
@@ -359,7 +369,14 @@ pub struct Sources {
     /// The `sccache` program on `PATH`, none when there is none (`story:build-run-repo-cache`). A
     /// case gives a fake one.
     pub sccache: Option<PathBuf>,
+    /// The `slot` program on `PATH`, none when there is none: under [`SLOT_GATE_VARIABLE`] the
+    /// command runs through it (`story:build-run-through-slot-gate`). A case gives a fake one.
+    pub slot: Option<PathBuf>,
 }
+
+/// The variable that names slot's gate directory, which slot's client reads to take its job
+/// tokens from the FIFO jobserver there (`story:build-run-through-slot-gate`).
+pub const SLOT_GATE_VARIABLE: &str = "SLOT_GATE";
 
 /// The directory under the instance's cache that held each repository's shared target directory,
 /// `<cache>/target/<key>`, and its lock, `<cache>/target/.locks/<key>.lock`, while `build run`
@@ -401,6 +418,7 @@ impl Sources {
             sessions: ["claude", "agents", "--json"].map(OsString::from).to_vec(),
             walk,
             sccache: find_on_path("sccache"),
+            slot: find_on_path("slot"),
         }
     }
 }
@@ -829,8 +847,12 @@ pub fn run(
     let picked = pick_reserve(&history, request, &command, &|line| {
         (sources.say)(state, line);
     });
-    // The lane it may take a slot in (`story:build-run-short-lane`).
-    let lane = if settings.short_slots > 0 && short_known(&history, now, settings.short_max) {
+    // Slot's gate, when the run goes through it (`story:build-run-through-slot-gate`).
+    let gate = slot_gate(sources, &|line| (sources.say)(state, line));
+    // The lane it may take a slot in (`story:build-run-short-lane`); under the gate, none.
+    let lane = if gate.is_some() {
+        BuildLane::Gate
+    } else if settings.short_slots > 0 && short_known(&history, now, settings.short_max) {
         BuildLane::Short
     } else {
         BuildLane::Regular
@@ -888,16 +910,23 @@ pub fn run(
     let mut unread_told = false;
     // Whether the last pass found every build slot taken (`thresholds.build_slots`).
     let mut slots_full;
+    // A run under slot's gate waits for no build slot: slot's pool admits it.
     let slots_taken = |ledger: &Ledger| -> Result<bool> {
-        Ok(settings.slots > 0 && ledger.building(Some(&grant))? >= settings.slots)
+        Ok(lane != BuildLane::Gate
+            && settings.slots > 0
+            && ledger.building(Some(&grant))? >= settings.slots)
     };
     // Whether a short-lane slot is free for this request (`story:build-run-short-lane`).
     let short_free = |ledger: &Ledger| -> Result<bool> {
         Ok(lane == BuildLane::Short
             && ledger.building_in(BuildLane::Short, Some(&grant))? < settings.short_slots)
     };
-    // The lane whose slot the request is granted.
-    let mut granted = BuildLane::Regular;
+    // The lane whose slot the request is granted; `Gate`, no slot, under slot's gate.
+    let mut granted = if lane == BuildLane::Gate {
+        BuildLane::Gate
+    } else {
+        BuildLane::Regular
+    };
     let pause = sources.every.max(Duration::from_millis(10));
     // Between two passes a waiting run looks every `poll` without the lock
     // (`story:build-queue-convoy`).
@@ -918,10 +947,10 @@ pub fn run(
                  ahead; waiting for {reason}; waited {}s; lane {}",
                 ahead + 1,
                 queued.as_secs(),
-                if lane == BuildLane::Short {
-                    "short"
-                } else {
-                    "regular"
+                match lane {
+                    BuildLane::Regular => "regular",
+                    BuildLane::Short => "short",
+                    BuildLane::Gate => "gate",
                 }
             ));
             *told = Some((ahead, slots));
@@ -1241,20 +1270,26 @@ pub fn run(
         cache.start();
         cache.counts()
     });
-    // A short-lane run has at most `SHORT_LANE_JOBS` jobs, whatever its command asks.
-    let argv = if granted == BuildLane::Short {
-        capped_jobs(&request.command)
-    } else {
-        request.command.clone()
+    // A short-lane run has at most `SHORT_LANE_JOBS` jobs, whatever its command asks. Under
+    // slot's gate the command runs through `slot run`, which takes its jobs from the gate.
+    let argv = match (&gate, granted) {
+        (Some(gate), _) => gate.argv(&request.command),
+        (None, BuildLane::Short) => capped_jobs(&request.command),
+        (None, _) => request.command.clone(),
     };
     let mut command = yielding(&argv);
     command.current_dir(&request.cwd).process_group(0);
-    let (variables, lowered) = job_variables(settings, sources, granted);
-    if let Some(line) = lowered {
-        (sources.say)(state, &line);
-    }
-    for (name, value) in variables {
-        command.env(name, value);
+    if let Some(gate) = &gate {
+        // Slot's client reads the gate from its environment; slot's pool sets the job count.
+        command.env(SLOT_GATE_VARIABLE, &gate.dir);
+    } else {
+        let (variables, lowered) = job_variables(settings, sources, granted);
+        if let Some(line) = lowered {
+            (sources.say)(state, &line);
+        }
+        for (name, value) in variables {
+            command.env(name, value);
+        }
     }
     for (name, value) in cache.iter().flat_map(|cache| &cache.set) {
         command.env(name, value);
@@ -1429,6 +1464,50 @@ pub fn run(
         paused: watched.paused,
         resumed: watched.resumed,
     })
+}
+
+/// Slot's gate a run goes through (`story:build-run-through-slot-gate`): the `slot` program and
+/// the gate directory [`SLOT_GATE_VARIABLE`] names.
+#[derive(Debug, Clone)]
+struct Gate {
+    slot: PathBuf,
+    dir: String,
+}
+
+impl Gate {
+    /// `slot run -- <command>`.
+    fn argv(&self, command: &[String]) -> Vec<String> {
+        [
+            self.slot.to_string_lossy().into_owned(),
+            "run".to_owned(),
+            "--".to_owned(),
+        ]
+        .into_iter()
+        .chain(command.iter().cloned())
+        .collect()
+    }
+}
+
+/// Slot's gate when [`SLOT_GATE_VARIABLE`] in the environment of `build run` names a directory and
+/// `slot` is on `PATH` ([`Sources::slot`]); none without the variable. A variable that names no
+/// directory, or no `slot`, is said in one line (`say`), and the run takes a conductor build slot.
+fn slot_gate(sources: &Sources, say: &dyn Fn(&str)) -> Option<Gate> {
+    let dir = (sources.env)(SLOT_GATE_VARIABLE).filter(|dir| !dir.trim().is_empty())?;
+    if !Path::new(&dir).is_dir() {
+        say(&format!(
+            "conductor: build run: {SLOT_GATE_VARIABLE} {dir} names no directory; the build takes \
+             a conductor build slot"
+        ));
+        return None;
+    }
+    let Some(slot) = sources.slot.clone() else {
+        say(&format!(
+            "conductor: build run: {SLOT_GATE_VARIABLE} is set and no `slot` is on PATH; the \
+             build takes a conductor build slot"
+        ));
+        return None;
+    };
+    Some(Gate { slot, dir })
 }
 
 /// The command at the lowest priority: `nice -n 19`, and `ionice -c3` (idle I/O class) when the

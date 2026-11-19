@@ -694,12 +694,14 @@ commands:
         source: {kind: option, long: role}
   - path: [join]
     callable: join
-    about: "Join an instance of the daemon --daemon names as one of its operators (JoinInstance, with the grants daemon.operators gives you) and contribute your Claude token, read from standard input, to the instance's pool (ContributeToken): the value goes into the daemon's secrets source, the pool records its owner, seat (--seat, your operator name by default) and state, never the value"
+    about: "Join an instance of the daemon --daemon names as one of its operators (JoinInstance, with the grants daemon.operators gives you) and contribute your Claude token, read from standard input, to the instance's pool (ContributeToken): the value goes into the daemon's secrets source, the pool records its owner, seat (--seat, your operator name by default), kind (--kind, SubscriptionToken by default, or ApiKey) and state, never the value; under the files source the value is a file of daemon.secrets.dir, owner-only, which leave removes"
     arguments:
       - field: instance
         source: {kind: option, long: instance}
       - field: seat
         source: {kind: option, long: seat}
+      - field: kind
+        source: {kind: option, long: kind}
   - path: [leave]
     callable: leave
     about: "Leave an instance of the daemon --daemon names (LeaveInstance) and withdraw every token you contributed to its pool (WithdrawToken); each agent on one is resumed on another token by the instance's loop"

@@ -8,7 +8,7 @@
     "x-ess-provenance": {
       "system": "conductor",
       "specification_version": "v1",
-      "contract_digest": "slice-sha256/2:accdd1e1d81ace8567012e21c4b811b725e24e95a4803a1759d4ec9dc408d249"
+      "contract_digest": "slice-sha256/2:1f654e9532e1efd9a68d36f824cedfed61338e69bec1a5a985b4f0bfc3eb3f8b"
     },
     "x-ess-reached-by": "network"
   },
@@ -8816,6 +8816,9 @@
           "secret": {
             "$ref": "#/components/schemas/conductor.secret.SecretName"
           },
+          "kind": {
+            "$ref": "#/components/schemas/conductor.config.ModelTokenKind"
+          },
           "contributed_at": {
             "type": "string",
             "format": "date-time"
@@ -8827,6 +8830,7 @@
           "owner",
           "seat",
           "secret",
+          "kind",
           "contributed_at"
         ],
         "additionalProperties": false
@@ -8863,7 +8867,7 @@
       },
       "conductor.token.ContributeToken.contributed.Response": {
         "additionalProperties": false,
-        "description": "The token is in the pool, Available and Ok, with its owner and seat. Taken when no other outcome's condition matched. A `conductor.token.PoolToken` now exists, in `Available`. Its identity is published as `token_id` on `conductor.token.TokenContributed`. Emits `TokenContributed`, published to consumers and listed under `published`.",
+        "description": "The token is in the pool, Available and Ok, with its owner, seat and kind. Taken when no other outcome's condition matched. A `conductor.token.PoolToken` now exists, in `Available`. Its identity is published as `token_id` on `conductor.token.TokenContributed`. Emits `TokenContributed`, published to consumers and listed under `published`.",
         "properties": {
           "outcome": {
             "const": "contributed",
@@ -9304,6 +9308,9 @@
           "secret": {
             "$ref": "#/components/schemas/conductor.secret.SecretName"
           },
+          "kind": {
+            "$ref": "#/components/schemas/conductor.config.ModelTokenKind"
+          },
           "contributed_at": {
             "type": "string",
             "format": "date-time"
@@ -9316,6 +9323,7 @@
           "owner",
           "seat",
           "secret",
+          "kind",
           "contributed_at"
         ],
         "additionalProperties": false
@@ -9525,6 +9533,9 @@
           },
           "actor": {
             "$ref": "#/components/schemas/conductor.operator.Actor"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/conductor.config.ModelTokenKind"
           }
         },
         "required": [
@@ -11165,6 +11176,9 @@
         },
         "actor": {
           "$ref": "#/x-ess-entities/conductor.operator.Actor"
+        },
+        "kind": {
+          "$ref": "#/x-ess-entities/conductor.config.ModelTokenKind"
         },
         "state": {
           "$ref": "#/x-ess-entities/conductor.token.PoolToken.State"

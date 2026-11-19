@@ -17,6 +17,7 @@ timeline:
       owner: alice
       seat: alice@example-org.example
       secret: example-org-claude-alice
+      kind: SubscriptionToken
       contributed_at: 2026-11-08T09:00:00Z
     outcome: contributed
     capture: {instance: token, event: conductor.token.TokenContributed, field: token_id}

@@ -1,5 +1,5 @@
 // generated from conductor v1
-// contract digest 7578a10cc04cfe745727906384787e01024a2731ead7f2fb1023e14b672f398b
+// contract digest 20ddd37e2cbb8b4d6af341870bbfad2afae45b8659a4f31603258eb2dc514f07
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! Token — `conductor.token`.
@@ -15,6 +15,8 @@ pub struct JoinDaemon {
     pub instance: Option<crate::config::InstanceName>,
     /// `seat` — `Optional<conductor.token.Seat>`.
     pub seat: Option<Seat>,
+    /// `kind` — `Optional<conductor.config.ModelTokenKind>`.
+    pub kind: Option<crate::config::ModelTokenKind>,
 }
 
 /// LeaveDaemon — `conductor.token.LeaveDaemon`.
@@ -108,6 +110,8 @@ pub struct PoolTokenData {
     pub contributed_at: crate::primitives::Timestamp,
     /// `actor` — `conductor.operator.Actor`.
     pub actor: crate::operator::Actor,
+    /// `kind` — `Optional<conductor.config.ModelTokenKind>`.
+    pub kind: Option<crate::config::ModelTokenKind>,
 }
 
 /// The states of `conductor.token.PoolToken`, at the type level.
@@ -488,6 +492,8 @@ pub struct ContributeToken {
     pub seat: Seat,
     /// `secret` — `conductor.secret.SecretName`.
     pub secret: crate::secret::SecretName,
+    /// `kind` — `conductor.config.ModelTokenKind`.
+    pub kind: crate::config::ModelTokenKind,
     /// `contributed_at` — `Timestamp`.
     pub contributed_at: crate::primitives::Timestamp,
 }
@@ -508,7 +514,7 @@ pub enum ContributeTokenOutcome {
     },
     /// `contributed` — otherwise.
     ///
-    /// The token is in the pool, Available and Ok, with its owner and seat.
+    /// The token is in the pool, Available and Ok, with its owner, seat and kind.
     Contributed {
         /// The `conductor.token.TokenContributed` this outcome publishes.
         token_contributed: TokenContributed,
@@ -723,6 +729,8 @@ pub struct TokenContributed {
     pub seat: Seat,
     /// `secret` — `conductor.secret.SecretName`.
     pub secret: crate::secret::SecretName,
+    /// `kind` — `conductor.config.ModelTokenKind`.
+    pub kind: crate::config::ModelTokenKind,
     /// `contributed_at` — `Timestamp`.
     pub contributed_at: crate::primitives::Timestamp,
 }
@@ -845,6 +853,8 @@ pub struct Tokens {
     pub contributed_at: crate::primitives::Timestamp,
     /// `actor` — `conductor.operator.Actor`.
     pub actor: crate::operator::Actor,
+    /// `kind` — `Optional<conductor.config.ModelTokenKind>`.
+    pub kind: Option<crate::config::ModelTokenKind>,
 }
 
 /// What this bounded context owes its implementor, and the seams of what is generated.

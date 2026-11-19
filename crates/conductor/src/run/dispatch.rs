@@ -7,11 +7,15 @@
 //! session list ([`reconcile`], `story:controllers-reconciled-with-live-sessions`), so a record
 //! that outlived its session (a runtime restart, an OOM kill) holds no `controllers.max_working`
 //! slot: each `Running` controller whose session the list (the `child` provider's sessions with
-//! it) names neither live (a `pid`) nor `blocked`, and that no usage limit marked, is recorded
-//! stopped with the reason, and the `cycle` line names it; one whose repository has an open
-//! dispatch is then started again, its `controller-restarted` line's reason `gone`, as after a
-//! `session gone` line. A list that does not read stops none, and the `cycle` line says so. Then
-//! dispatch v1. First the units of work
+//! it) names neither live (a `pid`) nor `blocked` is recorded stopped with the reason, and the
+//! `cycle` line names it; one whose repository has an open dispatch is then started again, its
+//! `controller-restarted` line's reason `gone`, as after a `session gone` line. One whose session
+//! a usage limit marked is recorded stopped with the reason `usage limit` and stays marked
+//! (`story:limit-resume-at-reset`): it is not started again, dispatch v1 starts none for its
+//! repository, which waits, and the watch tick past its reset resumes it from its transcript and
+//! records it running again, within `controllers.max_working` ([`handlers::pending`]). A list that
+//! does not read stops none, and the `cycle` line says so. Then dispatch v1. First the units of
+//! work
 //! (`story:control-plane-work-handler`): for each `Sent` dispatch with a `reference`, in the order
 //! the store keeps them, whose repository has no running or paused controller, Active or not, the
 //! controller is started for it as the work call starts one ([`super::start_work`]: under
@@ -179,19 +183,42 @@ fn reconcile(tick: &mut Tick<'_, '_>) -> Result<Option<String>> {
                 )));
             }
         };
-        let limited = super::read_json(&tick.dir, handlers::LIMITED, json!({}));
+        let mut limited = super::read_json(&tick.dir, handlers::LIMITED, json!({}));
         for (controller, repo, session) in running {
-            if lives_or_waits(&listed, &limited, &session) {
+            if lives_or_waits(&listed, &session) {
                 continue;
             }
-            let reason = format!(
-                "conductor run: its session {session} is gone: the session list names no live \
-                 session of that name"
-            );
+            // story:limit-resume-at-reset: a session a usage limit stopped whose process is gone
+            // gives its place back and stays marked, to be resumed at its reset.
+            let marked = limited.get(&session).is_some_and(Value::is_object);
+            let reason = if marked {
+                "usage limit".to_owned()
+            } else {
+                format!(
+                    "conductor run: its session {session} is gone: the session list names no live \
+                     session of that name"
+                )
+            };
             match handlers::stop_record(tick, &controller, &reason) {
                 Ok(()) => {
                     if let Err(error) = crate::token::release_for_stop(tick.instance(), &session) {
                         tick.note(&format!("release the token of {session}"), &error);
+                    }
+                    if marked {
+                        limited[session.as_str()]["stopped"] = json!(true);
+                        if let Err(error) =
+                            super::write_json(&tick.dir, handlers::LIMITED, &limited)
+                        {
+                            tick.note(handlers::LIMITED, &error);
+                        }
+                        parts.push(format!(
+                            "stopped {repo} ({session}): usage limit, its process is gone; it is \
+                             resumed at {}",
+                            limited[session.as_str()]["resets_at"]
+                                .as_str()
+                                .unwrap_or("the probe's headroom")
+                        ));
+                        continue;
                     }
                     parts.push(format!("stopped {repo} ({session}): its session is gone"));
                     stopped.push((repo, session));
@@ -228,14 +255,29 @@ fn reconcile(tick: &mut Tick<'_, '_>) -> Result<Option<String>> {
 }
 
 /// Whether the session list `listed` names the session `session` live (an entry with a `pid`)
-/// or waiting for headroom: an entry the list keeps `blocked`, as a usage limit leaves one, or a
-/// session the loop marked in `limited`, which a later tick resumes.
-fn lives_or_waits(listed: &[Value], limited: &Value, session: &str) -> bool {
-    limited.get(session).is_some()
-        || listed
-            .iter()
-            .filter(|entry| entry["name"].as_str() == Some(session))
-            .any(|entry| !entry["pid"].is_null() || entry["status"].as_str() == Some("blocked"))
+/// or waiting for headroom: an entry the list keeps `blocked`, as a usage limit leaves one.
+fn lives_or_waits(listed: &[Value], session: &str) -> bool {
+    listed
+        .iter()
+        .filter(|entry| entry["name"].as_str() == Some(session))
+        .any(|entry| !entry["pid"].is_null() || entry["status"].as_str() == Some("blocked"))
+}
+
+/// The repositories whose controller the cycle recorded stopped at a usage limit, waiting to be
+/// resumed at their reset ([`reconcile`]), each with that reset.
+fn waiting_at_limit(tick: &Tick<'_, '_>) -> Vec<(String, String)> {
+    super::read_json(&tick.dir, handlers::LIMITED, json!({}))
+        .as_object()
+        .into_iter()
+        .flatten()
+        .filter(|(_, entry)| entry["stopped"] == true)
+        .filter_map(|(_, entry)| {
+            Some((
+                entry["repo"].as_str()?.to_owned(),
+                entry["resets_at"].as_str().unwrap_or("-").to_owned(),
+            ))
+        })
+        .collect()
 }
 
 /// Dispatch v1, as the module documentation says; what it did, as the `cycle` line says it.
@@ -287,6 +329,14 @@ fn dispatch_v1(tick: &mut Tick<'_, '_>) -> Result<String> {
     let limit = instance.controllers.max_open_reviews;
     let mut spawned = Vec::new();
     let mut waits = Vec::new();
+    // A repository whose controller waits for its usage limit's reset is resumed then, not
+    // started afresh (story:limit-resume-at-reset).
+    for (repo, at) in waiting_at_limit(tick) {
+        if !controlled.contains(&repo) {
+            waits.push(format!("{repo} waits: usage limit until {at}"));
+            controlled.push(repo);
+        }
+    }
     // Units of work first, Active or not: each Sent dispatch with a reference whose repository
     // runs no controller (`story:control-plane-work-handler`).
     // A unit whose start failed at the launch `FAILED_STARTS_MOST` times is left to the operator.

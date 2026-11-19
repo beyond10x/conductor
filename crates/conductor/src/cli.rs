@@ -730,7 +730,7 @@ pub enum Group {
     #[command(subcommand)]
     Instance(InstanceCommand),
 
-    /// Join an instance of the daemon --daemon names as one of its operators (JoinInstance, with the grants daemon.operators gives you) and contribute your Claude token, read from standard input, to the instance's pool (ContributeToken): the value goes into the daemon's secrets source, the pool records its owner, seat (--seat, your operator name by default) and state, never the value
+    /// Join an instance of the daemon --daemon names as one of its operators (JoinInstance, with the grants daemon.operators gives you) and contribute your Claude token, read from standard input, to the instance's pool (ContributeToken): the value goes into the daemon's secrets source, the pool records its owner, seat (--seat, your operator name by default), kind (--kind, SubscriptionToken by default, or ApiKey) and state, never the value; under the files source the value is a file of daemon.secrets.dir, owner-only, which leave removes
     #[command(name = "join")]
     Join(JoinArgs),
 
@@ -1232,6 +1232,11 @@ pub struct JoinArgs {
     /// The Claude login the token draws on; absent, your operator name
     #[arg(long, value_name = "SEAT")]
     pub seat: Option<String>,
+    /// The token's kind: `SubscriptionToken`, the long-lived token of a subscription login
+    /// (`claude setup-token`), which the harness reads from `CLAUDE_CODE_OAUTH_TOKEN`; or
+    /// `ApiKey`, an API key, which it asks its `apiKeyHelper` for. Absent, `SubscriptionToken`
+    #[arg(long, value_parser = ["ApiKey", "SubscriptionToken"])]
+    pub kind: Option<String>,
 }
 
 /// The input of the binding's `leave` callable, `conductor.token.LeaveDaemon`.
@@ -2778,7 +2783,7 @@ pub struct RequestDiskArgs {
     #[arg(long, value_parser = timestamp)]
     pub requested_at: Option<String>,
     /// BuildLane, optional
-    #[arg(long, value_parser = ["Regular", "Short"])]
+    #[arg(long, value_parser = ["Regular", "Short", "Gate"])]
     pub lane: Option<String>,
     /// Actor, as the records print it (`human:<name>`, `agent:<instance>/<role>/<name>`, `daemon`)
     /// or one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`,
@@ -2805,7 +2810,7 @@ pub struct ReserveDiskArgs {
     #[arg(long, allow_negative_numbers = true)]
     pub reclaimed_bytes: Option<i64>,
     /// BuildLane, optional
-    #[arg(long, value_parser = ["Regular", "Short"])]
+    #[arg(long, value_parser = ["Regular", "Short", "Gate"])]
     pub lane: Option<String>,
     /// Actor, as the records print it (`human:<name>`, `agent:<instance>/<role>/<name>`, `daemon`)
     /// or one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`,

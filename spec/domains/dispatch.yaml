@@ -229,7 +229,8 @@ types:
   # over its context threshold; `handover`, that session stopped once its hand-over file exists or
   # at 1.25× the threshold; `controller-restarted`, a controller spawned again from its charter
   # (after a hand-over, a second stall, or a gone session with an open dispatch); `usage-limit`,
-  # sessions marked by a usage limit; `resumed`, a marked session resumed once headroom is back;
+  # sessions marked by a usage limit; `resumed`, a marked session resumed at the reset its limit
+  # named, or earlier once headroom is back (story:limit-resume-at-reset);
   # `relayed`, a watch line delivered to the live controller as `[REPORT <repo> -] watch: …`, a
   # mailbox `[NEED]` delivered to the live controller of the repository it asks, or the answer to
   # a mailbox `[RESOURCE]`; `red-ci`, a red main with no controller, dispatched or noted;

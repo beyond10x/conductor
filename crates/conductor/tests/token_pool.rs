@@ -212,8 +212,13 @@ impl Case {
         fs::read_to_string(self.dir.join("daemon.log")).unwrap_or_default()
     }
 
-    /// `conductor join` with `value` on standard input.
+    /// `conductor join` with `value` on standard input, of the default kind.
     fn join(&self, seat: &str, value: &str) -> Output {
+        self.join_with(seat, value, &[])
+    }
+
+    /// `conductor join` with `value` on standard input and the arguments `more`.
+    fn join_with(&self, seat: &str, value: &str, more: &[&str]) -> Output {
         let mut child = self
             .conductor()
             .args([
@@ -225,6 +230,7 @@ impl Case {
                 "--seat",
                 seat,
             ])
+            .args(more)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -476,7 +482,7 @@ fn a_start_leases_a_token_and_a_limit_resumes_the_next_start_on_another() {
         ("first@example-org.example", VALUE),
         ("second@example-org.example", SECOND),
     ] {
-        let joined = case.join(seat, value);
+        let joined = case.join_with(seat, value, &["--kind", "ApiKey"]);
         assert_eq!(
             joined.status.code(),
             Some(0),
@@ -540,6 +546,7 @@ fn a_start_leases_a_token_and_a_limit_resumes_the_next_start_on_another() {
         case.store(),
         &AgentName("alpha-director".to_owned()),
         conductor_cli::actor::daemon(),
+        None,
     )
     .expect("mark the token limited");
     assert!(marked.is_some(), "the agent held no token");
@@ -1013,6 +1020,134 @@ fn a_changed_model_token_reaches_the_next_session_start_or_the_next_ask() {
     );
 }
 
+// -------------------------------------------------------------------------------------------
+// A pool token's kind, and the `files` source (story:pool-token-kind-files-source).
+// -------------------------------------------------------------------------------------------
+
+/// `case`'s config file on the `files` source over `secrets`.
+fn with_files_source(case: &Case, secrets: &Path) {
+    fs::create_dir_all(secrets).expect("the secrets directory");
+    let text = fs::read_to_string(case.file())
+        .expect("the config file")
+        .replace(
+            "secrets: {source: keychain}",
+            &format!("secrets: {{source: files, dir: {secrets:?}}}"),
+        );
+    fs::write(case.file(), text).expect("write the config file");
+}
+
+/// The files under `secrets` the pool's tokens of the instance `alpha` are kept in.
+fn token_files(secrets: &Path) -> Vec<PathBuf> {
+    fs::read_dir(secrets.join("claude-token/alpha"))
+        .map(|entries| entries.flatten().map(|entry| entry.path()).collect())
+        .unwrap_or_default()
+}
+
+/// Under the `files` source `conductor join` writes the token's file into `daemon.secrets.dir`,
+/// owner-only, under the name conductor derives; the token's kind is `subscription_token` by
+/// default and the pool lists it; a start leases the token and hands it to the harness as
+/// `CLAUDE_CODE_OAUTH_TOKEN`, its settings copy naming no `apiKeyHelper`. The value is in no
+/// output, argument, settings copy or file of the instance's state, records or the daemon's
+/// directory.
+#[test]
+fn a_files_source_subscription_pool_token_reaches_the_harness_in_its_variable() {
+    let mut case = Case::new("files-subscription", ROLES);
+    let secrets = case.dir.join("secrets");
+    with_files_source(&case, &secrets);
+    harness_double(&case);
+    case.serve();
+
+    let joined = case.join("operator@example-org.example", MARKER);
+    assert_eq!(
+        joined.status.code(),
+        Some(0),
+        "{}\n{}",
+        said(&joined),
+        case.daemon_log()
+    );
+    let files = token_files(&secrets);
+    assert_eq!(files.len(), 1, "{files:?}");
+    let mode = fs::metadata(&files[0])
+        .expect("the token's file")
+        .permissions()
+        .mode();
+    assert_eq!(mode & 0o777, 0o600, "{:o}", mode);
+    assert_eq!(
+        fs::read_to_string(&files[0])
+            .expect("the token's file")
+            .trim_end(),
+        MARKER
+    );
+    let rows = case.tokens();
+    assert_eq!(rows.len(), 1, "{rows:?}");
+    assert_eq!(rows[0]["kind"], "SubscriptionToken", "{rows:?}");
+
+    let started = start_built(&case, "director");
+    assert_eq!(started.status.code(), Some(0), "{}", said(&started));
+    let rows = case.tokens();
+    assert_eq!(rows[0]["state"], "Leased", "{rows:?}");
+    assert_eq!(
+        oauth_of(&case).as_deref(),
+        Some(MARKER),
+        "{}",
+        said(&started)
+    );
+    let settings = settings_of(&case);
+    let text = fs::read_to_string(&settings).expect("the settings copy");
+    let json: Value = serde_json::from_str(&text).expect("the settings copy is JSON");
+    assert!(json.get(token::HELPER_KEY).is_none(), "{text}");
+    for (what, text) in [
+        ("the join's output", said(&joined)),
+        ("the start's output", said(&started)),
+        ("the harness's arguments", argv_of(&case)),
+        ("the settings copy", text.clone()),
+    ] {
+        assert!(!text.contains(MARKER), "{what}: {text}");
+    }
+    case.assert_nowhere(MARKER);
+}
+
+/// Under the `files` source `conductor leave` withdraws the token and removes its file; an API
+/// key joined with `--kind ApiKey` is listed as one.
+#[test]
+fn leave_with_the_files_source_removes_the_token_file() {
+    let mut case = Case::new("files-leave", ROLES);
+    let secrets = case.dir.join("secrets");
+    with_files_source(&case, &secrets);
+    case.serve();
+
+    let joined = case.join_with("operator@example-org.example", VALUE, &["--kind", "ApiKey"]);
+    assert_eq!(
+        joined.status.code(),
+        Some(0),
+        "{}\n{}",
+        said(&joined),
+        case.daemon_log()
+    );
+    assert_eq!(token_files(&secrets).len(), 1);
+    assert_eq!(case.tokens()[0]["kind"], "ApiKey");
+
+    let left = case
+        .conductor()
+        .args(["leave", "--daemon", &case.url(), "--instance", "alpha"])
+        .output()
+        .expect("run conductor leave");
+    assert_eq!(
+        left.status.code(),
+        Some(0),
+        "{}\n{}",
+        said(&left),
+        case.daemon_log()
+    );
+    assert_eq!(case.tokens()[0]["state"], "Withdrawn");
+    assert!(
+        token_files(&secrets).is_empty(),
+        "{:?}",
+        token_files(&secrets)
+    );
+    case.assert_nowhere(VALUE);
+}
+
 #[test]
 fn token_owner_is_a_controller_s_key_only() {
     let case = Case::new(
@@ -1052,6 +1187,7 @@ fn snapshot(id: &str, owner: &str) -> PoolTokenSnapshot {
             agent: None,
             contributed_at: Timestamp("2026-11-08T09:00:00Z".to_owned()),
             actor: conductor_cli::actor::operator(owner),
+            kind: None,
         },
     }
 }
@@ -1129,7 +1265,7 @@ fn with_one_token_a_limited_token_is_leased_again_on_headroom() {
     token::lease(store, &instance, &agent, None, runtime(), false)
         .expect("lease")
         .expect("the one token");
-    token::limit(library_store_reopen("pool-of-one"), &agent, runtime())
+    token::limit(library_store_reopen("pool-of-one"), &agent, runtime(), None)
         .expect("limit")
         .expect("the agent held it");
     let without = token::lease(

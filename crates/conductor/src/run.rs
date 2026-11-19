@@ -108,9 +108,11 @@ const CYCLE_EVERY: u64 = 2 * 3600;
 const AIS_BOUND: Duration = Duration::from_secs(60);
 
 /// Whether the account the sessions use has headroom again after a usage limit
-/// (docs/design/conductor-run.md § 3). [`Ais`] is the real one; a test gives its own.
+/// (docs/design/conductor-run.md § 3). [`Ais`] is the real one; a test gives its own. The probe
+/// is optional (`story:limit-resume-at-reset`): a session whose reset has passed is resumed
+/// without it, and one whose reset is ahead is resumed early only on a yes.
 pub trait Headroom {
-    /// Whether it has.
+    /// Whether it has; `false` when that is not known.
     ///
     /// # Errors
     ///
@@ -119,20 +121,33 @@ pub trait Headroom {
 }
 
 /// The real [`Headroom`]: `ais status --json --provider claude`, within a minute, read by
-/// [`headroom_of`].
+/// [`headroom_of`]. A host with no `ais` answers no headroom: unknown, not an error, so the
+/// loop waits for each session's reset.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct Ais;
 
 impl Headroom for Ais {
     fn headroom(&self) -> Result<bool> {
         let shown = "ais status --json --provider claude";
-        let output = collect::run(
+        let output = match collect::run(
             crate::instance::command("ais").args(["status", "--json", "--provider", "claude"]),
             AIS_BOUND,
-        )
-        .with_context(|| format!("run `{shown}`"))?;
+        ) {
+            Ok(output) => output,
+            Err(error) if missing(&error) => return Ok(false),
+            Err(error) => return Err(error.context(format!("run `{shown}`"))),
+        };
         headroom_read(shown, &crate::confine::exited(&output), &output.stdout)
     }
+}
+
+/// Whether `error` is a program that is not there to start.
+fn missing(error: &anyhow::Error) -> bool {
+    error.chain().any(|cause| {
+        cause
+            .downcast_ref::<io::Error>()
+            .is_some_and(|cause| cause.kind() == io::ErrorKind::NotFound)
+    })
 }
 
 /// The headroom in what `shown` printed, whatever its exit: `ais status` exits non-zero while

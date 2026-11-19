@@ -19,7 +19,7 @@ use std::path::PathBuf;
 
 use conductor_cli::config;
 use conductor_cli::decide::model::{
-    Answer, ClaudePrint, Decider, Fake, failure_reason, parse_answer, parse_output,
+    Answer, ClaudePrint, Decider, Fake, HarnessStart, failure_reason, parse_answer, parse_output,
 };
 use conductor_cli::decide::{
     self, Handled, PROMPT_CAP, PromptInputs, build_prompt, parse_request, prompt_inputs,
@@ -299,6 +299,50 @@ fn an_answer_naming_no_option_is_refused_and_the_request_escalated_as_o() {
     assert!(
         reason.contains("\"Z\""),
         "the reason names the refused letter: {reason}"
+    );
+}
+
+/// Issue #192: a decider whose harness cannot start (in a box, `claude` on PATH a link to a
+/// version file the box cannot read) is a fault of the decider, named with the start error, not
+/// a model that gave no answer.
+#[test]
+fn a_decider_whose_harness_cannot_start_is_a_fault_named_with_its_start_error() {
+    let case = Case::new("harness-start");
+    let missing = case.root.join("no-such-harness/claude");
+    let missing = missing.display().to_string();
+    let claude = ClaudePrint::new("some-model").with_program(&missing);
+
+    let failure = claude
+        .decide("A: anything")
+        .expect_err("a harness that is not there does not start");
+    let start = failure
+        .downcast_ref::<HarnessStart>()
+        .expect("the failure is the harness's start error");
+    assert_eq!(start.program, missing);
+    assert_eq!(start.error.kind(), std::io::ErrorKind::NotFound);
+
+    let handled = decide::handle_request(Some(&case.state()), ROUTINE, &claude)
+        .expect("a decider fault is handled");
+    assert_eq!(
+        handled,
+        Handled::Escalated {
+            request_id: "req-c1".to_owned(),
+            class: DecisionClass::O,
+            rule: ClassificationRule::None,
+        }
+    );
+    assert!(case.rows("decisions").is_empty(), "nothing is decided");
+    let request = case.request("req-c1");
+    let reason = request["escalation_reason"].as_str().unwrap_or_default();
+    assert!(
+        reason.contains("decider is at fault")
+            && reason.contains(&format!("`{missing}` could not start"))
+            && reason.contains(&start.error.to_string()),
+        "the reason names the fault and the start error: {reason}"
+    );
+    assert!(
+        !reason.contains("gave no answer"),
+        "a harness that did not start is no withheld answer: {reason}"
     );
 }
 

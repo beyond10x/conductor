@@ -441,6 +441,8 @@ impl m::token::obligations::TokensQuery for StorePorts {
                 agent: token.data.agent,
                 contributed_at: token.data.contributed_at,
                 actor: token.data.actor,
+                // A token recorded before the kind existed reads as an API key.
+                kind: Some(token.data.kind.unwrap_or(m::config::ModelTokenKind::ApiKey)),
             })
             .collect())
     }

@@ -1,5 +1,5 @@
 // generated from conductor v1
-// contract digest 7578a10cc04cfe745727906384787e01024a2731ead7f2fb1023e14b672f398b
+// contract digest 20ddd37e2cbb8b4d6af341870bbfad2afae45b8659a4f31603258eb2dc514f07
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! What the specification fully determines, generated: the behaviour of every command the plan
@@ -4972,8 +4972,9 @@ where
             agent: None,
             contributed_at: input.contributed_at.clone(),
             actor: input.actor.clone(),
+            kind: Some(input.kind.clone()),
         };
-        let answer = crate::token::ContributeTokenOutcome::Contributed { token_contributed: crate::token::TokenContributed { actor: input.actor.clone(), token_id: identity.clone(), instance: input.instance.clone(), owner: input.owner.clone(), seat: input.seat.clone(), secret: input.secret.clone(), contributed_at: input.contributed_at.clone() } };
+        let answer = crate::token::ContributeTokenOutcome::Contributed { token_contributed: crate::token::TokenContributed { actor: input.actor.clone(), token_id: identity.clone(), instance: input.instance.clone(), owner: input.owner.clone(), seat: input.seat.clone(), secret: input.secret.clone(), kind: input.kind.clone(), contributed_at: input.contributed_at.clone() } };
         PoolTokenStorage::put(&mut self.ports, crate::token::AnyPoolToken::Available(crate::token::PoolToken::new(data)).snapshot());
         return Ok(answer);
     }

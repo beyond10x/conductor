@@ -1,0 +1,13 @@
+{
+  "at": "2026-11-18T11:44:38Z",
+  "actor": "human:unknown",
+  "artifact": "story:pool-token-kind-files-source",
+  "kind": "story",
+  "revision": 5,
+  "change": {
+    "change": "evidence",
+    "kind": "test_result",
+    "source": "conductor build run -- cargo test -p conductor-cli --test token_pool (13 passed, 5 failed: the 5 start a session, which this host's sandbox refuses on the base commit as well; the 4 existing ones fail identically there); cli_tree, adv_state_dir_pass2, no_organization, run_handover, lib token: pass; cargo clippy --all-targets -D warnings: clean; ess specify validate + conformance 700/700",
+    "reference": "commit ba82dc8c"
+  }
+}

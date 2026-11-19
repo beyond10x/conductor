@@ -35,6 +35,13 @@
 //! (`story:usage-probe`, [`watcher_line`]). A watcher not running is reported, not a failure:
 //! the rotation is the operator's own tool.
 //!
+//! After the watchers, the usage probe of each instance, the program of its `usage.probe` or
+//! `ais` ([`DEFAULT_PROBE`]), each once: `usage probe: <program> present at <path>, <version
+//! line>`, or `… missing (optional: limits resume at their reset time)` ([`probe_line`]); and the
+//! operator notifier `notify-send` ([`NOTIFIER`]): `notifier: notify-send present at <path>`, or
+//! `… missing (limit and escalation notices go to the journal only)` ([`notifier_line`]).
+//! Neither fails doctor (`story:doctor-usage-probe-notifier`).
+//!
 //! [`check`] computes every row, [`Doctor::failures`] what is not ready and [`verdict_of`] the
 //! last line, so `conductor setup` prints the same rows and adds its own failures to the same
 //! verdict (`story:setup-command`).
@@ -1045,6 +1052,106 @@ pub fn watcher_line(watcher: &Watcher) -> String {
     }
 }
 
+/// The usage probe when no instance names a `usage.probe`: the headroom the run reads is `ais`'s
+/// (`story:doctor-usage-probe-notifier`).
+pub const DEFAULT_PROBE: &str = "ais";
+
+/// The operator notifier the watch and the run send limit and escalation notices through
+/// (`story:doctor-usage-probe-notifier`).
+pub const NOTIFIER: &str = "notify-send";
+
+/// A program doctor reports and that fails nothing when missing: the usage probe or the
+/// notifier (`story:doctor-usage-probe-notifier`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Helper {
+    /// The program, as the config or doctor names it.
+    pub program: String,
+    /// Where it was found; `None` when it is missing.
+    pub path: Option<PathBuf>,
+    /// The first line its `--version` printed, when it was asked and printed one.
+    pub version_line: Option<String>,
+}
+
+/// The program of a `usage.probe` command, which runs with `sh -c`: its first word that is not
+/// a `NAME=value` assignment.
+#[must_use]
+pub fn probe_program(command: &str) -> Option<String> {
+    command
+        .split_whitespace()
+        .find(|word| {
+            !word.split_once('=').is_some_and(|(name, _)| {
+                !name.is_empty() && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+            })
+        })
+        .map(str::to_owned)
+}
+
+/// `program` as found on `search`, or at its own path when it names a directory (a leading `~/`
+/// under `home`); with its `--version` line when `version` is set.
+fn helper(program: String, search: Option<&OsStr>, home: Option<&Path>, version: bool) -> Helper {
+    let path = if program.contains('/') {
+        let candidate = match (program.strip_prefix("~/"), home) {
+            (Some(rest), Some(home)) => home.join(rest),
+            _ => PathBuf::from(&program),
+        };
+        fs::metadata(&candidate)
+            .is_ok_and(|meta| meta.is_file() && meta.permissions().mode() & 0o111 != 0)
+            .then_some(candidate)
+    } else {
+        search.and_then(|search| find_in(&program, search))
+    };
+    let version_line = path
+        .as_deref()
+        .filter(|_| version)
+        .and_then(|path| version_line(path).ok());
+    Helper {
+        program,
+        path,
+        version_line,
+    }
+}
+
+/// The line `conductor doctor` prints for a usage probe: `usage probe: <program> present at
+/// <path>, <version line>`, or `… missing (optional: limits resume at their reset time)`.
+#[must_use]
+pub fn probe_line(probe: &Helper) -> String {
+    match &probe.path {
+        None => format!(
+            "usage probe: {} missing (optional: limits resume at their reset time)",
+            probe.program
+        ),
+        Some(path) => match &probe.version_line {
+            Some(line) => format!(
+                "usage probe: {} present at {}, {line}",
+                probe.program,
+                path.display()
+            ),
+            None => format!(
+                "usage probe: {} present at {}",
+                probe.program,
+                path.display()
+            ),
+        },
+    }
+}
+
+/// The line `conductor doctor` prints for the notifier: `notifier: notify-send present at
+/// <path>`, or `… missing (limit and escalation notices go to the journal only)`.
+#[must_use]
+pub fn notifier_line(notifier: &Helper) -> String {
+    match &notifier.path {
+        None => format!(
+            "notifier: {} missing (limit and escalation notices go to the journal only)",
+            notifier.program
+        ),
+        Some(path) => format!(
+            "notifier: {} present at {}",
+            notifier.program,
+            path.display()
+        ),
+    }
+}
+
 /// The line `conductor doctor` prints for `workspace`.
 #[must_use]
 pub fn workspace_line(workspace: &Workspace) -> String {
@@ -1068,6 +1175,9 @@ struct Read {
     roots: Vec<(PathBuf, PathBuf)>,
     /// The `usage.watcher` of each instance that names one, each once.
     units: Vec<String>,
+    /// The program of each instance's usage probe, [`DEFAULT_PROBE`] for one that names none,
+    /// each once; empty when no config file is read.
+    probes: Vec<String>,
 }
 
 /// What doctor reads of the config `flag` (the global `--config`) and the environment name: the
@@ -1136,6 +1246,22 @@ fn read_config(
                         }
                         units
                     }),
+                probes: instances
+                    .iter()
+                    .map(|instance| {
+                        instance
+                            .usage
+                            .probe
+                            .as_deref()
+                            .and_then(probe_program)
+                            .unwrap_or_else(|| DEFAULT_PROBE.to_owned())
+                    })
+                    .fold(Vec::new(), |mut probes, probe| {
+                        if !probes.contains(&probe) {
+                            probes.push(probe);
+                        }
+                        probes
+                    }),
             })
         }
         Err(error) => Err(format!("{error:#}")
@@ -1172,6 +1298,11 @@ pub struct Doctor {
     pub workspaces: Vec<Workspace>,
     /// One per `usage.watcher` of the config file's instances (`story:usage-probe`).
     pub watchers: Vec<Watcher>,
+    /// One per usage probe of the config file's instances, [`DEFAULT_PROBE`] without one
+    /// (`story:doctor-usage-probe-notifier`).
+    pub probes: Vec<Helper>,
+    /// The operator notifier, [`NOTIFIER`] (`story:doctor-usage-probe-notifier`).
+    pub notifier: Helper,
     /// The `b10x.toml` read, if any.
     pub pin_file: Option<PathBuf>,
     /// The pins of that file, which win over the build's.
@@ -1237,6 +1368,8 @@ impl Doctor {
             }
         }
         out.extend(self.watchers.iter().map(watcher_line));
+        out.extend(self.probes.iter().map(probe_line));
+        out.push(notifier_line(&self.notifier));
         match &self.pin_file {
             Some(file) => out.push(format!("pins: {}", file.display())),
             None => out.push("pins: none".to_owned()),
@@ -1379,6 +1512,7 @@ pub fn check_in(
         hosts,
         roots,
         units,
+        probes,
     } = read;
     let rows = examine(&pins, &needed, search);
     // A login is read only for a CLI that is there (story:doctor-identity).
@@ -1419,6 +1553,16 @@ pub fn check_in(
         .into_iter()
         .map(|unit| watcher(systemctl.as_deref(), unit))
         .collect();
+    // Neither the probe nor the notifier fails doctor (story:doctor-usage-probe-notifier).
+    let probes = if probes.is_empty() {
+        vec![DEFAULT_PROBE.to_owned()]
+    } else {
+        probes
+    }
+    .into_iter()
+    .map(|probe| helper(probe, search, home.as_deref(), true))
+    .collect();
+    let notifier = helper(NOTIFIER.to_owned(), search, home.as_deref(), false);
     let machine = machine();
     let manager = manager(&machine.system, search);
     Ok(Doctor {
@@ -1428,6 +1572,8 @@ pub fn check_in(
         logins,
         workspaces,
         watchers,
+        probes,
+        notifier,
         pin_file,
         project,
         manager,
@@ -2297,7 +2443,7 @@ fn forge_lines(flag: Option<&Path>) -> Vec<(String, Option<String>)> {
 /// order, each with the failure it adds to the verdict: the agent kinds ([`kind_lines`]), the
 /// box dry runs ([`box_lines`], which ask the local substrate daemon), the forge routes and the
 /// guard's answers ([`forge_lines`]), the rights of a daemon that runs pods ([`pod_lines`]),
-/// and, in an instance pod, how many included repositories have no checkout
+/// and, in an instance pod or for a boxed instance, which included repositories have no checkout
 /// ([`collect::checkouts::doctor_lines`]). `conductor setup` prints them too and takes their failures
 /// into its verdict ([`verdict_over`]), so it is not ready wherever doctor on the same file is.
 /// Only those two commands call it, never [`check_in`].
@@ -2580,6 +2726,16 @@ mod tests {
             ),
             ["guard lead of beta: denied by A; checkouts denied: a, b, c"]
         );
+    }
+
+    #[test]
+    fn the_probe_s_program_is_its_first_word_after_any_assignment() {
+        assert_eq!(probe_program("ais status --json").as_deref(), Some("ais"));
+        assert_eq!(
+            probe_program("LANG=C ~/bin/probe --json").as_deref(),
+            Some("~/bin/probe")
+        );
+        assert_eq!(probe_program("  "), None);
     }
 
     #[test]

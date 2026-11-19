@@ -118,11 +118,13 @@ struct Field {
 }
 
 /// An option flag of a binding command: its long name, and the kind of value its input field
-/// holds (`integer`, `string`, `boolean`, …) as the binding's resolved input shape gives it.
+/// holds (`integer`, `string`, `boolean`, `enum`, …) as the binding's resolved input shape gives
+/// it, and an enum's variants.
 #[derive(Debug, Clone)]
 struct LocalFlag {
     long: String,
     holds: String,
+    variants: Vec<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -264,6 +266,7 @@ fn read_binding() -> Binding {
                     (Some("option"), Some(long)) => flags.push(LocalFlag {
                         long: long.to_owned(),
                         holds: holds(&fields[field]),
+                        variants: variants(&fields[field]),
                     }),
                     (Some("trailing"), _) => trailing.push(field.to_owned()),
                     _ => unmapped.push(format!("field `{field}` from {source}")),
@@ -298,6 +301,18 @@ fn holds(shape: &Value) -> String {
         Some("optional") => holds(&shape["of"]),
         Some(kind) => kind.to_owned(),
         None => format!("an unresolved shape {shape}"),
+    }
+}
+
+/// The variants of an enum shape, through `optional`; none for any other shape.
+fn variants(shape: &Value) -> Vec<String> {
+    match shape["kind"].as_str() {
+        Some("optional") => variants(&shape["of"]),
+        Some("enum") => list(&shape["variants"])
+            .iter()
+            .map(|variant| text(variant, "an enum variant").to_owned())
+            .collect(),
+        _ => Vec::new(),
     }
 }
 
@@ -1166,7 +1181,11 @@ fn every_flag_accepts_what_its_field_holds() {
 /// values its field cannot hold are refused.
 fn local_flags_accept(base: &[&str], flags: &[LocalFlag], problems: &mut Vec<String>) {
     for flag in flags {
+        let variants: Vec<&str> = flag.variants.iter().map(String::as_str).collect();
         let (accepted, refused): (&[&str], &[&str]) = match flag.holds.as_str() {
+            // An enum takes each of its variants as the specification spells it, and no other
+            // word.
+            "enum" if !variants.is_empty() => (&variants, &["NotAVariant"]),
             "integer" => (&["42"], &["4.2", "x"]),
             "string" => (&["a value"], &[]),
             // A list is a repeatable flag: each occurrence is one item.

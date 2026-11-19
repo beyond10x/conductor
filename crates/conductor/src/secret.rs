@@ -132,9 +132,11 @@ const FILES_CAN: [Capability; 2] = [Capability::Read, Capability::List];
 
 /// The `files` source (`story:container-start-without-prompt`): the directory `daemon.secrets.dir`
 /// names, mounted read-only, one file per secret, the file's name the secret's name. A value is
-/// the file's content with one trailing line end dropped; an empty file holds none. Nothing is
-/// written there: a write is `Unsupported` ([`FILES_CAN`]), and [`Secrets::put`] refuses before
-/// it. The source answers while the directory can be read.
+/// the file's content with one trailing line end dropped; an empty file holds none. A write
+/// through the crates is `Unsupported` ([`FILES_CAN`]), and [`Secrets::put`] refuses before it;
+/// the one file conductor writes there is a pool token's, at `conductor join`
+/// ([`Secrets::write_pool_token`], `story:pool-token-kind-files-source`), removed at `conductor
+/// leave`. The source answers while the directory can be read.
 struct Files(std::path::PathBuf);
 
 #[async_trait]
@@ -574,7 +576,8 @@ impl Secrets {
                 },
             });
         }
-        // The `files` source is a directory conductor never writes.
+        // The `files` source is a directory conductor puts no secret into (a pool token's file
+        // is [`Secrets::write_pool_token`]'s).
         if self.source == Source::Files {
             return Ok(PutSecretOutcome::ReadOnly {
                 error: SourceReadOnly {
@@ -678,6 +681,96 @@ impl Secrets {
             .map_err(|_| self.unreachable())?;
         if let Some(sample) = &self.sample {
             sample.save().map_err(|_| self.unreachable())?;
+        }
+        Ok(())
+    }
+
+    /// The file of the `files` source that holds `name`, when the source is `files` and `name`
+    /// is one the crates keep: `/`-separated segments that start with a letter or a digit, so a
+    /// file under the directory and never one outside it.
+    fn file_of(&self, name: &SecretName) -> Option<std::path::PathBuf> {
+        let dir = self.dir.as_ref()?;
+        self.address(name)?;
+        Some(dir.join(&name.0))
+    }
+
+    /// Writes `value`, a pool token's, into the `files` source under `name`, the name conductor
+    /// derived for the token (`story:pool-token-kind-files-source`): a new file, readable and
+    /// writable by its owner only (mode 0600), its directories created owner-only. The one write
+    /// conductor makes into that directory; [`Secrets::put`] keeps refusing it every other
+    /// secret. `Ok(false)` when the source is not `files`.
+    ///
+    /// # Errors
+    ///
+    /// One line naming why, without the value: a name the crates refuse, a file of that name
+    /// already there, or a directory that cannot be written.
+    pub fn write_pool_token(&self, name: &SecretName, value: &SecretValue) -> Result<bool, String> {
+        use std::io::Write as _;
+        use std::os::unix::fs::{DirBuilderExt as _, OpenOptionsExt as _};
+        if self.source != Source::Files {
+            return Ok(false);
+        }
+        let file = self
+            .file_of(name)
+            .ok_or_else(|| format!("{:?} is not a secret name the files source keeps", name.0))?;
+        let cannot = |error: std::io::Error| {
+            format!(
+                "SourceReadOnly: the files source cannot write {}: {}; nothing was written",
+                file.display(),
+                error.kind()
+            )
+        };
+        if let Some(parent) = file.parent() {
+            fs::DirBuilder::new()
+                .recursive(true)
+                .mode(0o700)
+                .create(parent)
+                .map_err(cannot)?;
+        }
+        let mut out = fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .open(&file)
+            .map_err(|error| {
+                if error.kind() == std::io::ErrorKind::AlreadyExists {
+                    format!("SecretExists: {}", name.0)
+                } else {
+                    cannot(error)
+                }
+            })?;
+        if let Err(error) = out.write_all(value.expose()).and_then(|()| out.sync_all()) {
+            drop(out);
+            let _ = fs::remove_file(&file);
+            return Err(cannot(error));
+        }
+        Ok(true)
+    }
+
+    /// Removes the file [`Secrets::write_pool_token`] wrote for `name`, and each directory it
+    /// created that is empty after it, up to the source's directory. Nothing when the source is
+    /// not `files` or no file of that name is there.
+    ///
+    /// # Errors
+    ///
+    /// The file is there and cannot be removed.
+    pub fn remove_pool_token(&self, name: &SecretName) -> Result<()> {
+        let (Some(dir), Some(file)) = (self.dir.as_ref(), self.file_of(name)) else {
+            return Ok(());
+        };
+        match fs::remove_file(&file) {
+            Ok(()) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+            Err(error) => {
+                return Err(error).with_context(|| format!("remove {}", file.display()));
+            }
+        }
+        let mut parent = file.parent();
+        while let Some(at) = parent {
+            if at == dir.as_path() || fs::remove_dir(at).is_err() {
+                break;
+            }
+            parent = at.parent();
         }
         Ok(())
     }

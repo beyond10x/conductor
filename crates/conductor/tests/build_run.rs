@@ -33,7 +33,7 @@ use conductor_cli::gc::reclaim::{READINGS_VARIABLE, ReclaimReport, VAR_TMP_VARIA
 use conductor_cli::host;
 use conductor_model::behaviour::DecisionRequestStorage as _;
 use conductor_model::decision::{DecisionClass, DecisionRequestState};
-use conductor_model::host::{GrantKind, HostGrantState, ReleaseReason};
+use conductor_model::host::{BuildLane, GrantKind, HostGrantState, ReleaseReason};
 use nix::sys::signal::{Signal, kill, killpg};
 use nix::unistd::Pid;
 use serde_json::Value;
@@ -149,6 +149,7 @@ impl Case {
             walk: build::walk,
             // No compile cache: no case starts an sccache server.
             sccache: None,
+            slot: None,
         }
     }
 
@@ -3703,5 +3704,252 @@ fn alternating_trees_each_keep_their_own_fresh_target() {
     assert!(
         !gated.contains("Compiling"),
         "the gate finds tree2's build fresh in its own target/: {gated}"
+    );
+}
+
+/// The gate directory of the case `slot-gate` (`story:build-run-through-slot-gate`), which
+/// [`gate_env`] names: `Sources::env` is a plain function, so it is found by the case's name.
+fn gate_dir() -> PathBuf {
+    Case::dir_of("slot-gate").join("gate")
+}
+
+/// An environment that names the case's gate in `SLOT_GATE` and holds nothing else.
+fn gate_env(name: &str) -> Option<String> {
+    (name == build::SLOT_GATE_VARIABLE).then(|| gate_dir().display().to_string())
+}
+
+/// An environment whose `SLOT_GATE` names a directory that does not exist.
+fn missing_gate_env(name: &str) -> Option<String> {
+    (name == build::SLOT_GATE_VARIABLE).then(|| {
+        Case::dir_of("no-slot-gate")
+            .join("no-such-gate")
+            .display()
+            .to_string()
+    })
+}
+
+/// A fake `slot` in `bin/` of the case: it writes its arguments, one per line, to
+/// `slot-argv.txt` and the `SLOT_GATE` it was given to `slot-gate.txt` of the case, then runs
+/// the command after `run --` as slot's gate client runs it, in the sandbox.
+fn fake_slot(case: &Case) -> PathBuf {
+    use std::os::unix::fs::PermissionsExt as _;
+    let bin = case.dir.join("bin");
+    fs::create_dir_all(&bin).expect("create the case's bin/");
+    let slot = bin.join("slot");
+    fs::write(
+        &slot,
+        "#!/bin/sh\n\
+         case_dir=$(dirname \"$0\")/..\n\
+         printf '%s\\n' \"$@\" > \"$case_dir/slot-argv.txt\"\n\
+         printf '%s\\n' \"$SLOT_GATE\" > \"$case_dir/slot-gate.txt\"\n\
+         [ \"$1\" = run ] && shift\n\
+         [ \"$1\" = -- ] && shift\n\
+         exec \"$@\"\n",
+    )
+    .expect("write the fake slot");
+    fs::set_permissions(&slot, fs::Permissions::from_mode(0o755)).expect("make the fake runnable");
+    slot
+}
+
+/// One regular build slot, and a share of the cores no inherited job count is: 997 jobs.
+fn one_slot() -> Settings {
+    Settings {
+        slots: 1,
+        cores: 997,
+        cpu_reserve: 0,
+        ..settings()
+    }
+}
+
+/// The script that writes the job counts its command sees to `work/jobs.txt`.
+const JOBS_SCRIPT: &str = "echo \"$CARGO_BUILD_JOBS|$MAKEFLAGS\" > jobs.txt";
+
+/// `story:build-run-through-slot-gate`: with `SLOT_GATE` naming a gate, `build run` runs the
+/// command as `slot run -- <command>` on that gate, records a disk grant in the `Gate` lane, and
+/// takes no conductor build slot: it runs while another build holds the only one. The command
+/// gets no `CARGO_BUILD_JOBS` or `MAKEFLAGS` from `build run`, only what it inherits.
+#[test]
+fn a_build_under_slot_gate_takes_no_conductor_build_slot() {
+    let case = Case::new("slot-gate");
+    fs::create_dir_all(gate_dir()).expect("create the gate");
+    let _stops = Stops(vec![case.work().join("stop-holder")]);
+    let holding = "while [ ! -e stop-holder ]; do sleep 0.02; done";
+    let holder = arrive(&case, &one_slot(), GIB, holding);
+    wait_until("the holder runs in the only build slot", || {
+        state_of(&case, holding) == Some(HostGrantState::Running)
+    });
+
+    let sources = Sources {
+        env: gate_env,
+        slot: Some(fake_slot(&case)),
+        ..case.sources(reclaim_nothing)
+    };
+    let (state, host, request) = (case.state(), case.host(), case.request(GIB, JOBS_SCRIPT));
+    let gated = thread::spawn(move || build::run(&state, &host, &one_slot(), &sources, &request));
+    // A run that waited for the only build slot would wait for as long as the holder holds it.
+    wait_until(
+        "the gated run ends while the holder keeps the only slot",
+        || gated.is_finished(),
+    );
+    let outcome = gated
+        .join()
+        .expect("the gated run's thread")
+        .expect("the run ends");
+    assert_eq!(outcome.exit_code(), 0, "{outcome:?}: {}", case.said());
+    assert_eq!(
+        state_of(&case, holding),
+        Some(HostGrantState::Running),
+        "it ran while the holder kept the only build slot"
+    );
+
+    let read = |name: &str| fs::read_to_string(case.dir.join(name)).unwrap_or_default();
+    let argv: Vec<String> = read("slot-argv.txt").lines().map(String::from).collect();
+    assert_eq!(
+        argv,
+        ["run", "--", "sh", "-c", JOBS_SCRIPT],
+        "the command ran under slot run"
+    );
+    assert_eq!(
+        read("slot-gate.txt").trim(),
+        gate_dir().display().to_string(),
+        "on the gate SLOT_GATE names"
+    );
+    let inherited = |name: &str| std::env::var(name).unwrap_or_default();
+    let jobs = fs::read_to_string(case.work().join("jobs.txt")).unwrap_or_default();
+    assert_eq!(
+        jobs.trim(),
+        format!(
+            "{}|{}",
+            inherited("CARGO_BUILD_JOBS"),
+            inherited("MAKEFLAGS")
+        ),
+        "no job count of build run's own"
+    );
+
+    let command = format!("sh -c {JOBS_SCRIPT}");
+    let grant = case
+        .grants()
+        .into_iter()
+        .find(|row| row.command.as_deref() == Some(command.as_str()))
+        .expect("the gated run's grant, keyed by its command as written");
+    assert_eq!(grant.kind, GrantKind::Disk, "a disk grant: {grant:?}");
+    assert_eq!(grant.state, HostGrantState::Released, "{grant:?}");
+    assert_eq!(grant.bytes, Some(i64::try_from(GIB).unwrap()), "{grant:?}");
+    assert_eq!(
+        grant.lane,
+        Some(BuildLane::Gate),
+        "no build slot: {grant:?}"
+    );
+    assert_eq!(
+        grant.release_reason,
+        Some(ReleaseReason::Exited),
+        "{grant:?}"
+    );
+    assert!(
+        !case.said().contains("build_slots are taken"),
+        "it never waited for a build slot: {}",
+        case.said()
+    );
+
+    fs::write(case.work().join("stop-holder"), "").expect("stop the holder");
+    let held = holder
+        .join()
+        .expect("the holder's thread")
+        .expect("it ends");
+    assert_eq!(held.exit_code(), 0, "{held:?}");
+}
+
+/// Without `SLOT_GATE` the slot path is unchanged, though `slot` is on `PATH`: a build waits for
+/// a conductor build slot while the only one is held, runs without `slot` in the `Regular` lane,
+/// and gets the job count of its share. A `SLOT_GATE` that names no directory is said in one line
+/// and changes nothing either.
+#[test]
+fn without_slot_gate_a_build_takes_a_conductor_build_slot_and_runs_without_slot() {
+    let case = Case::new("no-slot-gate");
+    let _stops = Stops(vec![case.work().join("stop-holder")]);
+    let holding = "while [ ! -e stop-holder ]; do sleep 0.02; done";
+    let holder = arrive(&case, &one_slot(), GIB, holding);
+    wait_until("the holder runs in the only build slot", || {
+        state_of(&case, holding) == Some(HostGrantState::Running)
+    });
+
+    let slot = fake_slot(&case);
+    let (state, host) = (case.state(), case.host());
+    let sources = Sources {
+        env: |_| None,
+        slot: Some(slot.clone()),
+        ..case.sources(reclaim_nothing)
+    };
+    let request = case.request(GIB, JOBS_SCRIPT);
+    let waiting = thread::spawn(move || build::run(&state, &host, &one_slot(), &sources, &request));
+    wait_until("it waits for the build slot", || {
+        case.said().contains("all 1 build_slots are taken")
+    });
+    assert_eq!(
+        state_of(&case, JOBS_SCRIPT),
+        Some(HostGrantState::Requested),
+        "queued for the slot: {}",
+        case.said()
+    );
+    fs::write(case.work().join("stop-holder"), "").expect("stop the holder");
+    let held = holder
+        .join()
+        .expect("the holder's thread")
+        .expect("it ends");
+    assert_eq!(held.exit_code(), 0, "{held:?}");
+    let outcome = waiting
+        .join()
+        .expect("the waiting thread")
+        .expect("it ends");
+    assert_eq!(outcome.exit_code(), 0, "{outcome:?}");
+
+    assert!(
+        !case.dir.join("slot-argv.txt").exists(),
+        "slot did not run the command"
+    );
+    let jobs = || fs::read_to_string(case.work().join("jobs.txt")).unwrap_or_default();
+    assert_eq!(jobs().trim(), "997|-j997", "the job count of its share");
+    let lanes = || {
+        let command = format!("sh -c {JOBS_SCRIPT}");
+        case.grants()
+            .into_iter()
+            .filter(|row| row.command.as_deref() == Some(command.as_str()))
+            .map(|row| row.lane)
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(lanes(), [Some(BuildLane::Regular)]);
+
+    // A SLOT_GATE that names no directory: one line, and the run as without it.
+    fs::remove_file(case.work().join("jobs.txt")).expect("remove the job counts");
+    let outcome = build::run(
+        &case.state(),
+        &case.host(),
+        &one_slot(),
+        &Sources {
+            env: missing_gate_env,
+            slot: Some(slot),
+            ..case.sources(reclaim_nothing)
+        },
+        &case.request(GIB, JOBS_SCRIPT),
+    )
+    .expect("the run ends");
+    assert_eq!(outcome.exit_code(), 0, "{outcome:?}");
+    assert!(
+        !case.dir.join("slot-argv.txt").exists(),
+        "slot did not run the command"
+    );
+    assert_eq!(jobs().trim(), "997|-j997");
+    assert_eq!(
+        case.said()
+            .lines()
+            .filter(|line| line.contains("SLOT_GATE") && line.contains("names no directory"))
+            .count(),
+        1,
+        "{}",
+        case.said()
+    );
+    assert_eq!(
+        lanes(),
+        [Some(BuildLane::Regular), Some(BuildLane::Regular)]
     );
 }

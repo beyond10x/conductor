@@ -2,7 +2,7 @@
 format: aep.planning-md/3
 id: story:pool-token-kind-files-source
 kind: story
-status: draft
+status: active
 title: A pool token carries its kind, and a files-source instance can take pool tokens
 summary: conductor join records whether a token is a subscription token or an API key, and works where the secrets source is files
 tags:
@@ -12,44 +12,40 @@ relations:
 - informed_by: story:box-subscription-token
 scope:
 - confidence: cited
+  path: crates/conductor/src/secret.rs
+- confidence: cited
   path: crates/conductor/src/token.rs
 - confidence: cited
-  path: crates/conductor/src/secret.rs
-- confidence: inferred
-  path: spec/domains/token.yaml
-- confidence: inferred
   path: crates/conductor/tests/token_pool.rs
-revision: 1
+- confidence: cited
+  path: spec/domains/token.yaml
+revision: 5
+transitions:
+- {from: "draft", to: "proposed", at: "2026-11-18T08:24:07Z", actor: "human:unknown", revision: 3}
+- {from: "proposed", to: "active", at: "2026-11-18T08:24:07Z", actor: "human:unknown", revision: 4}
 ---
 ## Why
 
-Agentbox friction log F5 (2026-11-15, instance `conductor-ai-agent-platform`, conductor 1.11.0
-and still at 1.13.0). The box has no answering OS keychain (F4), so its daemon reads secrets from
-the `files` source. With that source `conductor join` is refused `SourceReadOnly`
-(`crates/conductor/src/secret.rs:580`, `crates/conductor/src/token.rs:477`), so the instance's
-token pool stays empty and every agent runs on the one model token. Even where join works, a
-pool token is always handed to the harness through `apiKeyHelper` as an API key, so a
-subscription token contributed with `conductor join` would be sent as the wrong kind.
-`story:box-subscription-token` names both in its Boundaries and says "Giving pool tokens a
-kind is a separate story"; no such story exists in the store at v1.13.0
-(`story:pod-instance-model-token-pool` is a pod-only draft).
+Issue #200 (agent box friction F5) and #206 item 1. With the `files` secrets source `conductor join` is
+refused `SourceReadOnly` (`crates/conductor/src/secret.rs:577-584`), and a pool token always reaches
+the harness through `apiKeyHelper` as an API key (`token.rs` `apply`), even a subscription token.
 
 ## Outcome
 
-- A pool token's record names its kind (`subscription_token` or `api_key`), given at join; a
-  `subscription_token` reaches the harness as `CLAUDE_CODE_OAUTH_TOKEN` with no
-  `apiKeyHelper`, as the model token of `story:box-subscription-token` does.
-- Under the `files` source the pool's values are read from files the operator places in
-  `daemon.secrets.dir` (one file per pool token, a name conductor derives), so `conductor join`
-  either registers such a file by name or says exactly which file to create; conductor still
-  never writes the files source.
+- A pool token records its kind (`subscription_token` or `api_key`, `conductor.config.ModelTokenKind`),
+  given at join (`--kind`, default `subscription_token`); a `subscription_token` reaches the harness
+  as `CLAUDE_CODE_OAUTH_TOKEN` with no `apiKeyHelper`, an `api_key` through `apiKeyHelper` as today.
+- Under the `files` source, `join` writes the token's file into `daemon.secrets.dir` (owner-only
+  mode 0600, the name conductor derives) and `leave` removes it; no other secret is ever written there.
+  Decision (class C, controller, 2026-11-18): #206 asks for "an equivalent that writes the files source".
 
 ## Acceptance
 
-- On an instance whose secrets source is `files`, a token the operator registers as a
-  `subscription_token` pool token is leased to an agent start, which receives it as
-  `CLAUDE_CODE_OAUTH_TOKEN` with no `apiKeyHelper` in its settings copy (`tests/token_pool.rs`).
+- `tests/token_pool.rs` `a_files_source_subscription_pool_token_reaches_the_harness_in_its_variable`:
+  join under `files` writes the file 0600, a start leases it and gets `CLAUDE_CODE_OAUTH_TOKEN`, no
+  `apiKeyHelper` in its settings copy. Fails on main.
+- `tests/token_pool.rs` `leave_with_the_files_source_removes_the_token_file`.
 
 ## Boundaries
 
-- A pod instance's pool stays `story:pod-instance-model-token-pool`.
+- A host-wide pool is `story:host-token-pool`; a pod's pool stays `story:pod-instance-model-token-pool`.

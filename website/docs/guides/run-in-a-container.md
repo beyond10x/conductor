@@ -113,10 +113,11 @@ value on the command line. Mount the config file into the home directory, not un
 | git identity of the records' commit | `GIT_AUTHOR_NAME`, `GIT_AUTHOR_EMAIL`, `GIT_COMMITTER_NAME`, `GIT_COMMITTER_EMAIL` | `git` |
 
 None of them is written to the image or to the config file. The image holds no token and no
-login, and the config file names the model token only as `secret:model-token`. Conductor never
-writes into the secrets directory: `conductor secret put` refuses it in one line,
-`SourceReadOnly`, and writes nothing. A token in the pool of the instance, contributed with
-`conductor join`, is leased first; the model token is what an agent runs on when the pool has
+login, and the config file names the model token only as `secret:model-token`. Conductor puts no
+secret into the secrets directory: `conductor secret put` refuses it in one line,
+`SourceReadOnly`, and writes nothing. The one file it writes there is a pool token's:
+`conductor join` writes it, owner-only, and `conductor leave` removes it. A token in the pool of
+the instance is leased first; the model token is what an agent runs on when the pool has
 none, and only where the config file says `daemon.unattended: true`. `conductor token reveal
 --model-token` refuses an instance whose placement opens a box and prints nothing of its token.
 

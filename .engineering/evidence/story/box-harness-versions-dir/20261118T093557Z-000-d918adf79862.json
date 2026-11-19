@@ -1,0 +1,13 @@
+{
+  "at": "2026-11-18T09:35:57Z",
+  "actor": "human:unknown",
+  "artifact": "story:box-harness-versions-dir",
+  "kind": "story",
+  "revision": 4,
+  "change": {
+    "change": "evidence",
+    "kind": "test_result",
+    "source": "conductor build run -- cargo test -p conductor-cli --test placement --test decide_model; cargo clippy -p conductor-cli --all-targets -- -D warnings",
+    "reference": "commit 9d8b3623: decide_model 20 passed 0 failed (a_decider_whose_harness_cannot_start_is_a_fault_named_with_its_start_error ok); placement a_box_reads_the_harness_versions_directory_so_a_host_update_resolves ok, a_box_mounts_what_the_runtime_and_the_loop_read_and_write_each_named_in_one_list ok (both failed on the unchanged library); placement 82 passed, 24 failed only on Unix-socket bind EACCES of the build sandbox; clippy clean"
+  }
+}

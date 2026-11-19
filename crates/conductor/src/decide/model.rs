@@ -50,19 +50,55 @@ pub trait Decider {
     fn decide(&self, prompt: &str) -> Result<Answer>;
 }
 
+/// The decider's harness did not start: the program could not be run at all (in a box, the
+/// harness's link resolving to a file the box cannot read fails `ENOENT`, issue #192). A fault of
+/// the decider, not an answer it withheld; [`super::handle_request`] names it so.
+#[derive(Debug)]
+pub struct HarnessStart {
+    /// The program that was run.
+    pub program: String,
+    /// Why it did not start.
+    pub error: std::io::Error,
+}
+
+impl std::fmt::Display for HarnessStart {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "its harness `{}` could not start: {}",
+            self.program, self.error
+        )
+    }
+}
+
+impl std::error::Error for HarnessStart {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        Some(&self.error)
+    }
+}
+
 /// `claude -p` on one model.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ClaudePrint {
     model: String,
+    program: String,
 }
 
 impl ClaudePrint {
-    /// The adapter on `model`.
+    /// The adapter on `model`, running `claude` from `PATH`.
     #[must_use]
     pub fn new(model: &str) -> Self {
         Self {
             model: model.to_owned(),
+            program: crate::confine::CLAUDE.to_owned(),
         }
+    }
+
+    /// The same adapter running the harness at `program` instead of `claude` from `PATH`.
+    #[must_use]
+    pub fn with_program(mut self, program: &str) -> Self {
+        program.clone_into(&mut self.program);
+        self
     }
 
     /// The adapter on the model of `instance`'s conductor role, or of its controller role when it
@@ -132,7 +168,7 @@ impl Decider for ClaudePrint {
     }
 
     fn decide(&self, prompt: &str) -> Result<Answer> {
-        let mut command = crate::instance::command("claude");
+        let mut command = crate::instance::command(&self.program);
         // In a box the harness has no login of its own: it runs on the model token the runtime
         // read from its sealed slot, as every session it starts does (`token::lease_into`).
         if let Some(value) = crate::token::boxed_subscription_token(&config::active().instance) {
@@ -145,7 +181,10 @@ impl Decider for ClaudePrint {
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .spawn()
-            .context("start `claude -p`")?;
+            .map_err(|error| HarnessStart {
+                program: self.program.clone(),
+                error,
+            })?;
         let mut stdin = child
             .stdin
             .take()

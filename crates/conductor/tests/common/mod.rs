@@ -31,6 +31,9 @@ pub fn conductor(home: impl AsRef<Path>) -> Command {
         // Claude Code's state directory, which a box names (`story:box-forge-work`).
         .env_remove(conductor_cli::placement::CLAUDE_CONFIG_VARIABLE)
         .env_remove(conductor_cli::actor::SESSION_VARIABLE)
+        // Slot's gate of the host the tests run on (`story:build-run-through-slot-gate`): a
+        // `build run` of a case goes through a gate only where the case names one.
+        .env_remove("SLOT_GATE")
         .env("USER", "operator")
         .env(
             conductor_cli::secret::TEST_KEYCHAIN_VARIABLE,

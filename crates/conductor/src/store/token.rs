@@ -9,7 +9,7 @@
 
 use conductor_model::agent::AgentName;
 use conductor_model::behaviour::{OperatorStorage, PoolTokenStorage};
-use conductor_model::config::InstanceName;
+use conductor_model::config::{InstanceName, ModelTokenKind};
 use conductor_model::operator::{
     Grant, OperatorData, OperatorKey, OperatorName, OperatorSnapshot, OperatorState,
 };
@@ -36,6 +36,26 @@ pub const fn token_state_name(state: PoolTokenState) -> &'static str {
         PoolTokenState::Leased => "Leased",
         PoolTokenState::Limited => "Limited",
         PoolTokenState::Withdrawn => "Withdrawn",
+    }
+}
+
+/// The token kind's name as the specification spells it
+/// (`story:pool-token-kind-files-source`).
+#[must_use]
+pub const fn token_kind_name(kind: ModelTokenKind) -> &'static str {
+    match kind {
+        ModelTokenKind::ApiKey => "ApiKey",
+        ModelTokenKind::SubscriptionToken => "SubscriptionToken",
+    }
+}
+
+/// The token kind `name` spells ([`token_kind_name`]).
+#[must_use]
+pub fn token_kind_of(name: &str) -> Option<ModelTokenKind> {
+    match name {
+        "ApiKey" => Some(ModelTokenKind::ApiKey),
+        "SubscriptionToken" => Some(ModelTokenKind::SubscriptionToken),
+        _ => None,
     }
 }
 
@@ -130,6 +150,7 @@ fn encode_token(found: &PoolTokenSnapshot) -> Value {
         "limited_until": data.limited_until.as_ref().map(|at| &at.0),
         "agent": data.agent.as_ref().map(|agent| &agent.0),
         "contributed_at": data.contributed_at.0,
+        "kind": data.kind.map(token_kind_name),
     })
 }
 
@@ -147,6 +168,13 @@ fn decode_token(body: &Value) -> Result<PoolTokenSnapshot, String> {
         other => return Err(format!("unknown TokenState {other:?}")),
     };
     let optional = |field: &str| body.get(field).and_then(Value::as_str).map(str::to_owned);
+    // A token recorded before the kind existed has none (`conductor.token.PoolToken`).
+    let kind = match optional("kind") {
+        None => None,
+        Some(name) => {
+            Some(token_kind_of(&name).ok_or_else(|| format!("unknown ModelTokenKind {name:?}"))?)
+        }
+    };
     Ok(PoolTokenSnapshot {
         state,
         data: PoolTokenData {
@@ -160,6 +188,7 @@ fn decode_token(body: &Value) -> Result<PoolTokenSnapshot, String> {
             agent: optional("agent").map(AgentName),
             contributed_at: Timestamp(text(body, "contributed_at")?),
             actor: crate::actor::stored(body)?,
+            kind,
         },
     })
 }

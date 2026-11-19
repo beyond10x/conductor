@@ -1,7 +1,9 @@
-//! An instance pod's checkouts (`story:pod-source-checkouts`): a runtime alone in a pod
-//! ([`in_pod`]) clones, by itself, each repository a `github` or `gitlab` source names under
-//! `include` that has no checkout, and keeps each such checkout fetched. Nothing here runs on a
-//! workstation or in a single container, and a source without `include` gets no checkout.
+//! An instance pod's and a box's checkouts (`story:pod-source-checkouts`,
+//! `story:box-source-checkouts`): a runtime alone in a pod ([`in_pod`]) or in the substrate box
+//! of its instance ([`in_box`]), as [`clones`] tells, clones, by itself, each repository a
+//! `github` or `gitlab` source names under `include` that has no checkout, and keeps each such
+//! checkout fetched. Nothing here runs on a workstation or in a single container, and a source
+//! without `include` gets no checkout.
 //!
 //! - **When.** At the runtime's start, before it seeds its instance ([`at_start`]), so the
 //!   workspace file, the trust and the activation the seeding derives see the checkouts; and at
@@ -27,8 +29,10 @@
 //!   `https://<host>/<group>/<path>.git`, as the collector runs git
 //!   ([`collect::git_environment`], [`collect::run`]) under [`CLONE_BOUND`], into a directory
 //!   under the checkouts root the collector takes for no checkout ([`PARTIAL`], the clone two
-//!   steps below it), then renamed to its path. git gets the token only through the credential
-//!   helper the pod's environment carries: no URL, argument or message holds one. A directory an
+//!   steps below it), then renamed to its path. In a pod git gets the token only through the
+//!   credential helper the pod's environment carries; in a box, through the credential helper of
+//!   the git configuration the box reads (`~/.gitconfig`, `story:box-forge-work`), over the
+//!   box's forge aperture: no URL, argument or message holds one. A directory an
 //!   earlier, killed clone left is removed before the next try. A failed clone is not tried again
 //!   in the same pass.
 //! - **Never touched.** A path that holds `.git` is left as it is: no reset, no clone, no change
@@ -36,7 +40,8 @@
 //! - **Reported.** Each repository that could not be cloned or fetched is one member failure of
 //!   the pass ([`Brought::Failed`]), its line with the reason and git's last error line, every
 //!   credential-shaped text taken out ([`redacted`]). A pod that carries no token of a source's
-//!   forge tries no clone: each of its repositories is a failure that says so.
+//!   forge tries no clone: each of its repositories is a failure that says so. A box carries no
+//!   token in its environment: its clone is tried, and git's own error says what it lacked.
 //! - **Anonymous.** An instance with `forge_access: anonymous` (story:forge-access-anonymous,
 //!   [`Wanted::anonymous`]) asks for no token: git clones and fetches over HTTPS with no
 //!   credential at all ([`without_credential`]), and a clone that fails is a failure that says
@@ -115,6 +120,37 @@ const TOKEN_SHAPES: [&str; 10] = [
 #[must_use]
 pub fn in_pod() -> bool {
     std::env::var(crate::instance::LISTEN_VARIABLE).is_ok_and(|listen| !listen.trim().is_empty())
+}
+
+/// Whether this process runs in the substrate box of `instance` (`story:box-source-checkouts`):
+/// its placement opens a box ([`crate::placement::boxed`]), and the harness's state directory
+/// this process names ([`crate::placement::CLAUDE_CONFIG_VARIABLE`]) is the one every start of
+/// that box names, [`crate::placement::box_claude_dir`] of its state directory. A `conductor`
+/// run by hand on the host, whose instance a box would hold, is not in it.
+#[must_use]
+pub fn in_box(instance: &Instance) -> bool {
+    if !crate::placement::boxed(instance) {
+        return false;
+    }
+    let Some(named) = std::env::var_os(crate::placement::CLAUDE_CONFIG_VARIABLE)
+        .filter(|named| !named.is_empty())
+        .map(PathBuf::from)
+    else {
+        return false;
+    };
+    let dir = crate::placement::box_claude_dir(Path::new(&instance.state));
+    match (fs::canonicalize(&named), fs::canonicalize(&dir)) {
+        (Ok(named), Ok(dir)) => named == dir,
+        _ => named == dir,
+    }
+}
+
+/// Whether this process clones the missing checkouts of `instance`: it runs in an instance pod
+/// ([`in_pod`]) or in the instance's substrate box ([`in_box`]), whose runtime and collectors
+/// write its checkouts root.
+#[must_use]
+pub fn clones(instance: &Instance) -> bool {
+    in_pod() || in_box(instance)
 }
 
 /// One repository a source includes, as a pod brings its checkout.
@@ -263,7 +299,9 @@ pub fn bring(root: &Path, wanted: &Wanted, fetch: Option<Duration>) -> Brought {
             target.display()
         ));
     }
-    if !wanted.anonymous && !carries_token(wanted.forge) {
+    // Only a pod's credential helper reads the token from the environment; a box's git reads its
+    // own configuration's (`story:box-source-checkouts`).
+    if !wanted.anonymous && in_pod() && !carries_token(wanted.forge) {
         let variable = config::FORGE_TOKEN_VARIABLES
             .iter()
             .find(|(forge, _)| *forge == wanted.forge)
@@ -723,7 +761,8 @@ pub fn includes(instance: &Instance) -> bool {
     })
 }
 
-/// At the start of a runtime alone in a pod, before it seeds `instance`: each repository its
+/// At the start of a runtime alone in a pod, before it seeds `instance`, or of a runtime in a box
+/// (`story:box-source-checkouts`): each repository its
 /// sources include that has no checkout is cloned, [`repositories::WIDTH`] at once, but none is
 /// begun once the start's bound ([`start_bound`]) has passed since it began; what failed is
 /// said, and how many were left to the passes, and the start goes on. `what` names the runtime
@@ -855,7 +894,8 @@ pub fn refresh(instance: &Instance) -> Result<()> {
         }
         fs::write(&file, text)?;
     }
-    let mut edit = trust::Edit::read(&environment.home()?.join(trust::CLAUDE_JSON))?;
+    // In a box the harness's `.claude.json` is where `CLAUDE_CONFIG_DIR` names it.
+    let mut edit = trust::Edit::read(&trust::claude_json(environment.home()?))?;
     let missing: Vec<String> = included_checkouts(instance, index)?
         .into_iter()
         .filter(|path| !edit.trusts(path))
@@ -898,16 +938,16 @@ fn included_checkouts(instance: &Instance, index: usize) -> Result<Vec<String>> 
         .collect()
 }
 
-/// `conductor doctor`'s rows of the checkouts, in a pod only ([`in_pod`]): for each instance of
-/// the config `flag` whose sources include repositories,
+/// `conductor doctor`'s rows of the checkouts, for each instance of the config `flag` whose
+/// sources include repositories and whose runtime clones them: in a pod ([`in_pod`]), each one;
+/// elsewhere, as on the host, each whose placement opens a box ([`crate::placement::boxed`],
+/// `story:box-source-checkouts`):
 /// `checkouts <instance>: <n> of <m> included repositories have no checkout`, archived ones not
-/// counted, or `checkouts <instance>: the included repositories were not listed: <why>`. Neither
-/// is a failure of the verdict: the next pass clones what it can.
+/// counted, followed by `: <name>, <name>` naming each one without a checkout when there is one,
+/// or `checkouts <instance>: the included repositories were not listed: <why>`. Neither is a
+/// failure of the verdict: the next pass clones what it can.
 #[must_use]
 pub fn doctor_lines(flag: Option<&Path>) -> Vec<(String, Option<String>)> {
-    if !in_pod() {
-        return Vec::new();
-    }
     let Ok(loaded) = config::Environment::from_process()
         .and_then(|environment| config::load(flag, &environment))
     else {
@@ -917,7 +957,7 @@ pub fn doctor_lines(flag: Option<&Path>) -> Vec<(String, Option<String>)> {
         .config
         .instances
         .iter()
-        .filter(|instance| includes(instance))
+        .filter(|instance| includes(instance) && (in_pod() || crate::placement::boxed(instance)))
         .map(|instance| {
             let name = &instance.name.0;
             let root = Path::new(&instance.checkouts.root);
@@ -925,14 +965,21 @@ pub fn doctor_lines(flag: Option<&Path>) -> Vec<(String, Option<String>)> {
                 Ok(wanted) => {
                     let wanted: Vec<&Wanted> =
                         wanted.iter().filter(|wanted| !wanted.archived).collect();
-                    let missing = wanted
+                    let missing: Vec<&str> = wanted
                         .iter()
                         .filter(|wanted| {
                             wanted.checkout.is_none() && !is_checkout(&root.join(&wanted.path))
                         })
-                        .count();
+                        .map(|wanted| wanted.name.as_str())
+                        .collect();
+                    let named = if missing.is_empty() {
+                        String::new()
+                    } else {
+                        format!(": {}", missing.join(", "))
+                    };
                     format!(
-                        "checkouts {name}: {missing} of {} included repositories have no checkout",
+                        "checkouts {name}: {} of {} included repositories have no checkout{named}",
+                        missing.len(),
                         wanted.len()
                     )
                 }

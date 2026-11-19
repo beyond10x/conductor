@@ -34,6 +34,7 @@ pub mod host;
 pub mod init;
 pub mod instance;
 pub mod kube;
+pub mod limit;
 pub mod login;
 pub mod message;
 pub mod metric;

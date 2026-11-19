@@ -1,0 +1,13 @@
+{
+  "at": "2026-11-18T11:38:22Z",
+  "actor": "human:unknown",
+  "artifact": "story:box-source-checkouts",
+  "kind": "story",
+  "revision": 4,
+  "change": {
+    "change": "evidence",
+    "kind": "test_result",
+    "source": "conductor build run -- cargo test -p conductor-cli --test pod_checkouts (box tests: 3 fail on the base source, pass with the fix at eea5e871); cargo clippy --all-targets -D warnings clean",
+    "reference": "crates/conductor/tests/pod_checkouts.rs"
+  }
+}

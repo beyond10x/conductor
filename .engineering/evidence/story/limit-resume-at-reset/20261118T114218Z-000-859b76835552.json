@@ -1,0 +1,13 @@
+{
+  "at": "2026-11-18T11:42:18Z",
+  "actor": "human:unknown",
+  "artifact": "story:limit-resume-at-reset",
+  "kind": "story",
+  "revision": 4,
+  "change": {
+    "change": "evidence",
+    "kind": "test_result",
+    "source": "cargo test -p conductor-cli --lib, --test run, --test watch, --test token_pool at 38c95853: lib 144, run 76, watch 80, token_pool 16 passed; clippy --all-targets -D warnings clean; the three tests/run.rs acceptance tests fail with main's src",
+    "reference": "38c95853"
+  }
+}

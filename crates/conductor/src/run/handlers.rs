@@ -4,7 +4,7 @@
 //! | watch line | handler | lines |
 //! |---|---|---|
 //! | `context: <repo> <n>k …` at or over `thresholds.context_handover` | deliver `[HANDOVER <repo>] context <n>k` once per controller; over 1.25 times the threshold, at once or in a later tick, once `<checkout>/.git/handoff/` holds a file newer than the delivery and the session is idle, or once `thresholds.silent_session` passed since the delivery, restart the controller ([`Tick::restart_with`]) with the newest hand-over file as the charter's resume point, its line carrying the `context:` line; a later tick restarts only the controller, by its id, and the session the hand-over was asked of ([`handovers`]) | `handover-sent`, `handover`, `controller-restarted` |
-//! | `usage limit: …; <n> sessions: <names>` | mark each session; a later tick whose [`Headroom`](super::Headroom) is back resumes each once (`spawn::resume`), or restarts one a hand-over was asked of as its controller's; a session resumed and stopped again is said in one journal line | `usage-limit`, `resumed`, `controller-restarted` |
+//! | `usage limit: …; <n> sessions: <names>` | mark each session with the reset its text names ([`crate::limit::reset`]), else the token's limit window from now; the first tick past that reset, or an earlier one whose [`Headroom`](super::Headroom) is back, resumes each once (`spawn::resume`), or restarts one a hand-over was asked of as its controller's; a session resumed and stopped again is said in one journal line and backs off ([`crate::limit::backoff`]), resumed at neither the probe's yes nor before a reset its new text names ([`limited`]) | `usage-limit`, `resumed`, `controller-restarted` |
 //! | `session exited (blocked): <name> …` | marked as a usage limit marks it, when its repository has an open dispatch | `usage-limit`, `resumed` |
 //! | `PR checks done: <repo>#…`, `PR merged: <repo>#…` (`story:merge-wakes-idle-controller`), `CI red on main: <repo> / …`, `CI green again on main: <repo> / …` | deliver `[REPORT <repo> -] watch: <line>` to the running controller; a red `main` with none spawns one when the repository has a charter, within `controllers.max_working` | `relayed`, `red-ci` |
 //! | `session stalled: <name> …`, `session silent: <name> …` | first a delivered check-in; the second time, a restart | `stalled`, `controller-restarted` |
@@ -24,8 +24,12 @@
 //! (`story:deliver-reaches-bg-session`). The other files: `handover.json` (each session a
 //! hand-over was asked of, its repository, the id of the controller it was asked of and of the
 //! session the `context:` line measured, when, in nanoseconds, and the `context:` line),
-//! `limited.json` (each session a usage limit marked), `stalled.json` (each session a check-in
-//! was sent) and `resumed.json` (each session the loop resumed, and when).
+//! `limited.json` (each session a usage limit marked: its repository, `resets_at`, the instant it
+//! is resumed at with no probe, `attempts`, the resumes in a row it backs off after, and
+//! `stopped` once the cycle recorded its controller stopped; an entry of an older loop has the
+//! repository alone and waits for the probe), `stalled.json` (each session a check-in was sent)
+//! and `resumed.json` ([`crate::limit::RESUMED`]: each session the loop resumed, when, and after
+//! how many limits in a row).
 //!
 //! The `gc` a `disk low` line starts runs on a thread of its own, so the loop's ticks go on while
 //! it works (`story:first-cycle-not-blocked-by-archiving`); one runs at a time, and a `disk low`
@@ -50,12 +54,16 @@ use anyhow::{Context as _, Result, anyhow};
 use conductor_model::behaviour::{DecisionRequestStorage, DecisionStorage};
 use conductor_model::config::SessionName;
 use conductor_model::decision::RequestId;
-use conductor_model::dispatch::obligations::StopControllerBehavior;
+use conductor_model::dispatch::obligations::{StartControllerBehavior, StopControllerBehavior};
 use conductor_model::dispatch::{
-    ControllerId, DispatchLogEvent, StopController, StopControllerOutcome,
+    ControllerId, DispatchLogEvent, StartController, StartControllerOutcome, StopController,
+    StopControllerOutcome,
 };
+use conductor_model::observation::{Harness, RepositoryName};
 use conductor_model::primitives::Uuid;
 use serde_json::{Value, json};
+use time::OffsetDateTime;
+use time::format_description::well_known::Rfc3339;
 
 use super::{Cleaner, Tick, nanos, one_line, read_json, write_json};
 use crate::cli::GcArgs;
@@ -73,8 +81,8 @@ const STALLED: &str = "stalled.json";
 /// The deliveries kept for a controller's next start.
 pub(crate) const PENDING: &str = "pending.json";
 
-/// The sessions the loop resumed after a usage limit, and when, in nanoseconds.
-const RESUMED: &str = "resumed.json";
+/// The sessions the loop resumed after a usage limit ([`crate::limit::RESUMED`]).
+const RESUMED: &str = crate::limit::RESUMED;
 
 /// How long the desktop notifier may run.
 const NOTIFY_BOUND: Duration = Duration::from_secs(10);
@@ -532,35 +540,47 @@ fn usage_limit(tick: &mut Tick<'_, '_>, line: &str) -> Result<bool> {
         .unwrap_or_default();
     for name in &names {
         let repo = tick.repo_of(name)?.unwrap_or_else(|| "-".to_owned());
-        mark(tick, name, &repo, line, None)?;
-        on_limit(tick, name, &repo);
+        let named = mark(tick, name, &repo, line, None)?;
+        on_limit(tick, name, &repo, named);
     }
     Ok(!names.is_empty())
 }
 
-/// `story:token-pool`: the token `name` ran on is Limited; when another token of the pool is
-/// Available the session is resumed on it now, rather than once the account has headroom. A
-/// hand-over asked of it stays kept (`story:handover-restart-by-controller-id`): the session
-/// asked runs on under its id.
-fn on_limit(tick: &mut Tick<'_, '_>, name: &str, repo: &str) {
+/// `story:token-pool`: the token `name` ran on is Limited, until `until`, the reset its limit
+/// text named (`story:limit-resume-at-reset`), else for the token's limit window; when another
+/// token of the pool is Available the session is resumed on it now, rather than once the account
+/// has headroom. A hand-over asked of it stays kept (`story:handover-restart-by-controller-id`):
+/// the session asked runs on under its id.
+fn on_limit(tick: &mut Tick<'_, '_>, name: &str, repo: &str, until: Option<OffsetDateTime>) {
     let instance = &crate::config::active().instance;
-    match crate::token::on_limit(instance, name) {
+    match crate::token::on_limit(instance, name, until) {
         Ok(true) if repo != "-" => match resume(tick, repo, name) {
             Ok(true) => {
+                let attempts =
+                    crate::limit::attempts_of(&read_json(&tick.dir, LIMITED, json!({}))[name]);
                 for file in [LIMITED, STALLED, RESUMED] {
                     unkeep(tick, file, name);
                 }
-                let mut resumed = read_json(&tick.dir, RESUMED, json!({}));
-                resumed[name] = json!(nanos(SystemTime::now()).to_string());
-                if let Err(error) = write_json(&tick.dir, RESUMED, &resumed) {
-                    tick.note(RESUMED, &error);
-                }
+                resumed(tick, name, attempts);
             }
             Ok(false) => {}
             Err(error) => tick.note(&format!("resume {name} on another token"), &error),
         },
         Ok(_) => {}
         Err(error) => tick.note(&format!("mark the token of {name} limited"), &error),
+    }
+}
+
+/// Keeps in [`RESUMED`] that the loop resumed `session` now, after `attempts` limits in a row
+/// before this one's.
+fn resumed(tick: &Tick<'_, '_>, session: &str, attempts: u32) {
+    let mut kept = read_json(&tick.dir, RESUMED, json!({}));
+    kept[session] = json!({
+        "at": nanos(SystemTime::now()).to_string(),
+        "attempts": attempts,
+    });
+    if let Err(error) = write_json(&tick.dir, RESUMED, &kept) {
+        tick.note(RESUMED, &error);
     }
 }
 
@@ -601,25 +621,59 @@ fn exited(tick: &mut Tick<'_, '_>, line: &str, name: &str) -> Result<bool> {
     Ok(true)
 }
 
-/// Marks the session `name` of `repo` stopped by `line` and writes `usage-limit` with `cause`.
-/// A session the loop resumed within [`crate::watch::LIMIT_AGAIN`] is stopped a second time:
-/// its line says so, and so does one journal line.
+/// Marks the session `name` of `repo` stopped by `line` and writes `usage-limit` with `cause`;
+/// answers the reset `line` names ([`crate::limit::reset`]).
+///
+/// The mark keeps when the session is resumed with no probe (`resets_at`): the reset `line`
+/// names, else the token's limit window ([`crate::token::LIMIT_WINDOW`]) from now. A session the
+/// loop resumed within [`crate::watch::LIMIT_AGAIN`] is stopped a second time: its line says so,
+/// and so does one journal line, and it backs off: `attempts` is one more than the resumes in a
+/// row before, and `resets_at` is [`crate::limit::backoff`] of it from now, or the reset `line`
+/// names when that is later. A session marked already keeps its mark, its reset moved to the
+/// one `line` names when that is later.
 fn mark(
     tick: &mut Tick<'_, '_>,
     name: &str,
     repo: &str,
     line: &str,
     cause: Option<&str>,
-) -> Result<()> {
+) -> Result<Option<OffsetDateTime>> {
+    let now = OffsetDateTime::now_utc();
+    let named = crate::limit::reset(line, now);
+    let last = read_json(&tick.dir, RESUMED, json!({}))[name].clone();
+    let again = crate::limit::resumed_at(&last).is_some_and(|at| {
+        nanos(SystemTime::now()).saturating_sub(at) < crate::watch::LIMIT_AGAIN.as_nanos()
+    });
     let mut marked = read_json(&tick.dir, LIMITED, json!({}));
-    marked[name] = json!({"repo": repo});
+    let kept = marked.get(name).filter(|kept| kept.is_object()).cloned();
+    let entry = match kept {
+        Some(mut kept) => {
+            if let Some(named) = named
+                && resets_at(&kept).is_none_or(|at| named > at)
+            {
+                kept["resets_at"] = json!(stamp(named)?);
+            }
+            kept["repo"] = json!(repo);
+            kept
+        }
+        None => {
+            let attempts = if again {
+                crate::limit::attempts_of(&last) + 1
+            } else {
+                0
+            };
+            let wait = now + crate::limit::backoff(attempts);
+            let at = match named {
+                Some(named) if again => named.max(wait),
+                Some(named) => named,
+                None if again => wait,
+                None => now + crate::token::LIMIT_WINDOW,
+            };
+            json!({"repo": repo, "resets_at": stamp(at)?, "attempts": attempts})
+        }
+    };
+    marked[name] = entry;
     write_json(&tick.dir, LIMITED, &marked)?;
-    let again = read_json(&tick.dir, RESUMED, json!({}))[name]
-        .as_str()
-        .and_then(|at| at.parse::<u128>().ok())
-        .is_some_and(|at| {
-            nanos(SystemTime::now()).saturating_sub(at) < crate::watch::LIMIT_AGAIN.as_nanos()
-        });
     let mut written = tick.line(DispatchLogEvent::UsageLimit, repo)?;
     written.session = Some(name.to_owned());
     written.line = Some(line.to_owned());
@@ -627,34 +681,67 @@ fn mark(
         tick.note(
             name,
             &anyhow!(
-                "a second usage limit after the loop resumed it: {}; it is resumed again once \
-                 there is headroom",
-                one_line(line)
+                "a second usage limit after the loop resumed it: {}; it is resumed again at {}",
+                one_line(line),
+                marked[name]["resets_at"].as_str().unwrap_or("its reset")
             ),
         );
         Some("second usage limit after a resume".to_owned())
     } else {
         cause.map(str::to_owned)
     };
-    tick.write(&written)
+    tick.write(&written)?;
+    Ok(named)
 }
 
-/// The sessions a usage limit marked, once [`super::Headroom`] answers yes: each resumed from its
+/// `at` as RFC 3339.
+fn stamp(at: OffsetDateTime) -> Result<String> {
+    at.format(&Rfc3339).context("format a reset")
+}
+
+/// The reset a mark of [`LIMITED`] keeps, `resets_at`; none in an older loop's mark.
+fn resets_at(entry: &Value) -> Option<OffsetDateTime> {
+    entry["resets_at"]
+        .as_str()
+        .and_then(|at| OffsetDateTime::parse(at, &Rfc3339).ok())
+}
+
+/// The sessions a usage limit marked (`story:limit-resume-at-reset`): each whose reset has
+/// passed, with no probe; each other, not backing off after a second limit, once
+/// [`super::Headroom`] answers yes, asked once per tick and only when such a session waits; an
+/// answer that does not read is no headroom, said in the journal. Each is resumed from its
 /// transcript (`spawn::resume`) once per stop, or restarted when a hand-over was asked of it as
 /// its repository's controller ([`stands`]: the checks a hand-over's own restart makes, so a
 /// session started by hand after the delivery is not stopped here either); each forgotten, and
-/// one resumed kept in [`RESUMED`]. A session whose request cannot be told, the store or the
-/// session list unread, stays marked for the next tick.
+/// one resumed kept in [`RESUMED`]. A session whose controller the cycle recorded stopped
+/// (`stopped`, [`super::dispatch`]) is resumed only within `controllers.max_working`, and its
+/// controller recorded running again ([`resume_stopped`]); until a place is free it stays
+/// marked. A session whose request cannot be told, the store or the session list unread, stays
+/// marked for the next tick.
 fn limited(tick: &mut Tick<'_, '_>) -> Result<()> {
     let marked = read_json(&tick.dir, LIMITED, json!({}));
     let Some(marked) = marked.as_object().filter(|marked| !marked.is_empty()) else {
         return Ok(());
     };
-    if !tick.seams.headroom.headroom()? {
-        return Ok(());
-    }
+    let now = OffsetDateTime::now_utc();
+    let mut headroom: Option<bool> = None;
     let asked = read_json(&tick.dir, HANDOVER, json!({}));
     for (session, entry) in marked {
+        let due = resets_at(entry).is_some_and(|at| at <= now);
+        if !due {
+            if crate::limit::attempts_of(entry) > 0 {
+                continue;
+            }
+            let yes = *headroom.get_or_insert_with(|| {
+                tick.seams.headroom.headroom().unwrap_or_else(|error| {
+                    tick.note("read the headroom", &error);
+                    false
+                })
+            });
+            if !yes {
+                continue;
+            }
+        }
         let repo = entry["repo"].as_str().unwrap_or("-").to_owned();
         let standing = match asked.get(session).filter(|_| repo != "-") {
             Some(entry) => match stands(tick, entry, session, &repo) {
@@ -671,23 +758,72 @@ fn limited(tick: &mut Tick<'_, '_>) -> Result<()> {
         } else if standing {
             tick.restart(&repo, session, "limit over the context threshold", None)
                 .map(|()| false)
+        } else if entry["stopped"] == true {
+            match resume_stopped(tick, &repo, session) {
+                Ok(None) => continue,
+                Ok(Some(done)) => Ok(done),
+                Err(error) => Err(error),
+            }
         } else {
             resume(tick, &repo, session)
         };
         forget(tick, session);
         match done {
-            Ok(true) => {
-                let mut resumed = read_json(&tick.dir, RESUMED, json!({}));
-                resumed[session.as_str()] = json!(nanos(SystemTime::now()).to_string());
-                if let Err(error) = write_json(&tick.dir, RESUMED, &resumed) {
-                    tick.note(RESUMED, &error);
-                }
-            }
+            Ok(true) => resumed(tick, session, crate::limit::attempts_of(entry)),
             Ok(false) => {}
             Err(error) => tick.note(&format!("resume {session}"), &error),
         }
     }
     Ok(())
+}
+
+/// Resumes `session` of `repo`, whose controller the cycle recorded stopped at its usage limit,
+/// as [`resume`] does, within `controllers.max_working`: its controller is recorded running
+/// again under the session's name first, and stopped again when nothing was resumed. Answers
+/// `None` while that many controllers run, or another controller of `repo` runs, so it waits;
+/// else whether it was resumed.
+///
+/// # Errors
+///
+/// The store cannot be written, or the resume fails.
+fn resume_stopped(tick: &mut Tick<'_, '_>, repo: &str, session: &str) -> Result<Option<bool>> {
+    let controller = {
+        let _one = super::STARTS.lock().unwrap_or_else(PoisonError::into_inner);
+        if tick.running(repo)?.is_some() || super::at_limit(tick.state)?.is_some() {
+            return Ok(None);
+        }
+        let mut generated = crate::controller::record(tick.state)?;
+        let outcome = generated
+            .start_controller(StartController {
+                actor: crate::actor::chosen(),
+                repository: RepositoryName(repo.to_owned()),
+                harness: Harness::Claude,
+                session_name: SessionName(session.to_owned()),
+            })
+            .map_err(|unmet| anyhow!("{unmet}"))?;
+        generated
+            .ports
+            .store
+            .check()
+            .context("keep the controller")?;
+        match outcome {
+            StartControllerOutcome::Started { controller_started } => {
+                controller_started.controller_id.0.0
+            }
+            StartControllerOutcome::AlreadyRunning { .. } => return Ok(None),
+        }
+    };
+    let done = resume(tick, repo, session);
+    if !matches!(done, Ok(true))
+        && let Err(error) = stop_record(
+            tick,
+            &controller,
+            "conductor run: the resume at its usage limit's reset resumed nothing",
+        )
+    {
+        tick.note(&format!("stop the controller {controller}"), &error);
+    }
+    done.map(Some)
 }
 
 /// Resumes `session` of `repo` from its transcript, with the controller role's launch and so on

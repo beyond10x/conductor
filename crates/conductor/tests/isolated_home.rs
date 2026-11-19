@@ -370,6 +370,7 @@ fn the_helper_runs_the_binary_on_the_case_s_home_without_either_variable() {
             (OsStr::new("CLAUDE_CODE_SESSION_ID"), None),
             (OsStr::new("CLAUDE_CONFIG_DIR"), None),
             (OsStr::new("CONDUCTOR_SESSION"), None),
+            (OsStr::new("SLOT_GATE"), None),
             (OsStr::new("USER"), Some(OsStr::new("operator"))),
             (
                 OsStr::new(conductor_cli::secret::TEST_KEYCHAIN_VARIABLE),
@@ -377,7 +378,7 @@ fn the_helper_runs_the_binary_on_the_case_s_home_without_either_variable() {
             ),
         ]),
         "the command sets HOME, USER and the fake keychain under HOME, and removes both variables, the daemon's, the harness's session and \
-         state directory and conductor's, and nothing \
+         state directory, conductor's and slot's gate, and nothing \
          else"
     );
 

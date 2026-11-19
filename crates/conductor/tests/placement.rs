@@ -2499,8 +2499,8 @@ fn a_box_mounts_what_the_runtime_and_the_loop_read_and_write_each_named_in_one_l
             "trees",
             "binary",
             "harness",
+            "harness-versions",
             "config",
-            "harness",
             "forge-cli",
             "forge-login",
             "git-config",
@@ -2561,13 +2561,11 @@ fn a_box_mounts_what_the_runtime_and_the_loop_read_and_write_each_named_in_one_l
         [
             "/opt/conductor/bin".to_owned(),
             case.dir.join("tools/bin").display().to_string(),
+            real(&case.dir.join("tools/share/claude/versions")),
         ],
-        "the binary's and the harness's directories are read"
+        "the binary's and the harness's directories, and the directory of versions the \
+         harness's link points into, are read"
     );
-    let at_own = |path: &Path| placement::HostFile {
-        host_path: real(path),
-        mount: real(path),
-    };
     assert_eq!(
         asked.read_only_files,
         [
@@ -2576,8 +2574,6 @@ fn a_box_mounts_what_the_runtime_and_the_loop_read_and_write_each_named_in_one_l
                 host_path: real(&file),
                 mount: file.display().to_string(),
             },
-            // The file the harness's link names, at its own path: the link is in a root.
-            at_own(&harness),
             // The forge CLI at the path PATH names it by, the file its link names.
             placement::HostFile {
                 host_path: real(&cli),
@@ -2598,10 +2594,83 @@ fn a_box_mounts_what_the_runtime_and_the_loop_read_and_write_each_named_in_one_l
                 mount: worktree.display().to_string(),
             },
         ],
-        "the config file, the harness binary, the forge CLI, its login and the git and worktree \
-         configuration are read"
+        "the config file, the forge CLI, its login and the git and worktree configuration are \
+         read; the harness's version file is in its directory of versions"
     );
     assert_substrate_admits(asked);
+}
+
+/// Issue #192: the harness's installer updates it on the host by writing a new version file
+/// beside the old one and pointing the link on `PATH` at it. A box that read the one file the
+/// link named before cannot start `claude` after the update; a box that reads the directory of
+/// versions resolves the link to the new file with the mounts it already has.
+#[test]
+fn a_box_reads_the_harness_versions_directory_so_a_host_update_resolves() {
+    let case = Case::new("box-harness-versions");
+    let file = case.config(&[("alpha", "systemd")]);
+    let mut instance = linux_instance(&case);
+    instance.placement = PlacementName("systemd".to_owned());
+    let own = case.dir.join("i");
+    instance.state = own.join("state").display().to_string();
+    instance.records = own.join("records").display().to_string();
+    instance.cache = own.join("cache").display().to_string();
+    instance.checkouts.root = own.join("checkouts").display().to_string();
+    instance.checkouts.trees = own.join("trees").display().to_string();
+
+    let versions = case.dir.join("tools/share/claude/versions");
+    let old = versions.join("2.1.0");
+    program(&old);
+    let link = case.dir.join("tools/bin/claude");
+    fs::create_dir_all(link.parent().expect("a parent")).expect("create the directory");
+    std::os::unix::fs::symlink(&old, &link).expect("link");
+    let env = vec![
+        ("HOME".to_owned(), case.home().display().to_string()),
+        (
+            "PATH".to_owned(),
+            case.dir.join("tools/bin").display().to_string(),
+        ),
+        (
+            conductor_cli::store::STORE_VARIABLE.to_owned(),
+            format!(
+                "sqlite:{}",
+                case.dir.join("store/conductor.sqlite").display()
+            ),
+        ),
+    ];
+    let binary = Path::new("/opt/conductor/bin/conductor");
+    let request = placement::request(&instance, &file, binary, env);
+    assert_eq!(request.refused, None, "a box can hold this layout");
+    assert_substrate_admits(&request);
+    assert!(
+        request.read_only_roots.len() <= placement::READ_ONLY_ROOTS_BOUND,
+        "within the bound: {request:?}"
+    );
+    assert!(
+        request.read_only_roots.contains(&real(&versions)),
+        "the directory the harness's link points into is read: {request:?}"
+    );
+
+    // The host updates the harness: a new version file, the link pointed at it.
+    let new = versions.join("2.1.1");
+    program(&new);
+    fs::remove_file(&link).expect("remove the old link");
+    std::os::unix::fs::symlink(&new, &link).expect("link the new version");
+    let resolved = real(&link);
+    let seen = |path: &str| {
+        request
+            .read_only_roots
+            .iter()
+            .any(|root| Path::new(path).starts_with(root))
+            || request
+                .read_only_files
+                .iter()
+                .any(|file| file.mount == path)
+    };
+    assert!(
+        seen(&link.display().to_string()) && seen(&resolved),
+        "the box opened before the update reads the link and the version it names now, \
+         {resolved}: {request:?}"
+    );
 }
 
 /// The layout the getting-started page had: the config file, the store and conductord's

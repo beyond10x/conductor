@@ -1244,6 +1244,74 @@ fn doctor_prints_no_provider_row() {
     assert_eq!(last(&output), "ready", "{}", shown(&output));
 }
 
+/// `story:doctor-usage-probe-notifier`: with a `PATH` that holds neither the instance's usage
+/// probe nor `notify-send`, doctor names each missing with what is lost, and stays ready; with
+/// both there, each is present, the probe with its path and version line. Without a
+/// `usage.probe` the probe is `ais`.
+#[test]
+fn doctor_names_a_missing_notifier_and_an_unrunnable_probe() {
+    let case = Case::new("probe-notifier");
+    case.programs_but(&[]);
+    let probe = format!(
+        "\x20   gates_policy: {}\n\
+         \x20   usage:\n\
+         \x20     probe: example-probe status --json\n",
+        case.policy().display()
+    );
+    let config = case.config_of("[{github: example-org}]", &probe);
+
+    // Neither on PATH.
+    let output = case.doctor_for(&config);
+    assert_eq!(output.status.code(), Some(0), "{}", shown(&output));
+    let lines = stdout(&output);
+    for expected in [
+        "usage probe: example-probe missing (optional: limits resume at their reset time)",
+        "notifier: notify-send missing (limit and escalation notices go to the journal only)",
+    ] {
+        assert!(
+            lines.iter().any(|line| line == expected),
+            "doctor prints {expected:?}: {}",
+            shown(&output)
+        );
+    }
+    assert_eq!(last(&output), "ready", "{}", shown(&output));
+
+    // Both on PATH.
+    case.program("example-probe", "example-probe 1.2.3", 0);
+    case.program("notify-send", "notify-send 0.8.3", 0);
+    let output = case.doctor_for(&config);
+    assert_eq!(output.status.code(), Some(0), "{}", shown(&output));
+    let lines = stdout(&output);
+    for expected in [
+        format!(
+            "usage probe: example-probe present at {}, example-probe 1.2.3",
+            case.bin().join("example-probe").display()
+        ),
+        format!(
+            "notifier: notify-send present at {}",
+            case.bin().join("notify-send").display()
+        ),
+    ] {
+        assert!(
+            lines.contains(&expected),
+            "doctor prints {expected:?}: {}",
+            shown(&output)
+        );
+    }
+    assert_eq!(last(&output), "ready", "{}", shown(&output));
+
+    // Without a `usage.probe`, the probe is `ais`.
+    let output = case.doctor(&case.work());
+    assert_eq!(output.status.code(), Some(0), "{}", shown(&output));
+    let lines = stdout(&output);
+    let expected = "usage probe: ais missing (optional: limits resume at their reset time)";
+    assert!(
+        lines.iter().any(|line| line == expected),
+        "doctor prints {expected:?}: {}",
+        shown(&output)
+    );
+}
+
 // ---------------------------------------------------------------------------------------------
 // story:doctor-checks-guard-forge-writes: the route each instance's forge writes take, and the
 // guard's answer to one forge write of each role it decides.

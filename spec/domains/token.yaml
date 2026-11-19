@@ -34,12 +34,15 @@ types:
   # (absent, the operator's name). The token's value is read from standard input, never from a
   # flag, the environment or the config. The daemon is the one the global `--daemon` or
   # `CONDUCTOR_DAEMON` names (story:daemon-remote), as for every command with a route on its
-  # global API; it is no field of the input.
+  # global API; it is no field of the input. `kind` the kind of the token
+  # (story:pool-token-kind-files-source): absent, `SubscriptionToken`, the long-lived token of a
+  # subscription login; `ApiKey`, an API key.
   - name: conductor.token.JoinDaemon
     kind: struct
     fields:
       - {name: instance, type: Optional<conductor.config.InstanceName>}
       - {name: seat, type: Optional<conductor.token.Seat>}
+      - {name: kind, type: Optional<conductor.config.ModelTokenKind>}
 
   # The input of `conductor leave`: the instance left, on the daemon `--daemon` names.
   - name: conductor.token.LeaveDaemon
@@ -89,7 +92,11 @@ entities:
   # One contributed token (§ 5.3): its pool, its owner (the operator who contributed it), its
   # seat, the secret that holds its value (the name only; the value never leaves the secrets
   # source except as a sealed slot), its usage state (`Ok`, or `Limited` until `limited_until`),
-  # the agent that holds its lease, and when it was contributed.
+  # the agent that holds its lease, and when it was contributed; and its kind
+  # (story:pool-token-kind-files-source): `SubscriptionToken` reaches the harness as
+  # `CLAUDE_CODE_OAUTH_TOKEN` of its process's environment and its settings name no
+  # `apiKeyHelper`, `ApiKey` through the settings' `apiKeyHelper`. A token recorded before the kind
+  # existed has none and is an `ApiKey`, the route every pool token took then.
   #
   # Lifecycle, as § 5.3 words it: `Available` once contributed; `Leased` while an agent of the
   # `claude-code` kind runs on it (one lease per agent start); `Limited` once a usage-limit stop
@@ -124,6 +131,8 @@ entities:
       # carries its actor).
       - name: actor
         type: conductor.operator.Actor
+      - name: kind
+        type: Optional<conductor.config.ModelTokenKind>
     relations:
       - name: secret
         kind: references
@@ -211,7 +220,10 @@ errors:
 commands:
   # `conductor join <daemon url> --instance <i>` contributes the joining engineer's Claude token
   # to the instance's pool (§ 5.3): the token's value is already in the instance's secrets
-  # namespace under `secret`; the pool records its owner, seat and state, never the value.
+  # namespace under `secret`; the pool records its owner, seat, kind and state, never the value.
+  # Under the `files` source (story:pool-token-kind-files-source) the value is the file of that
+  # name in `daemon.secrets.dir`, owner-only, which `conductor join` writes and `conductor leave`
+  # removes: the one file conductor writes there.
   - name: conductor.token.ContributeToken
     naming:
       wire: contribute-token
@@ -222,6 +234,7 @@ commands:
       - {name: owner, type: conductor.operator.OperatorName}
       - {name: seat, type: conductor.token.Seat}
       - {name: secret, type: conductor.secret.SecretName}
+      - {name: kind, type: conductor.config.ModelTokenKind}
       - {name: contributed_at, type: Timestamp}
     outcomes:
       - name: actor-not-human
@@ -244,6 +257,7 @@ commands:
           agent: {cleared: true}
           contributed_at: input.contributed_at
           actor: input.actor
+          kind: input.kind
         emits:
           - conductor.token.TokenContributed
         payload:
@@ -254,8 +268,9 @@ commands:
             owner: input.owner
             seat: input.seat
             secret: input.secret
+            kind: input.kind
             contributed_at: input.contributed_at
-        summary: The token is in the pool, Available and Ok, with its owner and seat.
+        summary: The token is in the pool, Available and Ok, with its owner, seat and kind.
 
   # `conductor leave` withdraws the token (§ 5.3). Resuming the agent that held it on another
   # token is the agent domain's reaction, not an outcome here.
@@ -471,6 +486,7 @@ events:
       - {name: owner, type: conductor.operator.OperatorName}
       - {name: seat, type: conductor.token.Seat}
       - {name: secret, type: conductor.secret.SecretName}
+      - {name: kind, type: conductor.config.ModelTokenKind}
       - {name: contributed_at, type: Timestamp}
 
   - name: conductor.token.TokenWithdrawn
@@ -539,6 +555,8 @@ views:
         type: Timestamp
       - name: actor
         type: conductor.operator.Actor
+      - name: kind
+        type: Optional<conductor.config.ModelTokenKind>
     naming:
       wire: tokens
       display: Tokens of the pool

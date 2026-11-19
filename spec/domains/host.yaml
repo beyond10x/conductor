@@ -76,10 +76,13 @@ types:
 
   # Which build slots a `conductor build run` grant takes (story:build-run-short-lane): one of
   # `thresholds.build_slots` (`Regular`), or one of `thresholds.short_lane_slots`, which admit
-  # only a command the ledger knows to be short (`Short`).
+  # only a command the ledger knows to be short (`Short`). `Gate`: none
+  # (story:build-run-through-slot-gate): with `SLOT_GATE` naming slot's gate directory, the run
+  # takes its share of the cores from slot's FIFO jobserver through `slot run`, so it counts
+  # against neither bound and gets no job count from conductor; it keeps its disk reservation.
   - name: conductor.host.BuildLane
     kind: enum
-    variants: [Regular, Short]
+    variants: [Regular, Short, Gate]
 
   # What one reclaim step freed, from the reclaimable rows of `conductor gc` that need no
   # decision: the build output of an idle managed tree (no live session, no running gate), build
@@ -123,7 +126,10 @@ types:
   # (story:reserve-from-peak). Each `--measure` directory is measured with the run's own (`target/` or the working
   # directory, and `CARGO_TARGET_DIR` when the command's environment sets it), for a run that
   # writes elsewhere (story:reserve-from-peak). `build run` sets no `CARGO_TARGET_DIR`: each tree
-  # builds in its own `target/` (story:build-target-per-tree).
+  # builds in its own `target/` (story:build-target-per-tree). With `SLOT_GATE` naming a
+  # directory and `slot` on `PATH`, the command runs as `slot run -- <command>` on that gate, in
+  # the `Gate` lane: no conductor build slot, no `CARGO_BUILD_JOBS` or `MAKEFLAGS` of its own;
+  # the disk reservation and the watchdog are as without it (story:build-run-through-slot-gate).
   - name: conductor.host.BuildRun
     kind: struct
     fields:
@@ -258,8 +264,9 @@ entities:
         type: Optional<Integer>
       # The lane of a `build run` request (story:build-run-short-lane). While it waits in the queue:
       # `Short` when the ledger knows its command to be short, so it may take a short-lane slot,
-      # else `Regular`. Once granted: the lane whose slot it holds. Absent on a slot and on a
-      # grant of a binary before the lane, which count as `Regular`.
+      # else `Regular`. Once granted: the lane whose slot it holds. `Gate` from the request on
+      # for a run under slot's gate, which holds no slot. Absent on a slot and on a grant of a
+      # binary before the lane, which count as `Regular`.
       - name: lane
         type: Optional<conductor.host.BuildLane>
       # True on a short-lane run that outlived twice `thresholds.short_lane_max`, recorded as it is

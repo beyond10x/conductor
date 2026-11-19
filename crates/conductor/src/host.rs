@@ -736,8 +736,9 @@ impl Ledger {
     }
 
     /// How many `build run` commands hold a regular slot on the host, but `except`: the disk
-    /// grants `Granted` or `Running` outside the short lane, every instance's, which
-    /// `thresholds.build_slots` bounds (`story:build-queue-convoy`).
+    /// grants `Granted` or `Running` in the regular lane, every instance's, which
+    /// `thresholds.build_slots` bounds (`story:build-queue-convoy`); a run under slot's gate
+    /// (`Gate`, `story:build-run-through-slot-gate`) holds none.
     ///
     /// # Errors
     ///
@@ -2286,13 +2287,14 @@ pub fn lane_name(lane: BuildLane) -> &'static str {
     match lane {
         BuildLane::Regular => "Regular",
         BuildLane::Short => "Short",
+        BuildLane::Gate => "Gate",
     }
 }
 
 /// The lane named `name`, as [`lane_name`] writes it.
 #[must_use]
 pub fn lane_named(name: &str) -> Option<BuildLane> {
-    [BuildLane::Regular, BuildLane::Short]
+    [BuildLane::Regular, BuildLane::Short, BuildLane::Gate]
         .into_iter()
         .find(|lane| lane_name(*lane) == name)
 }

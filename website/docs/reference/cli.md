@@ -196,7 +196,7 @@ Every command takes these, before or after its name.
 | [`conductor instance relay`](#conductor-instance-relay) | Bridge one instance API exchange from standard input to the instance's api.sock (CONDUCTOR_API_SOCKET, else &lt;state>/api.sock) and its answer to standard output; conductord runs it as a substrate pipe session in a box on a remote substrate daemon |
 | [`conductor instance serve`](#conductor-instance-serve) | Serve the instance API, the routes of the dashboard under /v1/, on the instance's &lt;state>/api.sock until stopped, and run the instance's loop beside it under the lock conductor run takes (&lt;state>/run/lock), so a conductor run started by hand is refused; while a conductor run holds the lock the runtime yields and takes the loop once it is let go; CONDUCTOR_RUNTIME_LOOP=off serves the API alone; a write takes the token the daemon minted for the instance, in CONDUCTOR_API_TOKEN |
 | [`conductor instance upgrade`](#conductor-instance-upgrade) | Ask the daemon to upgrade an instance to a released binary (POST /v1/instances/\{name}/upgrade) - it fetches the release, installs its binary, runs its conductor doctor, restarts the runtime on it and rolls back to the previous binary unless it answers within daemon.upgrade_timeout; --all goes through every instance of the config file one at a time and stops at the first rollback |
-| [`conductor join`](#conductor-join) | Join an instance of the daemon --daemon names as one of its operators (JoinInstance, with the grants daemon.operators gives you) and contribute your Claude token, read from standard input, to the instance's pool (ContributeToken): the value goes into the daemon's secrets source, the pool records its owner, seat (--seat, your operator name by default) and state, never the value |
+| [`conductor join`](#conductor-join) | Join an instance of the daemon --daemon names as one of its operators (JoinInstance, with the grants daemon.operators gives you) and contribute your Claude token, read from standard input, to the instance's pool (ContributeToken): the value goes into the daemon's secrets source, the pool records its owner, seat (--seat, your operator name by default), kind (--kind, SubscriptionToken by default, or ApiKey) and state, never the value; under the files source the value is a file of daemon.secrets.dir, owner-only, which leave removes |
 | [`conductor leave`](#conductor-leave) | Leave an instance of the daemon --daemon names (LeaveInstance) and withdraw every token you contributed to its pool (WithdrawToken); each agent on one is resumed on another token by the instance's loop |
 | [`conductor login`](#conductor-login) | Log in to the daemon --daemon or CONDUCTOR_DAEMON names through its Identity service, in a browser, and keep the Identity session in this client's keychain; each command against that daemon then presents a bearer minted from it |
 | [`conductor need`](#conductor-need) |  |
@@ -1969,7 +1969,7 @@ Usage: conductor host request-disk [OPTIONS]
 | `--bytes <BYTES>` | no | none | integer |
 | `--command <COMMAND>` | no | none | string |
 | `--requested-at <REQUESTED_AT>` | no | none | timestamp, RFC 3339 |
-| `--lane <LANE>` | no | none | BuildLane, optional One of `Regular`, `Short`. |
+| `--lane <LANE>` | no | none | BuildLane, optional One of `Regular`, `Short`, `Gate`. |
 | `--actor <ACTOR>` | no | none | Actor, as the records print it (`human:<name>`, `agent:<instance>/<role>/<name>`, `daemon`) or one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`, `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`; default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the operator |
 | `--input-json <INPUT_JSON>` | no | none | Read the input fields from standard input, as one JSON object One of `-`. |
 
@@ -1986,7 +1986,7 @@ Usage: conductor host reserve-disk [OPTIONS]
 | `--grant-id <GRANT_ID>` | no | none | GrantId |
 | `--shortfall-bytes <SHORTFALL_BYTES>` | no | none | integer |
 | `--reclaimed-bytes <RECLAIMED_BYTES>` | no | none | integer |
-| `--lane <LANE>` | no | none | BuildLane, optional One of `Regular`, `Short`. |
+| `--lane <LANE>` | no | none | BuildLane, optional One of `Regular`, `Short`, `Gate`. |
 | `--actor <ACTOR>` | no | none | Actor, as the records print it (`human:<name>`, `agent:<instance>/<role>/<name>`, `daemon`) or one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`, `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`; default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the operator |
 | `--input-json <INPUT_JSON>` | no | none | Read the input fields from standard input, as one JSON object One of `-`. |
 
@@ -2605,7 +2605,7 @@ Usage: conductor instance upgrade [OPTIONS]
 
 ## `conductor join`
 
-Join an instance of the daemon --daemon names as one of its operators (JoinInstance, with the grants daemon.operators gives you) and contribute your Claude token, read from standard input, to the instance's pool (ContributeToken): the value goes into the daemon's secrets source, the pool records its owner, seat (--seat, your operator name by default) and state, never the value
+Join an instance of the daemon --daemon names as one of its operators (JoinInstance, with the grants daemon.operators gives you) and contribute your Claude token, read from standard input, to the instance's pool (ContributeToken): the value goes into the daemon's secrets source, the pool records its owner, seat (--seat, your operator name by default), kind (--kind, SubscriptionToken by default, or ApiKey) and state, never the value; under the files source the value is a file of daemon.secrets.dir, owner-only, which leave removes
 
 ```text
 Usage: conductor join [OPTIONS]
@@ -2615,6 +2615,7 @@ Usage: conductor join [OPTIONS]
 |---|---|---|---|
 | `--instance <NAME>` | no | none | The instance joined |
 | `--seat <SEAT>` | no | none | The Claude login the token draws on; absent, your operator name |
+| `--kind <KIND>` | no | none | The token's kind: `SubscriptionToken`, the long-lived token of a subscription login (`claude setup-token`), which the harness reads from `CLAUDE_CODE_OAUTH_TOKEN`; or `ApiKey`, an API key, which it asks its `apiKeyHelper` for. Absent, `SubscriptionToken` One of `ApiKey`, `SubscriptionToken`. |
 
 ## `conductor leave`
 

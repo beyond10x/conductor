@@ -576,7 +576,7 @@ Written as string. Specified as `conductor.store.StoreUrl`.
 
 ### Source
 
-Where a secret's value is kept: `Keychain`, the `secrets-keychain` backend (the OS keychain: the Secret Service on Linux, the native keychain on macOS), on the control host; `Remote`, the `secrets-remote` backend (the Secrets service: encrypted, tenant-scoped custody), where conductord runs in a deployment. `secrets-federation` routes each namespace to one of them (§ 9). `Files`: a directory of mounted files, one file per secret, the file's name the secret's name, its content the value with one trailing line end dropped: the shape a cluster's secret volume has. Conductor reads it and never writes there; a put into it is refused with `SourceReadOnly`.
+Where a secret's value is kept: `Keychain`, the `secrets-keychain` backend (the OS keychain: the Secret Service on Linux, the native keychain on macOS), on the control host; `Remote`, the `secrets-remote` backend (the Secrets service: encrypted, tenant-scoped custody), where conductord runs in a deployment. `secrets-federation` routes each namespace to one of them (§ 9). `Files`: a directory of mounted files, one file per secret, the file's name the secret's name, its content the value with one trailing line end dropped: the shape a cluster's secret volume has. Conductor reads it; a put into it is refused with `SourceReadOnly`. The one file conductor writes there is a pool token's: `conductor join` writes it, owner-only, under the name it derives for the token, and `conductor leave` removes it (`conductor.token.ContributeToken`).
 
 One of `keychain` | `remote` | `files`. Specified as `conductor.secret.Source`.
 

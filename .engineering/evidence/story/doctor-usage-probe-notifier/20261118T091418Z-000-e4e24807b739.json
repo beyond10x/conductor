@@ -1,0 +1,12 @@
+{
+  "at": "2026-11-18T09:14:18Z",
+  "actor": "human:unknown",
+  "artifact": "story:doctor-usage-probe-notifier",
+  "kind": "story",
+  "revision": 4,
+  "change": {
+    "change": "evidence",
+    "kind": "test_result",
+    "source": "cargo test -p conductor-cli --test doctor (40 passed) and --lib doctor:: (13 passed) at f80171e8; doctor_names_a_missing_notifier_and_an_unrunnable_probe failed before the change"
+  }
+}

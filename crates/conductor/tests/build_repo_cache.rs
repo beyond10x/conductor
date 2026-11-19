@@ -141,6 +141,7 @@ impl Case {
             sessions: Vec::new(),
             walk: build::walk,
             sccache: Some(self.fake()),
+            slot: None,
         }
     }
 
@@ -396,6 +397,7 @@ fn with_no_sccache_on_path_nothing_is_set_and_the_build_runs() {
     let case = Case::new("no-sccache");
     let sources = Sources {
         sccache: None,
+        slot: None,
         ..case.sources()
     };
     let outcome = case.run(&sources, &case.request("repo", &format!("{ENV}; exit 3")));
@@ -437,6 +439,7 @@ fn each_grant_records_the_cache_hits_and_misses_of_its_run() {
     // A run given no cache records none.
     let sources = Sources {
         sccache: None,
+        slot: None,
         ..case.sources()
     };
     let outcome = case.run(&sources, &case.request("repo", "true"));

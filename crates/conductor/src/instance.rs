@@ -32,7 +32,9 @@
 //! its first snapshot, whatever `cycle.last` says ([`first_snapshot`]).
 //! A runtime in a box on the local substrate daemon, where substrate refuses a Unix socket, is
 //! told by [`DIAL_VARIABLE`] to bind nothing and dial its API out to the daemon instead
-//! ([`crate::dashboard::serve_dial`], [`crate::daemon::dial`]).
+//! ([`crate::dashboard::serve_dial`], [`crate::daemon::dial`]). A runtime in a box
+//! ([`crate::collect::checkouts::in_box`]) clones, before its loop starts, each repository its
+//! sources include that has no checkout, as a pod's does (`story:box-source-checkouts`).
 //! [`CONFIG_SOURCE_VARIABLE`] names a file it copies over its
 //! `--config` file at every start, before it reads it: how a config mounted read-only reaches a
 //! place the runtime writes beside.
@@ -608,6 +610,24 @@ fn copy_config_source(config_flag: Option<&Path>) -> Result<()> {
         })
 }
 
+/// A runtime in a substrate box clones, at its start, each repository its sources include that
+/// has no checkout ([`crate::collect::checkouts::at_start`], `story:box-source-checkouts`), and
+/// brings the workspace file and the trust up to date after a clone; conductord seeded the
+/// instance before it opened the box. What failed is said, and the runtime goes on.
+fn clone_in_box(instance: &conductor_model::config::Instance, what: &str) {
+    if crate::collect::checkouts::at_start(instance, what) > 0
+        && let Err(error) = crate::collect::checkouts::refresh(instance)
+    {
+        crate::run::say(
+            true,
+            &format!(
+                "{what}: the workspace file and the trust of the new checkouts: {}",
+                crate::collect::checkouts::redacted(&format!("{error:#}"))
+            ),
+        );
+    }
+}
+
 /// How long the snapshot a runtime alone in a pod takes at its start may run, as long as a step
 /// of the cycle.
 const START_SNAPSHOT_BOUND: std::time::Duration = std::time::Duration::from_secs(3600);
@@ -850,6 +870,8 @@ pub fn instance_serve(
         .context("instance serve: start the instance API")?;
     if listen.is_some() {
         seed_alone(config_flag, state_flag, &what);
+    } else if crate::collect::checkouts::in_box(&active.instance) {
+        clone_in_box(&active.instance, &what);
     }
     if std::env::var(LOOP_VARIABLE).is_ok_and(|value| value.trim() == "off") {
         crate::run::say(

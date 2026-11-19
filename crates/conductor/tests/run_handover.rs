@@ -181,6 +181,7 @@ fn pool() {
                     agent: None,
                     contributed_at: Timestamp("2026-11-08T09:00:00Z".to_owned()),
                     actor: conductor_cli::actor::operator("operator"),
+                    kind: None,
                 },
             },
         );

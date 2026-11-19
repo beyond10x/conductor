@@ -1,0 +1,13 @@
+{
+  "at": "2026-11-18T11:46:45Z",
+  "actor": "human:unknown",
+  "artifact": "story:build-run-through-slot-gate",
+  "kind": "story",
+  "revision": 3,
+  "change": {
+    "change": "evidence",
+    "kind": "test_result",
+    "source": "conductor build run -- cargo test -p conductor-cli --test build_run --test build_queue_convoy --test build_repo_cache --test build_short_lane --test isolated_home --test no_organization; cargo clippy --all-targets -- -D warnings: all green at 8c5f84e5 (build_run 69 passed). Fail-first: with slot_gate() forced to answer no gate, a_build_under_slot_gate_takes_no_conductor_build_slot timed out waiting for the gated run while the holder kept the only build slot, and without_slot_gate_a_build_takes_a_conductor_build_slot_and_runs_without_slot found no line for a SLOT_GATE naming no directory",
+    "reference": "crates/conductor/tests/build_run.rs"
+  }
+}

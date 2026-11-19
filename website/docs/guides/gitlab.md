@@ -142,6 +142,11 @@ The box reads `glab`'s login at `~/.config/glab-cli/config.yml`; a login kept in
 keyring does not reach it. `conductor doctor` prints the rows `box <instance> forge`,
 `box <instance> git` and `box <instance> trust`, and names each flag or setting that is missing.
 
+With `include` on the source, the runtime in the box clones each included project that has no
+checkout under `checkouts.root`, at its start and at each snapshot, through that credential
+helper; you clone nothing by hand. `conductor doctor` prints `checkouts <instance>: <n> of <m>
+included repositories have no checkout` and names each one still missing.
+
 ## What conductor reads from GitLab
 
 Each snapshot reads the group with `glab api --hostname <host>` and records:

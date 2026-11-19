@@ -1311,10 +1311,19 @@ pub fn handle_request(state: Option<&Path>, text: &str, decider: &dyn Decider) -
             return escalate(state, &request, DecisionClass::O, rule, reason, now);
         }
         Err(failure) => {
-            let reason = format!(
-                "the {name} decider gave no answer ({}); an unclear answer is the operator's",
-                one_line(&format!("{failure:#}"))
-            );
+            // A harness that did not start is the decider's fault, named as such: the request
+            // was never put to a model (issue #192).
+            let reason = match failure.downcast_ref::<super::model::HarnessStart>() {
+                Some(start) => format!(
+                    "the {name} decider is at fault: {}; the request was put to no model, so it \
+                     is the operator's",
+                    one_line(&start.to_string())
+                ),
+                None => format!(
+                    "the {name} decider gave no answer ({}); an unclear answer is the operator's",
+                    one_line(&format!("{failure:#}"))
+                ),
+            };
             return escalate(state, &request, DecisionClass::O, rule, reason, now);
         }
     };

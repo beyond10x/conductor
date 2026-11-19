@@ -113,7 +113,7 @@ mod snapshot;
 pub use snapshot::Observation;
 mod token;
 mod tool;
-pub use token::{grant_name, token_state_name, usage_name};
+pub use token::{grant_name, token_kind_name, token_kind_of, token_state_name, usage_name};
 
 /// The variable the daemon hands every instance runtime it starts the store's URL in
 /// (`daemon.store`).

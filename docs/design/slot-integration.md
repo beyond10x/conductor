@@ -1,7 +1,8 @@
 # Design: conductor builds through slot
 
-Status: proposal, agreed between the maintainers of both sides, 2026-11-12; the four questions of
-§ 9 are open with the operator. No store record yet. slot is the host build-slot daemon of the
+Status: proposal, agreed between the maintainers of both sides, 2026-11-12; questions 2 to 4 of
+§ 9 are open with the operator, question 1 is answered for a build under slot's gate (§ 4.1).
+The one store record so far is the `Gate` lane of a grant (`conductor.host.BuildLane`, § 4.1). slot is the host build-slot daemon of the
 `beyond10x/slot` repository (docs: https://beyond10x.github.io/slot/).
 
 Paths without a crate are under `crates/conductor/src/`, at `812cb885e`. slot paths are prefixed
@@ -238,6 +239,30 @@ than slot's prompt record (an attached operator may only watch; most deliveries 
 relays), and two sources would need a rule for when they disagree. Conductor owes the inference
 the tags of its deliveries instead (§ 6), so the hook does not count them as the operator's.
 
+### 4.1 Under slot's gate (built, `story:build-run-through-slot-gate`)
+
+slot 0.18 added `slot gate`: the daemon hard-links its pool FIFO into a directory a sandbox sees
+at the same path, and a client in the sandbox that finds `SLOT_GATE=<dir>` takes its job tokens
+from that FIFO jobserver and runs the build in the sandbox (`slot gate --help`). A box reaches
+neither the socket nor the HTTP port, so before the gate its builds ran outside the pool, and
+`build run` counted each in conductor's ledger only.
+
+With `SLOT_GATE` naming a directory and `slot` on `PATH`, `build run`:
+
+1. records its disk request in the `Gate` lane (`conductor.host.BuildLane`), and waits in the
+   ledger's queue for disk only: it takes no conductor build slot and no short-lane slot, and the
+   ledger does not count it against `thresholds.build_slots`;
+2. after the grant, runs `nice -n 19 ionice -c3 slot run -- <command>` in its own process group,
+   with `SLOT_GATE` passed on and no `CARGO_BUILD_JOBS` or `MAKEFLAGS` of its own: the job count
+   is slot's. Since the gate's client runs the build in the box, under itself, `nice`, `ionice`
+   and the watchdog's `SIGSTOP` of the group reach the build, unlike § 2.3;
+3. keeps the reservation, the reclaim, the watchdog, the cache and debug variables and the release
+   as without the gate, and keys and measures the command as written, not its `slot run` prefix.
+
+A `SLOT_GATE` that names no directory, or no `slot` on `PATH`, is said in one line and the run
+takes a conductor build slot as before. Without `SLOT_GATE` nothing changes: the detection by
+`slot status` of § 3 and the phases of § 8 are not built.
+
 ## 5. What conductor needs from slot
 
 Each item carries slot's answer.
@@ -366,6 +391,9 @@ inside a slot job is refused (§ 4 step 1).
    so the instance's `CPUWeight` and `MemoryMax` no longer bound its builds. Options: (a) accept,
    one host pool; (b) slot weights jobs by `conductor.instance`; (c) keep conductor's
    `build_slots` per instance as a cap beside slot. Recommendation: (a).
+   **Answered for a build under slot's gate (§ 4.1): (a).** A gated build counts against slot's
+   one host pool only, and conductor's `build_slots` does not cap it; the build runs in the box,
+   so the box's own limits still bound it. Without the gate the question stays open.
 2. **Sessions the operator talks to** (the operator's). Options: (a) the operator's own shells set
    `SLOT_PRIORITY=interactive`; (b) slot treats a job with no `conductor.*` label as
    `interactive`; (c) slot infers it from a terminal; (d) slot's harness hook records each
@@ -377,8 +405,10 @@ inside a slot job is refused (§ 4 step 1).
 3. **Remote mode with a grant** (the operator's). Options: (a) `build run` removes `SLOT_HOST` so
    conductor's builds stay local; (b) with `SLOT_HOST` set, no grant, no target lock, a
    `conductor.remote` label; (c) as today. A job records `remote` but not the host.
-   Recommendation: (a), shared by slot's maintainer.
+   Recommendation: (a), shared by slot's maintainer. Not touched by § 4.1: `build run` leaves
+   `SLOT_HOST` as it is, under the gate too.
 4. **The grant label only on the ledger's filesystem** (the operator's). Deferring to the ledger
    for every granted job would drop slot's floor for a target on a filesystem other than
    `disk_path`, which the ledger never reads. Slot's maintainer agreed to the condition of § 6;
-   listed for the operator's acceptance.
+   listed for the operator's acceptance. Not touched by § 4.1, which sets no label; question 2
+   is not either, since a gated `build run` passes no `--priority`.

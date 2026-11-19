@@ -13,7 +13,9 @@
 //! `https://github.com/` given in its environment (`GIT_CONFIG_COUNT`), so the `origin` a clone
 //! stores stays the HTTPS URL. A collect pass is `snapshot start-snapshot` run with the pod's
 //! variable set, as the runtime's cycle tick runs it; a start is `instance serve` with the loop
-//! off.
+//! off. A runtime in a substrate box (`placement: systemd`, story:box-source-checkouts) clones
+//! the same way, with neither the pod's variable nor a forge token: such a start is `instance
+//! serve` run as the box's start names it, its API dialed out to the daemon.
 
 mod active;
 mod common;
@@ -709,7 +711,9 @@ fn a_pod_clones_the_one_github_repository_its_include_names() {
     assert!(case.failures(&config, &snapshot).is_empty());
 }
 
-/// Outside a pod (the variable unset) nothing is cloned, at a pass or at a runtime's start.
+/// Outside a pod (the variable unset) nothing is cloned, at a pass or at a runtime's start; nor
+/// on the host, outside the box of an instance a box would hold (the placement of a
+/// `conductor.config/1` instance is `systemd`).
 #[test]
 fn outside_a_pod_nothing_is_cloned() {
     let case = Case::new("not-a-pod", true);
@@ -1037,7 +1041,8 @@ fn doctor_in_a_pod_counts_the_included_repositories_without_a_checkout() {
         "{}",
         describe(&output)
     );
-    let outside = case.conductor(&config, &pod()[1..], &["doctor"]);
+    // Outside a pod, an instance no box holds gets no such row.
+    let outside = case.conductor(placed(&config, "none"), &pod()[1..], &["doctor"]);
     assert!(
         !String::from_utf8_lossy(&outside.stdout).contains("included repositories"),
         "{}",
@@ -1461,4 +1466,168 @@ fn the_collectors_glab_calls_send_no_usage_data() {
         .collect();
     assert!(!values.is_empty());
     assert!(values.iter().all(|value| value == "false"), "{values:?}");
+}
+
+// ---------------------------------------------------------------------------------------------
+// A runtime in a substrate box (story:box-source-checkouts)
+// ---------------------------------------------------------------------------------------------
+
+/// The placement every boxed case names: a box on the local substrate daemon.
+const BOX: &str = "systemd";
+
+/// The config file `config` with the instance `acme` at the placement `placement`, in the
+/// version of the config file that names one.
+fn placed<'a>(config: &'a Path, placement: &str) -> &'a Path {
+    let text = fs::read_to_string(config).expect("read the config file");
+    let placed = text
+        .replacen(
+            "version: conductor.config/1\n",
+            "version: conductor.config/2\n",
+            1,
+        )
+        .replacen(
+            "  - name: acme\n",
+            &format!("  - name: acme\n    placement: {placement}\n    session_prefix: acme\n"),
+            1,
+        );
+    assert_ne!(text, placed, "the config file names the instance acme");
+    fs::write(config, placed).expect("write the config file");
+    config
+}
+
+/// The config file `config` with the instance `acme` placed in a box ([`BOX`]).
+fn boxed(config: &Path) -> &Path {
+    placed(config, BOX)
+}
+
+/// The variable every start of the box of `acme` names that tells a process it runs in that
+/// box: the harness's state directory in the instance's state directory, as
+/// `conductor_cli::placement::request` names it.
+fn in_box(case: &Case) -> Vec<(&'static str, String)> {
+    let state = case.dir.join("state");
+    vec![(
+        conductor_cli::placement::CLAUDE_CONFIG_VARIABLE,
+        text(&conductor_cli::placement::box_claude_dir(&state)),
+    )]
+}
+
+/// The runtime of a box, `instance serve` over `config` as the box's start on the local
+/// substrate daemon names it: the box's variable ([`in_box`]), its API dialed out to a daemon (a
+/// listener on `127.0.0.1` that answers nothing) with a token, no pod's variable and no forge
+/// token in its environment (the box reaches its forges through git's own configuration), its
+/// loop off; what it printed once the loop is off.
+fn box_start(case: &Case, config: &Path) -> String {
+    let daemon = std::net::TcpListener::bind("127.0.0.1:0").expect("bind the daemon's dial-in");
+    let dial = daemon.local_addr().expect("the dial-in's address");
+    let mut command = common::conductor(case.home());
+    case.environment(config, &mut command);
+    command
+        .current_dir(case.dir.join("work"))
+        .args(["instance", "serve"])
+        .envs(in_box(case))
+        .env(conductor_cli::instance::LOOP_VARIABLE, "off")
+        .env(conductor_cli::instance::DIAL_VARIABLE, dial.to_string())
+        .env(conductor_cli::instance::TOKEN_VARIABLE, "box-token")
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    let mut runtime = Runtime::spawn(command);
+    let printed = runtime.until(|printed| printed.contains("the loop is off"));
+    drop(daemon);
+    printed
+}
+
+/// A runtime in a box clones, at its start, the repository its `gitlab` source includes that has
+/// no checkout, where the collector reads it, with no pod's variable and no forge token in its
+/// environment; and before that start `conductor doctor` names the repository as having none.
+#[test]
+fn a_boxed_runtime_clones_an_included_repository_with_no_checkout() {
+    let case = Case::new("box-start", true);
+    case.projects(&[(101, "example-org/alpha", false)]);
+    case.bare("gitlab", "example-org/alpha");
+    let config = case.config(&gitlab("alpha"));
+    let config = boxed(&config);
+
+    let before = case.conductor(config, &[], &["doctor"]);
+    assert!(
+        String::from_utf8_lossy(&before.stdout)
+            .contains("checkouts acme: 1 of 1 included repositories have no checkout: alpha"),
+        "{}",
+        describe(&before)
+    );
+
+    let printed = box_start(&case, config);
+    let dir = case.root().join("alpha");
+    assert!(dir.join(".git").is_dir(), "{printed}");
+    assert_eq!(
+        origin(&dir),
+        format!("https://{HOST}/example-org/alpha.git")
+    );
+    assert!(case.partials().is_empty(), "{:?}", case.partials());
+
+    let after = case.conductor(config, &[], &["doctor"]);
+    assert!(
+        String::from_utf8_lossy(&after.stdout)
+            .contains("checkouts acme: 0 of 1 included repositories have no checkout"),
+        "{}",
+        describe(&after)
+    );
+}
+
+/// A collect pass in the box of a boxed instance clones an included repository that still has no
+/// checkout, as a pod's pass does, with no forge token in its environment; the same pass run on
+/// the host, outside the box, clones nothing.
+#[test]
+fn a_boxed_pass_clones_an_included_repository_with_no_checkout() {
+    let case = Case::new("box-pass", true);
+    case.projects(&[
+        (101, "example-org/alpha", false),
+        (104, "example-org/sub/gamma", false),
+    ]);
+    case.bare("gitlab", "example-org/alpha");
+    case.bare("gitlab", "example-org/sub/gamma");
+    let config = case.config(&gitlab("alpha, sub/gamma"));
+    let config = boxed(&config);
+
+    let outside = case.pass(config, &[]);
+    assert!(
+        !case.root().join("alpha").exists(),
+        "a pass outside the box cloned"
+    );
+    assert!(case.failures(config, &outside).is_empty());
+
+    let snapshot = case.pass(config, &in_box(&case));
+    for name in ["alpha", "sub/gamma"] {
+        assert!(case.root().join(name).join(".git").is_dir(), "{name}");
+        assert_eq!(
+            case.row(config, &snapshot, name)["local_checkout"],
+            json!(true),
+            "{name}"
+        );
+    }
+    assert!(case.failures(config, &snapshot).is_empty());
+}
+
+/// `conductor doctor` on the host names, for a boxed instance, each included repository that has
+/// no checkout under its checkouts root, and none that has one.
+#[test]
+fn doctor_names_a_boxed_instances_included_repositories_without_a_checkout() {
+    let case = Case::new("box-doctor", true);
+    case.projects(&[
+        (101, "example-org/alpha", false),
+        (104, "example-org/sub/gamma", false),
+    ]);
+    case.bare("gitlab", "example-org/alpha");
+    let config = case.config(&gitlab("alpha, sub/gamma"));
+    case.pass(&config, &pod());
+    let config = boxed(&config);
+
+    let output = case.conductor(config, &[], &["doctor"]);
+    let printed = String::from_utf8_lossy(&output.stdout).into_owned();
+    assert!(
+        printed
+            .contains("checkouts acme: 1 of 2 included repositories have no checkout: sub/gamma\n"),
+        "{}",
+        describe(&output)
+    );
 }
