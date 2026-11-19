@@ -42,6 +42,10 @@
 //! `… missing (limit and escalation notices go to the journal only)` ([`notifier_line`]).
 //! Neither fails doctor (`story:doctor-usage-probe-notifier`).
 //!
+//! After the config file's rows, for each instance in a substrate box that names a director role,
+//! whether a director session runs in its box (issue #220, [`director_lines`]); a missing one is
+//! reported, not a failure.
+//!
 //! [`check`] computes every row, [`Doctor::failures`] what is not ready and [`verdict_of`] the
 //! last line, so `conductor setup` prints the same rows and adds its own failures to the same
 //! verdict (`story:setup-command`).
@@ -2504,7 +2508,59 @@ pub fn config_lines(flag: Option<&Path>) -> Vec<(String, Option<String>)> {
     lines.extend(forge_lines(flag));
     lines.extend(pod_lines(flag));
     lines.extend(collect::checkouts::doctor_lines(flag));
+    lines.extend(director_lines(flag));
     lines
+}
+
+/// One line per instance of the config file that runs in a substrate box and names a director
+/// role (issue #220), in the file's order: `director <instance>: <session> runs in its box`, or
+/// `director <instance>: no director session runs in its box (<session>)`, saying that nothing
+/// starts one there yet and that `session start` refuses it outside the box. Read from the box's
+/// registry of child sessions, the one this process names when it runs in the box
+/// ([`crate::confine::child::registry_here`]), else the box's as the host sees it. Reported, not
+/// a failure: the loop runs without a director, and a request its decider escalates waits for the
+/// operator.
+fn director_lines(flag: Option<&Path>) -> Vec<(String, Option<String>)> {
+    let Ok(environment) = config::Environment::from_process() else {
+        return Vec::new();
+    };
+    let Ok(loaded) = config::load(flag, &environment) else {
+        return Vec::new();
+    };
+    loaded
+        .config
+        .instances
+        .iter()
+        .filter(|instance| crate::placement::boxed(instance))
+        .filter_map(|instance| {
+            config::director(instance)?;
+            let name = config::conductor_session(instance, None).session_name?;
+            let state = Path::new(&instance.state);
+            let names = config::director_names(instance, &name.0);
+            let live = names.iter().find(|candidate| {
+                match crate::confine::child::box_registry(instance, state) {
+                    Some(_) => crate::confine::child::runs_in_box(instance, state, candidate),
+                    None => crate::confine::child::registry_here().is_some_and(|dir| {
+                        crate::confine::child::live_named(&dir, candidate).is_some()
+                    }),
+                }
+            });
+            Some(match live {
+                Some(held) => (
+                    format!("director {}: {held} runs in its box", instance.name.0),
+                    None,
+                ),
+                None => (
+                    format!(
+                        "director {}: no director session runs in its box ({}); nothing starts \
+                         one there yet, and session start --role director refuses outside the box",
+                        instance.name.0, name.0
+                    ),
+                    None,
+                ),
+            })
+        })
+        .collect()
 }
 
 /// Each right a daemon that runs its instances as pods needs in their namespace, as a verb and a

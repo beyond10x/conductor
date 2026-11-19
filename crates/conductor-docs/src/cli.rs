@@ -8,10 +8,11 @@ use crate::{SOURCE, cell, front_matter};
 /// Where the CLI reference lands, relative to the repository root.
 pub const PAGE: &str = "website/docs/reference/cli.md";
 
-/// Every subcommand below `command`, depth first, without clap's `help`.
+/// Every subcommand below `command`, depth first, without clap's `help` and without a hidden one,
+/// which the help leaves out.
 fn commands(command: &clap::Command, out: &mut Vec<clap::Command>) {
     for sub in command.get_subcommands() {
-        if sub.get_name() == "help" {
+        if sub.get_name() == "help" || sub.is_hide_set() {
             continue;
         }
         out.push(sub.clone());

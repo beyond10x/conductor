@@ -130,7 +130,6 @@ Every command takes these, before or after its name.
 | [`conductor guard guard-decisions`](#conductor-guard-guard-decisions) | Guard decisions |
 | [`conductor session`](#conductor-session) | The instance's conductor lease, what the run daemon delivers to its sessions, and the daemon's ticks |
 | [`conductor session claim`](#conductor-session-claim) | Claim the conductor lease |
-| [`conductor session deliver-message`](#conductor-session-deliver-message) | Deliver a message to a session |
 | [`conductor session record-run-tick`](#conductor-session-record-run-tick) | Record a tick of the run daemon |
 | [`conductor session deliveries`](#conductor-session-deliveries) | Deliveries to sessions |
 | [`conductor session leases`](#conductor-session-leases) | Conductor leases |
@@ -1754,23 +1753,6 @@ Usage: conductor session claim [OPTIONS]
 | `--actor <ACTOR>` | no | none | Actor, as the records print it (`human:<name>`, `agent:<instance>/<role>/<name>`, `daemon`) or one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`, `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`; default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the operator |
 | `--input-json <INPUT_JSON>` | no | none | Read the input fields from standard input, as one JSON object One of `-`. |
 | `--from-session-start` | no | `false` | Read the session id from a Claude Code SessionStart payload on standard input |
-
-## `conductor session deliver-message`
-
-Deliver a message to a session
-
-```text
-Usage: conductor session deliver-message [OPTIONS]
-```
-
-| Argument | Required | Default | Meaning |
-|---|---|---|---|
-| `--session-name <SESSION_NAME>` | no | none | SessionName |
-| `--first-line <FIRST_LINE>` | no | none | string |
-| `--body-path <BODY_PATH>` | no | none | string, optional |
-| `--delivered-at <DELIVERED_AT>` | no | none | timestamp, RFC 3339 |
-| `--actor <ACTOR>` | no | none | Actor, as the records print it (`human:<name>`, `agent:<instance>/<role>/<name>`, `daemon`) or one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`, `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`; default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the operator |
-| `--input-json <INPUT_JSON>` | no | none | Read the input fields from standard input, as one JSON object One of `-`. |
 
 ## `conductor session record-run-tick`
 

@@ -1,5 +1,5 @@
 // generated from conductor v1
-// contract digest 64aee187d1d520e67700aff5512c55340b1b4251c879b9eddfac8a9586b70786
+// contract digest 87114b906e7caa0ed7e4b7971f214d3afd0390d8d014449d58b0c6bb611e9266
 // do not edit: regenerate with `ess synthesize --layout crate`
 //! Every generated declaration, as JSON, in the renderings the published wire contracts fix.
 //!
@@ -7253,6 +7253,7 @@ pub fn encode_conductor_dispatch_spawn_refusal(value: &crate::dispatch::SpawnRef
         crate::dispatch::SpawnRefusal::LaunchFailed => json::push_text(out, "LaunchFailed"),
         crate::dispatch::SpawnRefusal::ProviderUnavailable => json::push_text(out, "ProviderUnavailable"),
         crate::dispatch::SpawnRefusal::MeasurementShort => json::push_text(out, "MeasurementShort"),
+        crate::dispatch::SpawnRefusal::OutsideBox => json::push_text(out, "OutsideBox"),
     }
 }
 
@@ -7262,7 +7263,7 @@ pub fn encode_conductor_dispatch_spawn_refusal(value: &crate::dispatch::SpawnRef
 ///
 /// [`json::DecodeError`] naming the path and what the declaration says belongs there.
 pub fn decode_conductor_dispatch_spawn_refusal(value: &json::Value, at: &str) -> Result<crate::dispatch::SpawnRefusal, json::DecodeError> {
-    Ok(match json::text_at(value, at, "one of `InstanceNotPinned`, `AlreadyRunning`, `SessionRunning`, `SessionsUnread`, `NoControllerRole`, `NotClaude`, `NoProfile`, `NoSettings`, `NoCheckout`, `RecordsCheckout`, `UntrustedCheckout`, `NoCharter`, `LaunchFailed`, `ProviderUnavailable`, `MeasurementShort`")? {
+    Ok(match json::text_at(value, at, "one of `InstanceNotPinned`, `AlreadyRunning`, `SessionRunning`, `SessionsUnread`, `NoControllerRole`, `NotClaude`, `NoProfile`, `NoSettings`, `NoCheckout`, `RecordsCheckout`, `UntrustedCheckout`, `NoCharter`, `LaunchFailed`, `ProviderUnavailable`, `MeasurementShort`, `OutsideBox`")? {
         "InstanceNotPinned" => crate::dispatch::SpawnRefusal::InstanceNotPinned,
         "AlreadyRunning" => crate::dispatch::SpawnRefusal::AlreadyRunning,
         "SessionRunning" => crate::dispatch::SpawnRefusal::SessionRunning,
@@ -7278,7 +7279,8 @@ pub fn decode_conductor_dispatch_spawn_refusal(value: &json::Value, at: &str) ->
         "LaunchFailed" => crate::dispatch::SpawnRefusal::LaunchFailed,
         "ProviderUnavailable" => crate::dispatch::SpawnRefusal::ProviderUnavailable,
         "MeasurementShort" => crate::dispatch::SpawnRefusal::MeasurementShort,
-        other => return Err(json::DecodeError { at: at.to_owned(), expected: "one of `InstanceNotPinned`, `AlreadyRunning`, `SessionRunning`, `SessionsUnread`, `NoControllerRole`, `NotClaude`, `NoProfile`, `NoSettings`, `NoCheckout`, `RecordsCheckout`, `UntrustedCheckout`, `NoCharter`, `LaunchFailed`, `ProviderUnavailable`, `MeasurementShort`".to_owned(), found: format!("`{other}`") }),
+        "OutsideBox" => crate::dispatch::SpawnRefusal::OutsideBox,
+        other => return Err(json::DecodeError { at: at.to_owned(), expected: "one of `InstanceNotPinned`, `AlreadyRunning`, `SessionRunning`, `SessionsUnread`, `NoControllerRole`, `NotClaude`, `NoProfile`, `NoSettings`, `NoCheckout`, `RecordsCheckout`, `UntrustedCheckout`, `NoCharter`, `LaunchFailed`, `ProviderUnavailable`, `MeasurementShort`, `OutsideBox`".to_owned(), found: format!("`{other}`") }),
     })
 }
 
@@ -7442,6 +7444,7 @@ pub fn encode_conductor_dispatch_work_start_refusal(value: &crate::dispatch::Wor
         crate::dispatch::WorkStartRefusal::LaunchFailed => json::push_text(out, "LaunchFailed"),
         crate::dispatch::WorkStartRefusal::ProviderUnavailable => json::push_text(out, "ProviderUnavailable"),
         crate::dispatch::WorkStartRefusal::MeasurementShort => json::push_text(out, "MeasurementShort"),
+        crate::dispatch::WorkStartRefusal::OutsideBox => json::push_text(out, "OutsideBox"),
     }
 }
 
@@ -7451,7 +7454,7 @@ pub fn encode_conductor_dispatch_work_start_refusal(value: &crate::dispatch::Wor
 ///
 /// [`json::DecodeError`] naming the path and what the declaration says belongs there.
 pub fn decode_conductor_dispatch_work_start_refusal(value: &json::Value, at: &str) -> Result<crate::dispatch::WorkStartRefusal, json::DecodeError> {
-    Ok(match json::text_at(value, at, "one of `ControllerLimit`, `AlreadyRunning`, `StartFailed`, `InstanceNotPinned`, `SessionRunning`, `SessionsUnread`, `NoControllerRole`, `NotClaude`, `NoProfile`, `NoSettings`, `NoCheckout`, `RecordsCheckout`, `UntrustedCheckout`, `NoCharter`, `LaunchFailed`, `ProviderUnavailable`, `MeasurementShort`")? {
+    Ok(match json::text_at(value, at, "one of `ControllerLimit`, `AlreadyRunning`, `StartFailed`, `InstanceNotPinned`, `SessionRunning`, `SessionsUnread`, `NoControllerRole`, `NotClaude`, `NoProfile`, `NoSettings`, `NoCheckout`, `RecordsCheckout`, `UntrustedCheckout`, `NoCharter`, `LaunchFailed`, `ProviderUnavailable`, `MeasurementShort`, `OutsideBox`")? {
         "ControllerLimit" => crate::dispatch::WorkStartRefusal::ControllerLimit,
         "AlreadyRunning" => crate::dispatch::WorkStartRefusal::AlreadyRunning,
         "StartFailed" => crate::dispatch::WorkStartRefusal::StartFailed,
@@ -7469,7 +7472,8 @@ pub fn decode_conductor_dispatch_work_start_refusal(value: &json::Value, at: &st
         "LaunchFailed" => crate::dispatch::WorkStartRefusal::LaunchFailed,
         "ProviderUnavailable" => crate::dispatch::WorkStartRefusal::ProviderUnavailable,
         "MeasurementShort" => crate::dispatch::WorkStartRefusal::MeasurementShort,
-        other => return Err(json::DecodeError { at: at.to_owned(), expected: "one of `ControllerLimit`, `AlreadyRunning`, `StartFailed`, `InstanceNotPinned`, `SessionRunning`, `SessionsUnread`, `NoControllerRole`, `NotClaude`, `NoProfile`, `NoSettings`, `NoCheckout`, `RecordsCheckout`, `UntrustedCheckout`, `NoCharter`, `LaunchFailed`, `ProviderUnavailable`, `MeasurementShort`".to_owned(), found: format!("`{other}`") }),
+        "OutsideBox" => crate::dispatch::WorkStartRefusal::OutsideBox,
+        other => return Err(json::DecodeError { at: at.to_owned(), expected: "one of `ControllerLimit`, `AlreadyRunning`, `StartFailed`, `InstanceNotPinned`, `SessionRunning`, `SessionsUnread`, `NoControllerRole`, `NotClaude`, `NoProfile`, `NoSettings`, `NoCheckout`, `RecordsCheckout`, `UntrustedCheckout`, `NoCharter`, `LaunchFailed`, `ProviderUnavailable`, `MeasurementShort`, `OutsideBox`".to_owned(), found: format!("`{other}`") }),
     })
 }
 
@@ -11903,6 +11907,7 @@ pub fn encode_conductor_session_session_start_refusal(value: &crate::session::Se
         crate::session::SessionStartRefusal::UnknownRole => json::push_text(out, "UnknownRole"),
         crate::session::SessionStartRefusal::SessionRunning => json::push_text(out, "SessionRunning"),
         crate::session::SessionStartRefusal::LaunchFailed => json::push_text(out, "LaunchFailed"),
+        crate::session::SessionStartRefusal::OutsideBox => json::push_text(out, "OutsideBox"),
     }
 }
 
@@ -11912,14 +11917,15 @@ pub fn encode_conductor_session_session_start_refusal(value: &crate::session::Se
 ///
 /// [`json::DecodeError`] naming the path and what the declaration says belongs there.
 pub fn decode_conductor_session_session_start_refusal(value: &json::Value, at: &str) -> Result<crate::session::SessionStartRefusal, json::DecodeError> {
-    Ok(match json::text_at(value, at, "one of `InstanceNotPinned`, `ProviderUnavailable`, `MeasurementShort`, `UnknownRole`, `SessionRunning`, `LaunchFailed`")? {
+    Ok(match json::text_at(value, at, "one of `InstanceNotPinned`, `ProviderUnavailable`, `MeasurementShort`, `UnknownRole`, `SessionRunning`, `LaunchFailed`, `OutsideBox`")? {
         "InstanceNotPinned" => crate::session::SessionStartRefusal::InstanceNotPinned,
         "ProviderUnavailable" => crate::session::SessionStartRefusal::ProviderUnavailable,
         "MeasurementShort" => crate::session::SessionStartRefusal::MeasurementShort,
         "UnknownRole" => crate::session::SessionStartRefusal::UnknownRole,
         "SessionRunning" => crate::session::SessionStartRefusal::SessionRunning,
         "LaunchFailed" => crate::session::SessionStartRefusal::LaunchFailed,
-        other => return Err(json::DecodeError { at: at.to_owned(), expected: "one of `InstanceNotPinned`, `ProviderUnavailable`, `MeasurementShort`, `UnknownRole`, `SessionRunning`, `LaunchFailed`".to_owned(), found: format!("`{other}`") }),
+        "OutsideBox" => crate::session::SessionStartRefusal::OutsideBox,
+        other => return Err(json::DecodeError { at: at.to_owned(), expected: "one of `InstanceNotPinned`, `ProviderUnavailable`, `MeasurementShort`, `UnknownRole`, `SessionRunning`, `LaunchFailed`, `OutsideBox`".to_owned(), found: format!("`{other}`") }),
     })
 }
 

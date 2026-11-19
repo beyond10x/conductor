@@ -1751,7 +1751,9 @@ pub enum SessionCommand {
     Claim(ClaimLeaseArgs),
 
     /// Deliver a message to a session
-    #[command(name = "deliver-message")]
+    // The placed leaf of `conductor.session.DeliverMessage`, which `session deliver` records:
+    // it parses, and is left out of the help and the reference until it is written (issue #215).
+    #[command(name = "deliver-message", hide = true)]
     DeliverMessage(DeliverMessageArgs),
 
     /// Record a tick of the run daemon

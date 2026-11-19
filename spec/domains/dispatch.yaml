@@ -119,7 +119,11 @@ types:
   # stopped. `InstanceNotPinned` (story:instance-isolation), under a config file: the controller
   # role's settings file is no JSON or pins another instance (`conductor.config.Role`), found
   # before anything is recorded. A settings file that pins no instance starts the session with a
-  # copy pinned to the instance, `<state>/sessions/<session name>.settings.json`.
+  # copy pinned to the instance, `<state>/sessions/<session name>.settings.json`. `OutsideBox`
+  # (issue #216), found first: the instance's `placement` opens a substrate box and this process
+  # does not run in it (`conductor spawn` on the host), where a start would run the controller
+  # outside the box; the instance's runtime starts its controllers in the box, and an operator asks
+  # it for a cycle now with `conductor instance cycle`.
   - name: conductor.dispatch.SpawnRefusal
     kind: enum
     variants:
@@ -138,6 +142,7 @@ types:
       - LaunchFailed
       - ProviderUnavailable
       - MeasurementShort
+      - OutsideBox
 
   # Why no controller was started for a unit of work (story:control-plane-work-handler): the
   # work call starts the repository's controller for the dispatch it created, and the loop's
@@ -171,6 +176,7 @@ types:
       - LaunchFailed
       - ProviderUnavailable
       - MeasurementShort
+      - OutsideBox
 
   # A refusal of `conductor spawn`: the repository it was asked to start, why, and what it found.
   - name: conductor.dispatch.SpawnRefused
@@ -228,7 +234,9 @@ types:
   # (`conductor.session.DeliverMessage`): `handover-sent`, a `[HANDOVER]` delivered to a session
   # over its context threshold; `handover`, that session stopped once its hand-over file exists or
   # at 1.25× the threshold; `controller-restarted`, a controller spawned again from its charter
-  # (after a hand-over, a second stall, or a gone session with an open dispatch); `usage-limit`,
+  # (after a hand-over, a second stall, or a gone session with an open dispatch; a start refused
+  # `NoCharter` there ends the repository's open dispatches instead, `failed` for a started or
+  # blocked one and `cancelled` for a sent one, issue #215); `usage-limit`,
   # sessions marked by a usage limit; `resumed`, a marked session resumed at the reset its limit
   # named (story:limit-resume-at-reset), at once on another token of the host's pool with
   # headroom, or at the first reset of a token of that pool (story:limit-aware-token-reassignment);

@@ -61,7 +61,8 @@ use conductor_model::behaviour::{
 };
 use conductor_model::config::{Instance, SessionName};
 use conductor_model::dispatch::{
-    ControllerState, DispatchLogEvent, DispatchLogLine, DispatchState, WorkStartRefusal,
+    ControllerState, DispatchLogEvent, DispatchLogLine, DispatchState, SpawnRefusal,
+    WorkStartRefusal,
 };
 use conductor_model::obligation::UnmetObligation;
 use conductor_model::primitives::{Timestamp, Uuid};
@@ -789,21 +790,32 @@ impl<'s, 'a> Tick<'s, 'a> {
     ///
     /// The store does not open.
     pub fn spawn(&mut self, repo: &str) -> Result<Result<(), String>> {
+        Ok(self.try_start(repo)?.map_err(|(_, why)| why))
+    }
+
+    /// [`Tick::spawn`], answering with why it did not start the `SpawnRefusal` of `conductor
+    /// spawn`'s refusal, where one refused it.
+    ///
+    /// # Errors
+    ///
+    /// The store does not open.
+    fn try_start(&mut self, repo: &str) -> Result<Result<(), (Option<SpawnRefusal>, String)>> {
         let _one = STARTS
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         if let Some(limit) = at_limit(self.state)? {
-            return Ok(Err(format!("max_working {limit} reached")));
+            return Ok(Err((None, format!("max_working {limit} reached"))));
         }
         // A repository on the default charter works units of work only: its open dispatch, else
         // no controller (no goal's dispatch is sent for it).
         let dispatch = if crate::spawn::is_default_charter(&self.charter(repo)) {
             let Ok(crate::dispatch::Open::One(id)) = crate::dispatch::open_of(self.state, repo)
             else {
-                return Ok(Err(
+                return Ok(Err((
+                    None,
                     "the charter is conductor's default: a controller starts only for a dispatch"
                         .to_owned(),
-                ));
+                )));
             };
             Some(id)
         } else {
@@ -828,8 +840,85 @@ impl<'s, 'a> Tick<'s, 'a> {
                 self.wrote(DispatchLogEvent::Sent);
                 Ok(Ok(()))
             }
-            Err(error) => Ok(Err(one_line(&format!("{error:#}")))),
+            Err(error) => Ok(Err((
+                error
+                    .downcast_ref::<crate::spawn::Refused>()
+                    .map(|refused| refused.0.refusal),
+                one_line(&format!("{error:#}")),
+            ))),
         }
+    }
+
+    /// Starts `repo`'s controller again for its open dispatch, as [`Tick::spawn`] does; when the
+    /// start is refused `NoCharter` (issue #215), the controller can never start again from its
+    /// charter, so its open dispatches end instead of staying open: a started or blocked one
+    /// recorded failed (`ReportFailed`), a sent one cancelled (`CancelDispatch`), each with
+    /// `why_gone` and the refusal as its reason. Answers `Ok(true)` when it started, `Ok(false)`
+    /// when the dispatches were ended, and the refusal otherwise.
+    ///
+    /// # Errors
+    ///
+    /// The store does not open, or a dispatch does not move.
+    pub fn start_again(&mut self, repo: &str, why_gone: &str) -> Result<Result<bool, String>> {
+        match self.try_start(repo)? {
+            Ok(()) => Ok(Ok(true)),
+            Err((Some(SpawnRefusal::NoCharter), why)) => {
+                self.end_open(repo, &format!("conductor run: {why_gone}, and {why}"))?;
+                Ok(Ok(false))
+            }
+            Err((_, why)) => Ok(Err(why)),
+        }
+    }
+
+    /// Ends every open dispatch of `repo` with `reason`: a started or blocked one failed, a sent
+    /// one cancelled.
+    ///
+    /// # Errors
+    ///
+    /// The store does not open, or a dispatch does not move.
+    fn end_open(&mut self, repo: &str, reason: &str) -> Result<()> {
+        let open: Vec<(String, DispatchState)> = {
+            let store = crate::state::open(self.state)?;
+            let open = DispatchStorage::list(&store)
+                .into_iter()
+                .filter(|held| held.data.repository.0 == repo)
+                .filter(|held| {
+                    matches!(
+                        held.state,
+                        DispatchState::Sent | DispatchState::Started | DispatchState::Blocked
+                    )
+                })
+                .map(|held| (held.data.dispatch_id.0, held.state))
+                .collect();
+            store.check().context("read the dispatches")?;
+            open
+        };
+        for (id, state) in open {
+            if state == DispatchState::Sent {
+                let _ = crate::dispatch::cancel_dispatch(
+                    self.state,
+                    crate::cli::CancelDispatchArgs {
+                        actor: None,
+                        dispatch_id: Some(id),
+                        reason: Some(reason.to_owned()),
+                        input_json: None,
+                    },
+                )?;
+                self.wrote(DispatchLogEvent::Cancelled);
+            } else {
+                let _ = crate::dispatch::report_failed(
+                    self.state,
+                    crate::cli::ReportFailedArgs {
+                        actor: None,
+                        dispatch_id: Some(id),
+                        reason: Some(reason.to_owned()),
+                        input_json: None,
+                    },
+                )?;
+                self.wrote(DispatchLogEvent::Failed);
+            }
+        }
+        Ok(())
     }
 
     /// The dispatch a controller of `repo` this tick starts works on, which its charter names
@@ -956,9 +1045,13 @@ impl<'s, 'a> Tick<'s, 'a> {
         if let Some(path) = resume {
             resume_point(&self.charter(repo), path)?;
         }
-        self.spawn(repo)?
+        let started = self
+            .start_again(repo, &format!("its session {session} is {reason}"))?
             .map_err(|why| anyhow!("spawn {repo} again: {why}"))?;
         handlers::forget(self, session);
+        if !started {
+            return Ok(());
+        }
         let mut line = self.line(DispatchLogEvent::ControllerRestarted, repo)?;
         line.session = Some(session.to_owned());
         line.reason = Some(reason.to_owned());

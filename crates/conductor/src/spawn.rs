@@ -37,7 +37,10 @@
 //! the state directory by the `claude-code` kind (`story:roles-in-the-binary`):
 //! `<state>/sessions/<session name>.profile.md` and `.settings.json`.
 //!
-//! In order, it refuses, recording and launching nothing: a repository that names no git
+//! In order, it refuses, recording and launching nothing: an instance whose `placement` opens a
+//! substrate box when this process does not run in that box, as on the host, where the session
+//! would run outside the box (`OutsideBox`, issue #216, [`outside_box`]; the runtime in the box
+//! starts the controllers, `conductor instance cycle` asks it for a cycle now); a repository that names no git
 //! checkout directly, or one group down, under the checkouts root, one whose physical path lies
 //! outside the root's physical path, or one an `exclude` entry of the instance's sources leaves out,
 //! or no `include` entry names (`story:source-include-list`)
@@ -155,6 +158,9 @@ pub fn spawn_for(
     };
     let active = config::active();
     let instance = &active.instance;
+    if let Some(detail) = outside_box(instance) {
+        return refuse(SpawnRefusal::OutsideBox, detail);
+    }
     let checkout = match checkout(instance, &repository) {
         Ok(checkout) => checkout,
         Err(detail) => return refuse(SpawnRefusal::NoCheckout, detail),
@@ -709,6 +715,30 @@ fn refused(answer: &SpawnRefused) -> Result<ExitCode> {
     Err(Refused(answer.clone()).into())
 }
 
+/// Why a session of `instance` may not start in this process (issue #216): its file writes its
+/// `placement` (`conductor.config/2`; a `/1` file and the built-in instance name theirs after the
+/// confinement's provider, whose own sessions start where the command runs), that placement opens
+/// a substrate box ([`crate::placement::boxed`]), and this process does not run in that box
+/// ([`collect::checkouts::in_box`]), as `conductor spawn` or `session start` run by hand on the
+/// host do not. The session would run outside the box, so nothing starts; the instance's runtime
+/// starts its sessions in the box, and `conductor instance cycle` asks it for a cycle now. `None`
+/// for an instance at placement `none` and for a process in the instance's box.
+#[must_use]
+pub fn outside_box(instance: &Instance) -> Option<String> {
+    (!config::legacy(instance).shown
+        && crate::placement::boxed(instance)
+        && !collect::checkouts::in_box(instance))
+    .then(|| {
+        format!(
+            "instance {} runs in a substrate box (placement {}) and this process is not in it, so \
+             the session would start outside the box; its runtime starts its sessions in the box: \
+             ask it for a cycle now with CONDUCTOR_INSTANCE={} conductor instance cycle, then \
+             check conductor controller controllers",
+            instance.name.0, instance.placement.0, instance.name.0
+        )
+    })
+}
+
 /// The refusal of a start for a unit of work that `refusal` of `conductor spawn` is: the one of
 /// the same name. Exhaustive, so a refusal the specification adds fails to compile here.
 #[must_use]
@@ -729,6 +759,7 @@ pub const fn work_refusal(refusal: SpawnRefusal) -> WorkStartRefusal {
         SpawnRefusal::LaunchFailed => WorkStartRefusal::LaunchFailed,
         SpawnRefusal::ProviderUnavailable => WorkStartRefusal::ProviderUnavailable,
         SpawnRefusal::MeasurementShort => WorkStartRefusal::MeasurementShort,
+        SpawnRefusal::OutsideBox => WorkStartRefusal::OutsideBox,
     }
 }
 
@@ -913,6 +944,7 @@ const fn refusal_name(refusal: SpawnRefusal) -> &'static str {
         SpawnRefusal::LaunchFailed => "LaunchFailed",
         SpawnRefusal::ProviderUnavailable => "ProviderUnavailable",
         SpawnRefusal::MeasurementShort => "MeasurementShort",
+        SpawnRefusal::OutsideBox => "OutsideBox",
     }
 }
 

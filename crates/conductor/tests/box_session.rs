@@ -722,6 +722,113 @@ fn a_delivery_to_no_running_session_is_refused() {
     assert!(case.inbox().is_empty());
 }
 
+/// Issues #216 and #220: on the host, a boxed instance's controller (`spawn`) and director
+/// (`session start --role director`) start nowhere: each refuses `OutsideBox`, naming `conductor
+/// instance cycle`, before the harness is called or anything is recorded.
+#[test]
+fn on_the_host_a_boxed_instance_starts_no_session_outside_its_box() {
+    let case = Case::new("host-starts-nothing");
+    case.make_boxed(7399);
+
+    let output = case.run_at(Side::Host, &["spawn", "--repository", "alpha"], "");
+    assert_eq!(output.status.code(), Some(1), "{}", describe(&output));
+    let said = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        said.contains("spawn: refused: OutsideBox") && said.contains("conductor instance cycle"),
+        "{}",
+        describe(&output)
+    );
+
+    let output = case.run_at(Side::Host, &["session", "start", "--role", "director"], "");
+    assert_eq!(output.status.code(), Some(1), "{}", describe(&output));
+    let said = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        said.contains("session start: refused: OutsideBox")
+            && said.contains("conductor instance cycle"),
+        "{}",
+        describe(&output)
+    );
+    assert_eq!(
+        case.calls(),
+        Vec::<String>::new(),
+        "the harness was not called"
+    );
+    assert!(
+        !case.records().join("dispatches").exists(),
+        "nothing was recorded"
+    );
+    assert!(child::entries(&case.box_registry()).is_empty());
+    assert!(child::entries(&case.registry()).is_empty());
+}
+
+/// Issue #215: a delivery to a child session whose process is gone names the session gone and
+/// does not ask the session list; from the host, a boxed session whose every entry ended is named
+/// gone too, without the runtime.
+#[test]
+fn a_delivery_to_a_gone_child_session_names_it_gone() {
+    let case = Case::new("gone-session");
+    let output = case.run(&["spawn", "--repository", "alpha"]);
+    succeeded(&output, "spawn");
+    let entry = case.live().expect("a live child session");
+    let pid = entry.pid.expect("a pid");
+    assert_eq!(case.wait_for_inbox(1).len(), 1);
+    // SAFETY: a signal to the process group the case's session leads.
+    unsafe {
+        libc::kill(-i32::try_from(pid).expect("a pid"), libc::SIGKILL);
+    }
+    let until = Instant::now() + Duration::from_secs(10);
+    while !gone(pid) {
+        assert!(Instant::now() < until, "the session's process {pid} ended");
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    let before = case.calls().len();
+    let output = case.run_with_input(
+        &["session", "deliver", "--name", "ex-alpha", "--text", "-"],
+        "conductor: alpha: hello",
+    );
+    assert_eq!(output.status.code(), Some(1), "{}", describe(&output));
+    let said = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        said.contains("SessionNotReachable")
+            && said.contains("the session is gone")
+            && said.contains(&entry.session_id),
+        "{}",
+        describe(&output)
+    );
+    assert_eq!(
+        case.calls()[before..].to_vec(),
+        Vec::<String>::new(),
+        "the session list was not asked"
+    );
+
+    // From the host, an entry of the box that ended (an exit code recorded) is named gone.
+    case.make_boxed(7399);
+    let ended = case.box_registry().join("e0000001.json");
+    write(
+        &ended,
+        &json!({
+            "name": "ex-beta", "session_id": "e0000001", "cwd": case.checkout(),
+            "pid": 4_194_305, "started_at": 1, "exit_code": 137,
+        })
+        .to_string(),
+    );
+    let output = case.run_at(
+        Side::Host,
+        &["session", "deliver", "--name", "ex-beta", "--text", "-"],
+        "conductor: beta: hello",
+    );
+    assert_eq!(output.status.code(), Some(1), "{}", describe(&output));
+    let said = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        said.contains("SessionNotReachable")
+            && said.contains("the session is gone")
+            && said.contains("exit code 137")
+            && !said.contains("runtime was not reached"),
+        "{}",
+        describe(&output)
+    );
+}
+
 /// `story:host-commands-reach-boxed-session`: a controller runs in the box of a boxed instance,
 /// started there as a child session, where the host can neither signal its process nor see its
 /// registry as its own. From the host, `session deliver` puts the text on the session's input and
@@ -839,4 +946,64 @@ fn host_commands_refuse_and_change_nothing_without_the_runtime() {
     assert_eq!(case.controller()["state"], "Running");
     assert!(child::alive(pid, ""), "the session's process {pid} runs on");
     assert_eq!(case.inbox().len(), 1, "nothing was delivered");
+}
+
+/// Issue #215: `session deliver-message`, a placed leaf that is not written, is not in the help
+/// of `conductor session`; `session deliver` is.
+#[test]
+fn the_unwritten_deliver_message_leaf_is_not_in_the_help() {
+    let case = Case::new("deliver-message-help");
+    let output = case.run_at(Side::Host, &["session", "--help"], "");
+    let help = String::from_utf8(succeeded(&output, "session --help")).expect("UTF-8");
+    assert!(help.contains("deliver "), "{help}");
+    assert!(!help.contains("deliver-message"), "{help}");
+}
+
+/// Issue #220 (`story:controller-name-not-conductor`): under a session prefix the director is
+/// `<prefix>-director`, never `<prefix>-conductor`, which is the controller of a repository named
+/// `conductor`. With that repository's controller live, `session stop --role director` finds no
+/// director and leaves the controller running.
+#[test]
+fn the_director_s_name_is_never_a_repository_controller_s() {
+    let case = Case::new("director-name");
+    let checkout = case.root().join("conductor");
+    write(&checkout.join(".git/HEAD"), "ref: refs/heads/main\n");
+    write(&case.records().join("charters/conductor.md"), CHARTER);
+    write(
+        &case.home().join(".claude.json"),
+        &json!({"projects": {
+            case.checkout().display().to_string(): {"hasTrustDialogAccepted": true},
+            checkout.display().to_string(): {"hasTrustDialogAccepted": true},
+        }})
+        .to_string(),
+    );
+    let shown: Value = serde_json::from_slice(&succeeded(
+        &case.run(&["config", "show", "--format", "json"]),
+        "config show",
+    ))
+    .expect("the config as JSON");
+    assert_eq!(
+        shown["instances"][0]["conductor"]["session_name"], "ex-director",
+        "{shown:#}"
+    );
+
+    succeeded(
+        &case.run(&["spawn", "--repository", "conductor"]),
+        "spawn the conductor repository's controller",
+    );
+    let controller = child::live_named(&case.registry(), "ex-conductor")
+        .expect("the controller ex-conductor runs");
+
+    let output = case.run(&["session", "stop", "--role", "director"]);
+    assert_eq!(output.status.code(), Some(1), "{}", describe(&output));
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("NotRunning"),
+        "{}",
+        describe(&output)
+    );
+    assert!(
+        child::live_named(&case.registry(), "ex-conductor").is_some(),
+        "the controller {} runs on",
+        controller.session_id
+    );
 }

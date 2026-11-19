@@ -1,5 +1,5 @@
 // generated from conductor v1
-// contract digest 64aee187d1d520e67700aff5512c55340b1b4251c879b9eddfac8a9586b70786
+// contract digest 87114b906e7caa0ed7e4b7971f214d3afd0390d8d014449d58b0c6bb611e9266
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! Dispatch — `conductor.dispatch`.
@@ -399,6 +399,8 @@ pub enum SpawnRefusal {
     ProviderUnavailable,
     /// `MeasurementShort`.
     MeasurementShort,
+    /// `OutsideBox`.
+    OutsideBox,
 }
 
 /// SpawnRefused — `conductor.dispatch.SpawnRefused`.
@@ -482,6 +484,8 @@ pub enum WorkStartRefusal {
     ProviderUnavailable,
     /// `MeasurementShort`.
     MeasurementShort,
+    /// `OutsideBox`.
+    OutsideBox,
 }
 
 /// WorkState — `conductor.dispatch.WorkState`.

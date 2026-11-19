@@ -1889,6 +1889,36 @@ fn a_gone_session_with_an_open_dispatch_is_respawned() {
     );
 }
 
+/// Issue #215: a gone session whose repository has no charter any more cannot start again, so
+/// its open dispatch is recorded failed with why, rather than left `Started` for ever; nothing is
+/// launched.
+#[test]
+fn a_gone_session_without_a_charter_fails_its_open_dispatch() {
+    let case = Case::new("gone-chartless");
+    case.ok(&["spawn", "--repository", "alpha"]);
+    let dispatch = case.dispatch("alpha");
+    case.ok(&["dispatch", "report-started", "--dispatch-id", &dispatch]);
+    fs::remove_file(case.charter("alpha")).expect("park the charter");
+    let tick = case.tick(&[&format!("session gone: ex-alpha {FIRST_SHORT}")]);
+    assert_eq!(actions(&tick), ["failed"], "{tick}");
+    assert_eq!(case.dispatch_state(&dispatch), "Failed", "{tick}");
+    let failed: Vec<Value> = case
+        .log()
+        .into_iter()
+        .filter(|line| line["event"] == "failed" && line["id"] == dispatch.as_str())
+        .collect();
+    let reason = failed
+        .first()
+        .and_then(|line| line["reason"].as_str())
+        .unwrap_or_default()
+        .to_owned();
+    assert!(
+        reason.contains("ex-alpha is gone") && reason.contains("NoCharter"),
+        "{tick}"
+    );
+    assert_eq!(case.launched(), ["ex-alpha"], "nothing launched again");
+}
+
 /// The maintainer role the conductor-dev cases add, under its old name, so its session is
 /// `ex-conductor-dev`.
 const MAINTAINER: &str = "\x20     - {role: conductor-dev, harness: claude, model: opus}\n";

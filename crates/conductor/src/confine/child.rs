@@ -254,6 +254,56 @@ pub fn live_named(dir: &Path, name: &str) -> Option<Entry> {
         .find(|entry| entry.name == name && entry.live_pid().is_some())
 }
 
+/// The newest entry named `name` in the registry `dir` when the registry holds that name and no
+/// entry of it lives (issue #215): a child session started here that is gone, its process ended
+/// or killed. `None` when the registry holds no such name, or a live one.
+#[must_use]
+pub fn gone_named(dir: &Path, name: &str) -> Option<Entry> {
+    let named: Vec<Entry> = entries(dir)
+        .into_iter()
+        .filter(|entry| entry.name == name)
+        .collect();
+    if named.iter().any(|entry| entry.live_pid().is_some()) {
+        return None;
+    }
+    named.into_iter().next_back()
+}
+
+/// The newest entry named `name` in the box of `instance`, seen from outside that box
+/// ([`box_registry`]), when every entry of that name there has ended: an exit code recorded, or no
+/// pid. The box's pids cannot be checked from outside it, so an entry with a pid and no exit is
+/// taken as live ([`runs_in_box`]) and this answers `None`.
+#[must_use]
+pub fn ended_in_box(
+    instance: &conductor_model::config::Instance,
+    state: &Path,
+    name: &str,
+) -> Option<Entry> {
+    let dir = box_registry(instance, state)?;
+    let named: Vec<Entry> = entries(&dir)
+        .into_iter()
+        .filter(|entry| entry.name == name)
+        .collect();
+    if named
+        .iter()
+        .any(|entry| entry.pid.is_some() && entry.exit_code.is_none())
+    {
+        return None;
+    }
+    named.into_iter().next_back()
+}
+
+/// What became of the gone session `entry`, for a refusal that names it gone.
+#[must_use]
+pub fn gone_because(entry: &Entry) -> String {
+    let id = &entry.session_id;
+    match (entry.exit_code, entry.pid) {
+        (Some(code), _) => format!("its child session {id} ended with exit code {code}"),
+        (None, Some(pid)) => format!("its child session {id} ended: its process {pid} is gone"),
+        (None, None) => format!("its child session {id} never ran a process"),
+    }
+}
+
 /// `entry` as the Claude session list prints one: `id` and `sessionId` its id, `name`, `cwd`,
 /// `pid` while it lives, `status` from its output ([`status`]), `startedAt`, and `kind`
 /// [`NAME`].

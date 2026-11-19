@@ -68,6 +68,10 @@ types:
   # A role that names no settings file starts with its default (the binary's
   # `conductor-settings.json` for `conductor`, an empty one for `conductor-dev`, story:roles-in-the-binary) written pinned the
   # same way.
+  # `OutsideBox` (issue #220), found before anything is launched: the role is an instance's own
+  # (not a host role) and the instance's `placement` opens a substrate box this process does not
+  # run in, so the session would start outside the box; a boxed start never falls back to an
+  # unboxed one.
   - name: conductor.session.SessionStartRefusal
     kind: enum
     variants:
@@ -77,6 +81,7 @@ types:
       - UnknownRole
       - SessionRunning
       - LaunchFailed
+      - OutsideBox
 
   # A refusal of `conductor session start`: the role it was asked to start, why, and what it
   # found.

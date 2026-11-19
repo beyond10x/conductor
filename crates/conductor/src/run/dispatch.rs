@@ -240,14 +240,17 @@ fn reconcile(tick: &mut Tick<'_, '_>) -> Result<Option<String>> {
         if !tick.open_dispatch(&repo)? || tick.running(&repo)?.is_some() {
             continue;
         }
-        match tick.spawn(&repo)? {
-            Ok(()) => {
+        match tick.start_again(&repo, &format!("its session {session} is gone"))? {
+            Ok(true) => {
                 let mut line = tick.line(DispatchLogEvent::ControllerRestarted, &repo)?;
                 line.session = Some(session);
                 line.reason = Some("gone".to_owned());
                 tick.write(&line)?;
                 parts.push(format!("restarted {repo}"));
             }
+            Ok(false) => parts.push(format!(
+                "{repo} has no charter to start again from: its open dispatches ended"
+            )),
             Err(why) => parts.push(format!("{repo} waits: {why}")),
         }
     }

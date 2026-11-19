@@ -2260,3 +2260,84 @@ fn doctor_names_a_disk_path_on_the_box_s_tmpfs() {
         shown(&output)
     );
 }
+
+/// Issue #220: doctor names, for each boxed instance with a director role, whether a director
+/// session runs in its box, under the director's own name `<session_prefix>-director`, read from
+/// the box's registry of child sessions; a missing one is reported, not a failure.
+#[test]
+fn doctor_names_a_boxed_instance_without_a_director_session() {
+    let case = Case::new("box-director");
+    case.programs_but(&[]);
+    let mut text = format!(
+        "version: conductor.config/2\ndaemon: {{port: 7300, store: {:?}}}\ninstances:\n",
+        format!("sqlite:{}", case.dir.join("store/shared.sqlite").display())
+    );
+    for name in ["alpha", "beta"] {
+        let root = case.dir.join(name);
+        for sub in ["checkouts", "state", "records", "cache"] {
+            fs::create_dir_all(root.join(sub)).expect("an instance directory");
+        }
+        text.push_str(&format!(
+            "  - name: {name}\n    placement: systemd\n    session_prefix: {name}\n    \
+             sources: [{{github: example-org}}]\n    \
+             checkouts: {{root: {checkouts:?}, trees: {trees:?}}}\n    \
+             records: {records:?}\n    state: {state:?}\n    cache: {cache:?}\n",
+            checkouts = root.join("checkouts"),
+            trees = root.join("trees"),
+            records = root.join("records"),
+            state = root.join("state"),
+            cache = root.join("cache"),
+        ));
+    }
+    // beta's director runs in its box: an entry with a pid and no exit, as the host sees it.
+    let entry = case
+        .dir
+        .join("beta/state/claude/conductor-sessions/d0000001.json");
+    fs::create_dir_all(entry.parent().expect("a parent")).expect("the box's registry");
+    fs::write(
+        &entry,
+        serde_json::json!({
+            "name": "beta-director", "session_id": "d0000001", "cwd": case.dir.join("beta/records"),
+            "pid": 4242, "started_at": 1, "exit_code": null,
+        })
+        .to_string(),
+    )
+    .expect("write the entry");
+    let file = case.dir.join("conductor.yaml");
+    fs::write(&file, text).expect("write the config file");
+    let output = common::conductor(case.home())
+        .arg("doctor")
+        .current_dir(case.work())
+        .env_clear()
+        .env("HOME", case.home())
+        .env("PATH", case.bin())
+        .env("CONDUCTOR_CONFIG", &file)
+        .env(
+            conductor_cli::placement::SOCKET_VARIABLE,
+            case.dir.join("no.sock"),
+        )
+        .stdin(Stdio::null())
+        .output()
+        .expect("conductor runs");
+    let lines = stdout(&output);
+    let director: Vec<&String> = lines
+        .iter()
+        .filter(|line| line.starts_with("director "))
+        .collect();
+    assert_eq!(
+        director,
+        [
+            "director alpha: no director session runs in its box (alpha-director); nothing \
+             starts one there yet, and session start --role director refuses outside the box",
+            "director beta: beta-director runs in its box",
+        ],
+        "{}",
+        shown(&output)
+    );
+    let verdict = lines.last().cloned().unwrap_or_default();
+    assert!(
+        !verdict.contains("director"),
+        "not a failure: {}",
+        shown(&output)
+    );
+}

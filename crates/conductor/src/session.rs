@@ -289,7 +289,9 @@ const DELIVERED: &str = "delivered";
 ///
 /// A session neither route reaches is refused (`SessionNotReachable`, the specification's
 /// `unreachable` branch), exit 1 naming the session and both routes on one line: nothing was
-/// kept or recorded, and the command does not try again.
+/// kept or recorded, and the command does not try again. A child session the registry holds
+/// that has ended, here or, seen from the host, in the instance's box, is refused the same way
+/// and named gone, without asking the session list (issue #215).
 ///
 /// # Errors
 ///
@@ -333,7 +335,20 @@ pub fn deliver_text(
     // story:host-commands-reach-boxed-session: a session in the box of its instance, seen from
     // outside the box, is fed by the box's runtime, through conductord.
     let instance = &crate::config::active().instance;
-    let id = if confine::child::runs_in_box(instance, &crate::state::dir(state)?, name) {
+    let state_dir = crate::state::dir(state)?;
+    // A session of the box whose every entry there ended is gone (issue #215).
+    if !confine::child::runs_in_box(instance, &state_dir, name)
+        && let Some(entry) = confine::child::ended_in_box(instance, &state_dir, name)
+    {
+        bail!(
+            "{WHAT}: refused: SessionNotReachable: session {name}: the session is gone: {} in the \
+             box of instance {}; it takes no text until it is started again; nothing was \
+             recorded, and it is not tried again",
+            confine::child::gone_because(&entry),
+            instance.name.0
+        );
+    }
+    let id = if confine::child::runs_in_box(instance, &state_dir, name) {
         match crate::instance::through_daemon(
             &instance.name.0,
             &format!("{DELIVER_ROUTE}/{name}/deliver"),
@@ -606,7 +621,19 @@ fn reach(sessions: &Path, name: &SessionName, typed: &str) -> Reach {
     // A session the `child` provider started reads its messages from its input, no terminal
     // (`story:box-session-without-bg`).
     match confine::child::feed(&name.0, typed, DELIVERY_LIST) {
-        confine::child::Fed::NoSession => {}
+        confine::child::Fed::NoSession => {
+            // A child session started here that ended is gone: the session list, which may not
+            // even start here, is not asked (issue #215).
+            if let Some(entry) = confine::child::registry_here()
+                .and_then(|dir| confine::child::gone_named(&dir, &name.0))
+                && fs::symlink_metadata(sessions.join(format!("{}.tmux", name.0))).is_err()
+            {
+                return Reach::Unreached(format!(
+                    "the session is gone: {}; it takes no text until it is started again",
+                    confine::child::gone_because(&entry)
+                ));
+            }
+        }
         confine::child::Fed::Written => return Reach::Typed,
         confine::child::Fed::Unwritten(why) => {
             return Reach::Unreached(format!(
@@ -1448,21 +1475,26 @@ fn resolve_role(
     Ok((found.role.clone(), Some(found)))
 }
 
-/// The session name of `role`: the role's, else the one derived for it.
+/// The session name of `role`: the role's, else the one derived for it, the director's after
+/// its own name (`<session_prefix>-director`, issue #220).
 fn role_session_name(instance: &Instance, role: &Role) -> SessionName {
-    role.session_name
-        .clone()
-        .unwrap_or_else(|| config::session_name(instance, &role.role))
+    config::session_of_role(instance, role)
 }
 
 /// The live session of `role`, named `name`, as the session list shows it: the one holding
 /// `name`, else, for this release, one holding the name under the role's other name, such as
-/// `<session_prefix>-conductor` for a role the file writes `director` (`story:role-name-aliases`).
-fn live_role_session(role: &Role, name: &SessionName) -> Result<Option<(String, SessionName)>> {
-    let names = config::role_name(&role.role).map_or_else(
-        || vec![name.0.clone()],
-        |wanted| config::session_names_of(wanted, &name.0),
-    );
+/// `<session_prefix>-conductor` for the director (`story:role-name-aliases`), but never a name a
+/// repository's controller carries ([`config::director_names`], issue #220).
+fn live_role_session(
+    instance: &Instance,
+    role: &Role,
+    name: &SessionName,
+) -> Result<Option<(String, SessionName)>> {
+    let names = match config::role_name(&role.role) {
+        None => vec![name.0.clone()],
+        Some(BuiltInRole::Director) => config::director_names(instance, &name.0),
+        Some(wanted) => config::session_names_of(wanted, &name.0),
+    };
     for candidate in names {
         if let Some(id) = confine::live_session(&candidate)? {
             return Ok(Some((id, SessionName(candidate))));
@@ -1653,6 +1685,7 @@ fn start_refused(answer: &SessionStartRefused) -> Result<ExitCode> {
         SessionStartRefusal::UnknownRole => "UnknownRole",
         SessionStartRefusal::SessionRunning => "SessionRunning",
         SessionStartRefusal::LaunchFailed => "LaunchFailed",
+        SessionStartRefusal::OutsideBox => "OutsideBox",
     };
     bail!(
         "session start: refused: {refusal}: role {:?}: {}",
@@ -1682,7 +1715,9 @@ fn stop_refused(answer: &SessionStopRefused) -> Result<ExitCode> {
 ///
 /// In order, it refuses: a role that is not `conductor` or `conductor-dev`, not named by the
 /// instance (the maintainer: by the host, or a host file that does not read), or not on `claude`
-/// (`UnknownRole`); under a config file, a role whose own settings
+/// (`UnknownRole`); the director of an instance whose `placement` opens a substrate box this
+/// process does not run in, as on the host, where it would start unboxed (`OutsideBox`, issue
+/// #220, [`crate::spawn::outside_box`]); under a config file, a role whose own settings
 /// file is not there, is no JSON or pins another instance (`InstanceNotPinned`,
 /// `story:instance-isolation`; one that pins no instance starts with a pinned copy,
 /// [`config::session_settings`], and a role with none with its default written pinned,
@@ -1722,6 +1757,14 @@ pub fn start(
         Err(detail) => return refuse(SessionStartRefusal::UnknownRole, detail),
     };
     let found = &found;
+    // A boxed instance's director never starts outside its box, and never falls back to an
+    // unboxed start there (issue #220); a host role and the maintainer run on the host by design.
+    if host.is_none()
+        && config::is_role(&found.role, BuiltInRole::Director)
+        && let Some(detail) = crate::spawn::outside_box(instance)
+    {
+        return refuse(SessionStartRefusal::OutsideBox, detail);
+    }
     // The settings select the instance the session's hooks act for (`story:instance-isolation`):
     // a role's own settings file must not pin another.
     if active.from_file
@@ -1734,7 +1777,7 @@ pub fn start(
         );
     }
     let name = role_session_name(instance, found);
-    if let Some((id, held)) = live_role_session(found, &name).context("session start")? {
+    if let Some((id, held)) = live_role_session(instance, found, &name).context("session start")? {
         return refuse(
             SessionStartRefusal::SessionRunning,
             format!("the live session {id} holds the session name {}", held.0),
@@ -1928,7 +1971,8 @@ pub fn stop(
     let found = &found;
     let cwd = host.as_ref().map_or(&environment.cwd, |host| &host.dir);
     let name = role_session_name(instance, found);
-    let Some((id, name)) = live_role_session(found, &name).context("session stop")? else {
+    let Some((id, name)) = live_role_session(instance, found, &name).context("session stop")?
+    else {
         return refuse(
             SessionStopRefusal::NotRunning,
             format!("no live session holds the session name {}", name.0),
