@@ -80,7 +80,7 @@ that is or holds the home directory is no scratch.
 
 | role | may message |
 |---|---|
-| controller | its conductor (`<session_prefix>-conductor`, `<session_prefix>-director` for this release, `conductor` without a prefix), as `<name>` or `<name> [<ref>]`; its sub-agents; a socket `uds:<path>/<pid>.sock` whose pid `claude agents --json` gives a live session of that conductor |
+| controller | its conductor (`<session_prefix>-director`, `<session_prefix>-conductor` for this release, `conductor` without a prefix), as `<name>` or `<name> [<ref>]`; its sub-agents; a socket `uds:<path>/<pid>.sock` whose pid `claude agents --json` gives a live session of that conductor |
 | conductor, prefix `<p>` | sessions named `<p>-<name>`, its sub-agents, and the sessions of the instances it serves |
 | conductor, no prefix | anyone, when the file holds one instance; else its own sessions and those of the instances it serves, never one of an instance with its own conductor role |
 

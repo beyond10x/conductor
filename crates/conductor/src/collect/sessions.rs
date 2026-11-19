@@ -226,13 +226,18 @@ impl Names<'_> {
         }
     }
 
-    /// Whether `name` is the instance's conductor session, `<prefix>-conductor`; without a prefix
-    /// no name says so.
+    /// Whether `name` is the instance's conductor session, its director's `<prefix>-director`,
+    /// or for this release `<prefix>-conductor` unless that is a repository's controller
+    /// ([`config::director_names`], issue #220); without a prefix no name says so.
     fn conductor(&self, name: Option<&str>) -> bool {
         self.own
             .filter(|own| own.session_prefix.is_some())
             .zip(name)
-            .is_some_and(|(own, name)| config::session_name(own, CONDUCTOR).0 == name)
+            .is_some_and(|(own, name)| {
+                config::director_names(own, &config::session_name(own, config::DIRECTOR).0)
+                    .iter()
+                    .any(|own_name| own_name == name)
+            })
     }
 }
 

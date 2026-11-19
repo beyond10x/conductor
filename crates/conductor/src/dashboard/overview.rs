@@ -323,9 +323,17 @@ pub fn since(target: &str) -> Result<Option<OffsetDateTime>, String> {
 
 /// The repository whose controller session is named `session` under `instance`: the name without
 /// the instance's session prefix (`<prefix>-<repository>`, or the repository without a prefix);
-/// none for conductor's own session, or a name without the prefix.
+/// none for the director's own session ([`crate::config::director_names`], issue #220), or a
+/// name without the prefix.
 fn repository_of_session(instance: &Instance, session: &str) -> Option<String> {
-    if session == crate::config::session_name(instance, "conductor").0 {
+    let director = crate::config::director(instance).map_or_else(
+        || crate::config::session_name(instance, "conductor"),
+        |role| crate::config::session_of_role(instance, role),
+    );
+    if crate::config::director_names(instance, &director.0)
+        .iter()
+        .any(|name| name == session)
+    {
         return None;
     }
     match &instance.session_prefix {

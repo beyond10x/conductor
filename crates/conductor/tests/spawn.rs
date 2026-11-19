@@ -498,7 +498,7 @@ fn spawn_registers_the_session_with_the_broker_and_names_its_socket() {
     // after it, reporting to the instance's director.
     assert_eq!(
         registration["place"],
-        json!({"role": "controller", "level": "lead", "team": "alpha", "above": "ex-conductor"}),
+        json!({"role": "controller", "level": "lead", "team": "alpha", "above": "ex-director"}),
         "{registration}"
     );
 }

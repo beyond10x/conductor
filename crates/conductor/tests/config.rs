@@ -753,7 +753,7 @@ fn the_session_profile_keys_validate_and_show_as_written() {
             with_envelope(serde_json::json!({
                 "role": "conductor", "harness": "codex", "model": "gpt-fixture",
                 "agent": null, "settings": "/srv/conductor.json", "profile": null,
-                "session_name": "one-conductor", "read_only_tools": [],
+                "session_name": "one-director", "read_only_tools": [],
             })),
         ]),
         "{shown:#}"
@@ -1177,7 +1177,7 @@ fn the_old_role_names_validate_with_a_note_by_their_path_and_keep_their_session_
     assert_eq!(
         roles,
         [
-            (&Value::from("conductor"), &Value::from("one-conductor")),
+            (&Value::from("conductor"), &Value::from("one-director")),
             (
                 &Value::from("conductor-dev"),
                 &Value::from("one-conductor-dev")
@@ -1188,7 +1188,7 @@ fn the_old_role_names_validate_with_a_note_by_their_path_and_keep_their_session_
     );
     assert_eq!(
         one["conductor"],
-        serde_json::json!({"served_by": null, "session_name": "one-conductor"}),
+        serde_json::json!({"served_by": null, "session_name": "one-director"}),
         "{shown:#}"
     );
 }
@@ -1256,7 +1256,7 @@ fn the_new_role_names_validate_without_a_note_and_the_defaults_keep_the_old_ones
     assert_eq!(
         names(instance(&shown)),
         vec![
-            (Value::from("conductor"), Value::from("one-conductor")),
+            (Value::from("conductor"), Value::from("one-director")),
             (
                 Value::from("conductor-dev"),
                 Value::from("one-conductor-dev")
@@ -1455,7 +1455,7 @@ fn the_instance_flag_picks_one_and_fills_its_defaults() {
         serde_json::json!([with_envelope(serde_json::json!({
             "role": "conductor", "harness": "codex", "model": "gpt-fixture",
             "agent": null, "settings": null, "profile": null,
-            "session_name": "second-conductor", "read_only_tools": [],
+            "session_name": "second-director", "read_only_tools": [],
         }))]),
         "{shown:#}"
     );
@@ -2321,7 +2321,7 @@ fn a_session_prefix_is_shown_with_each_role_s_session_name() {
     assert_eq!(
         session_names(&shown),
         [
-            ("conductor".to_owned(), Value::from("a-conductor")),
+            ("conductor".to_owned(), Value::from("a-director")),
             ("conductor-dev".to_owned(), Value::from("a-conductor-dev")),
             ("controller".to_owned(), Value::Null),
         ],
@@ -2333,7 +2333,7 @@ fn a_session_prefix_is_shown_with_each_role_s_session_name() {
     let text = String::from_utf8_lossy(&text.stdout);
     for line in [
         "instances[0].session_prefix: a",
-        "instances[0].roles[0].session_name: a-conductor",
+        "instances[0].roles[0].session_name: a-director",
         "instances[0].roles[1].session_name: a-conductor-dev",
         "instances[0].roles[2].session_name: null",
     ] {
@@ -2644,7 +2644,7 @@ fn adv_w03_u1_p2_a_served_controller_finds_its_conductor_s_name_in_config_show()
     let mut names = Vec::new();
     adv2_session_names(&shown, &mut names);
     assert!(
-        names.iter().any(|name| name == "a-conductor"),
+        names.iter().any(|name| name == "a-director"),
         "a controller of gamma reads its conductor's session name from config show, and the guard \
          allows only a-conductor; config show prints the session names {names:?} and default \
          {:?}",
@@ -2684,8 +2684,8 @@ fn config_show_names_the_conductor_that_serves_the_instance() {
     let case = Case::new("conductor-served-by");
     let file = case.write("served.yaml", &served_file(""));
     for (instance, served_by, session_name) in [
-        ("alpha", Value::Null, "a-conductor"),
-        ("gamma", Value::from("alpha"), "a-conductor"),
+        ("alpha", Value::Null, "a-director"),
+        ("gamma", Value::from("alpha"), "a-director"),
     ] {
         let shown = case.show(&file, &["--instance", instance]);
         assert_eq!(
@@ -3014,7 +3014,7 @@ fn without_a_confinement_an_instance_reports_through_systemd_with_no_limit() {
             one["roles"],
             serde_json::json!([with_envelope(serde_json::json!({
                 "role": "conductor", "harness": "claude", "model": "opus", "agent": null,
-                "settings": null, "profile": null, "session_name": "one-conductor",
+                "settings": null, "profile": null, "session_name": "one-director",
                 "read_only_tools": [],
             }))]),
             "{name}: {shown:#}"

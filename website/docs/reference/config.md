@@ -392,7 +392,7 @@ One of `on` | `off`. Specified as `conductor.config.RepoCache`.
 
 ### ConductorSession
 
-The conductor a session of the instance messages: its own, `session_name` being its director role's, `<session_prefix>-<role>` or `<role>` with the role as the file writes it (`<session_prefix>-conductor` for the old name), when the instance names a `director` (`conductor`) role; else the conductor of the file's `default` instance, which serves it, `served_by` naming that instance; neither when no conductor serves it. Derived, never chosen: a file may leave it out, and may write only that value.
+The conductor a session of the instance messages: its own, `session_name` being its director role's, `<session_prefix>-director` under a prefix whatever name the file writes the role under (issue #220: the old `<session_prefix>-conductor` is also the controller's of a repository named `conductor`), or `<role>` as the file writes it without a prefix, when the instance names a `director` (`conductor`) role; else the conductor of the file's `default` instance, which serves it, `served_by` naming that instance; neither when no conductor serves it. Derived, never chosen: a file may leave it out, and may write only that value, or for this release the name derived before, `<session_prefix>-conductor`, which reads as the derived one.
 
 Keys: `served_by`, `session_name`. Specified as `conductor.config.ConductorSession`.
 

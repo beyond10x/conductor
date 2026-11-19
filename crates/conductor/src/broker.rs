@@ -617,23 +617,26 @@ fn rfc3339(at: OffsetDateTime) -> String {
         .unwrap_or_default()
 }
 
-/// The session name of the instance's director, its `conductor` role: the role's `session_name`,
-/// else [`crate::config::session_name`] of the role.
+/// The session name of the instance's director, its `director` role (`conductor`, its old name):
+/// the role's `session_name`, else the one derived for it, `<session_prefix>-director` (issue
+/// #220).
 #[must_use]
 pub fn director_session(instance: &Instance) -> SessionName {
-    instance
-        .roles
-        .iter()
-        .find(|role| role.role == DIRECTOR_ROLE)
-        .and_then(|role| role.session_name.clone())
-        .unwrap_or_else(|| crate::config::session_name(instance, DIRECTOR_ROLE))
+    crate::config::director(instance).map_or_else(
+        || {
+            let word = if instance.session_prefix.is_some() {
+                crate::config::DIRECTOR
+            } else {
+                crate::config::old_role_word(crate::config::BuiltInRole::Director)
+            };
+            crate::config::session_name(instance, word)
+        },
+        |role| crate::config::session_of_role(instance, role),
+    )
 }
 
-/// The config role whose session is an instance's director (design § 2).
-const DIRECTOR_ROLE: &str = "conductor";
-
 /// The place of a session of the config role `role` (design § 2, `story:tool-build-commit-report`):
-/// the `conductor` role's session is the instance's director, with no team and nothing above it
+/// the `director` role's (`conductor`, its old name) session is the instance's director, with no team and nothing above it
 /// while no bridge serves; a controller's, started for `repository`, is that repository's lead,
 /// its team named after the repository, reporting to the director. Any other role's session has
 /// its role and no level.
@@ -643,7 +646,7 @@ pub fn placement(instance: &Instance, role: &str, repository: Option<&str>) -> P
         role: Some(role.to_owned()),
         ..Placement::default()
     };
-    if role == DIRECTOR_ROLE {
+    if crate::config::is_role(role, crate::config::BuiltInRole::Director) {
         place.level = Some(Level::Director);
     } else if role == crate::config::CONTROLLER
         && let Some(repository) = repository

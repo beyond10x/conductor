@@ -1166,7 +1166,7 @@ fn the_settings_are_the_instances_name_and_thresholds() {
     );
     assert_eq!(
         Settings::of(&acme("\x20   session_prefix: acme\n")).conductor,
-        Some("acme-conductor".to_owned()),
+        Some("acme-director".to_owned()),
         "the conductor role's session name carries the instance's session_prefix"
     );
 }

@@ -1029,9 +1029,9 @@ fn the_attach_tasks_and_sessions_find_the_active_instance_s_sessions() {
     sessions_claude(
         &case,
         &[
-            ("a-conductor", "s-a"),
+            ("a-director", "s-a"),
             ("a-conductor-dev", "s-ad"),
-            ("b-conductor", "s-b"),
+            ("b-director", "s-b"),
             ("b-conductor-dev", "s-bd"),
             ("conductor", "s-x"),
             ("conductor-dev", "s-xd"),
@@ -1072,15 +1072,15 @@ fn the_attach_tasks_and_sessions_find_the_active_instance_s_sessions() {
         .collect();
     assert_eq!(
         names,
-        ["a-conductor", "a-conductor-dev"],
+        ["a-director", "a-conductor-dev"],
         "{}",
         shown(&output)
     );
 
-    write_sessions(&case, &[("conductor", "s-x"), ("b-conductor", "s-b")]);
+    write_sessions(&case, &[("conductor", "s-x"), ("b-director", "s-b")]);
     let _ = fs::remove_file(case.dir.join("claude/log"));
     for (task, name) in [
-        ("conductor:attach", "a-conductor"),
+        ("conductor:attach", "a-director"),
         ("dev:attach", "a-conductor-dev"),
     ] {
         let output = instance_task(&case, task, &config, "alpha");
@@ -1108,17 +1108,17 @@ fn a_name_more_than_one_live_session_holds_is_refused() {
     sessions_claude(
         &case,
         &[
-            ("a-conductor", "s-1"),
-            ("a-conductor", "s-2"),
+            ("a-director", "s-1"),
+            ("a-director", "s-2"),
             ("a-conductor-dev", "s-3"),
             ("a-conductor-dev", "s-4"),
         ],
     );
     let before = live_sessions(&case);
     for (task, name, kind) in [
-        ("conductor:attach", "a-conductor", "live background session"),
+        ("conductor:attach", "a-director", "live background session"),
         ("dev:attach", "a-conductor-dev", "live background session"),
-        ("sessions", "a-conductor", "live session"),
+        ("sessions", "a-director", "live session"),
         ("sessions", "a-conductor-dev", "live session"),
     ] {
         let output = instance_task(&case, task, &config, "alpha");

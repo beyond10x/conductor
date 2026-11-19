@@ -792,12 +792,8 @@ impl Settings {
             ),
             // The director's session, whose session name two live sessions must not carry: its
             // role under its name or its old name `conductor` (story:role-name-aliases).
-            conductor: config::director(instance).map(|role| {
-                role.session_name
-                    .clone()
-                    .unwrap_or_else(|| config::session_name(instance, &role.role))
-                    .0
-            }),
+            conductor: config::director(instance)
+                .map(|role| config::session_of_role(instance, role).0),
             max_open_reviews: count(instance.controllers.max_open_reviews),
         }
     }

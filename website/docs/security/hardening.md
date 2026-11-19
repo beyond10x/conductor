@@ -88,7 +88,7 @@ directories.
   refused with a `conductor guard: denied:` line, and the denial appears in `conductor guard
   guard-decisions`.
 - [ ] **Check that conductor runs once.** `claude agents` lists no live session under the
-  conductor's name (`<session_prefix>-conductor`, or `conductor`) before you start or resume one,
+  conductor's name (`<session_prefix>-director`, or `conductor`) before you start or resume one,
   and `conductor watch` prints no `conductors:` line.
 
 ## Repository and build

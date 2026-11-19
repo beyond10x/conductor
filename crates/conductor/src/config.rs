@@ -2016,9 +2016,7 @@ pub fn conductor_session(instance: &Instance, default: Option<&Instance>) -> Con
 /// The session name of `role`, the director role of `instance`: the role's own, else the one
 /// derived for it.
 fn director_session(instance: &Instance, role: &Role) -> SessionName {
-    role.session_name
-        .clone()
-        .unwrap_or_else(|| session_name(instance, &role.role))
+    session_of_role(instance, role)
 }
 
 /// The `dashboard_port` of the instance at `index` in the file when it writes none
@@ -2139,10 +2137,48 @@ fn named(prefix: Option<&SessionPrefix>, word: &str) -> SessionName {
 }
 
 /// The `session_name` of the role `role` under `prefix`: [`named`] after the role as the file
-/// writes it, an old name included (`story:role-name-aliases`), and none for the lead role
-/// (`controller`), whose sessions are named per repository.
+/// writes it, an old name included (`story:role-name-aliases`), but under a prefix the director's
+/// after its own name, `<session_prefix>-director`, whatever the file writes, since its old name
+/// `conductor` is also a repository's, whose controller is `<session_prefix>-conductor` (issue
+/// #220; an instance with no prefix keeps today's names until `config migrate` writes one); and
+/// none for the lead role (`controller`), whose sessions are named per repository.
 fn role_session_name(prefix: Option<&SessionPrefix>, role: &str) -> Option<SessionName> {
+    if prefix.is_some() && is_role(role, BuiltInRole::Director) {
+        return Some(named(prefix, DIRECTOR));
+    }
     (!is_role(role, BuiltInRole::Lead)).then(|| named(prefix, role))
+}
+
+/// The session name of `role`, a role of `instance`: the role's own, else the one derived for it
+/// ([`role_session_name`]), the director's `<session_prefix>-director` (issue #220).
+#[must_use]
+pub fn session_of_role(instance: &Instance, role: &Role) -> SessionName {
+    role.session_name.clone().unwrap_or_else(|| {
+        role_session_name(instance.session_prefix.as_ref(), &role.role)
+            .unwrap_or_else(|| session_name(instance, &role.role))
+    })
+}
+
+/// The names the director's session `name` of `instance` may carry for this release
+/// ([`session_names_of`]), but an old-name alias that is the session name of a repository's
+/// controller, a checkout of that name under the checkouts root, as `<session_prefix>-conductor`
+/// is the `conductor` repository's (issue #220): that session is the controller's, never the
+/// director's.
+#[must_use]
+pub fn director_names(instance: &Instance, name: &str) -> Vec<String> {
+    session_names_of(BuiltInRole::Director, name)
+        .into_iter()
+        .filter(|alias| {
+            alias == name || {
+                let word = instance
+                    .session_prefix
+                    .as_ref()
+                    .and_then(|prefix| alias.strip_prefix(&format!("{}-", prefix.0)))
+                    .unwrap_or(alias);
+                !Path::new(&instance.checkouts.root).join(word).is_dir()
+            }
+        })
+        .collect()
 }
 
 /// The fixed session names each instance of the file without a `session_prefix` keeps, by its
@@ -3949,8 +3985,19 @@ impl Reader<'_> {
                     ("session_name", derived_name),
                 ] {
                     let value = Self::get(map, key);
-                    if value.and_then(Value::as_str) != wanted
-                        || (value.is_some() && wanted.is_none())
+                    // The director's session name as it was derived before, `<prefix>-conductor`,
+                    // reads as the new one for this release (issue #220).
+                    let old_name = key == "session_name"
+                        && wanted.zip(value.and_then(Value::as_str)).is_some_and(
+                            |(wanted, written)| {
+                                session_names_of(BuiltInRole::Director, wanted)
+                                    .iter()
+                                    .any(|alias| alias == written)
+                            },
+                        );
+                    if !old_name
+                        && (value.and_then(Value::as_str) != wanted
+                            || (value.is_some() && wanted.is_none()))
                     {
                         self.problem(
                             &join(&path, key),
@@ -4208,8 +4255,12 @@ impl Reader<'_> {
             .enumerate()
             .map(|(index, mut role)| {
                 let derived = role_session_name(prefix, &role.role);
+                // A director's name written as it was derived before (`<session_prefix>-<role as
+                // written>`, issue #220) reads as the new one.
+                let before = named(prefix, &role.role);
                 if let Some(written) = role.session_name.take()
                     && Some(&written) != derived.as_ref()
+                    && !(is_role(&role.role, BuiltInRole::Director) && written == before)
                 {
                     let why = match &derived {
                         Some(derived) => format!(

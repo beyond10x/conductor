@@ -134,7 +134,7 @@ fn own_names() -> (Vec<String>, Vec<String>) {
         .conductor
         .session_name
         .as_ref()
-        .map(|name| config::session_names_of(BuiltInRole::Director, &name.0))
+        .map(|name| config::director_names(instance, &name.0))
         .unwrap_or_default();
     let maintainer = config::host_maintainer(instance)
         .map(|role| {

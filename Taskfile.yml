@@ -12,7 +12,7 @@ vars:
 
 tasks:
   sessions:
-    desc: List the active instance's sessions, those named as its roles and the host's in conductor config show (<session_prefix>-conductor and <session_prefix>-conductor-dev, or conductor and conductor-dev without a prefix; maintainer and bridge from the host file), with their kind, id and state; exits 1 naming each of those names that more than one live background session holds, since no task can tell which of them is this instance's
+    desc: List the active instance's sessions, those named as its roles and the host's in conductor config show (<session_prefix>-director and <session_prefix>-conductor-dev, or conductor and conductor-dev without a prefix; maintainer and bridge from the host file), with their kind, id and state; exits 1 naming each of those names that more than one live background session holds, since no task can tell which of them is this instance's
     vars:
       NAMES:
         sh: conductor config show --format json | jq -c '[.instances[0].roles[], .host.roles[] | .session_name // empty] | unique'
