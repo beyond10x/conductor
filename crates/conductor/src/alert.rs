@@ -28,6 +28,10 @@ pub const SEEN: &str = "alerts.seen";
 /// the dispatch.
 pub const UNIT_LEFT_TO_OPERATOR: &str = "unit-left-to-operator";
 
+/// The condition of a `[NEED]` whose `<other-repo>` names no repository of the instance
+/// (`story:need-starts-unit-of-work`); its subject is `<repo> <request-id>`.
+pub const NEED_UNROUTABLE: &str = "need-unroutable";
+
 /// How long the desktop notifier may run.
 const NOTIFY_BOUND: Duration = Duration::from_secs(10);
 

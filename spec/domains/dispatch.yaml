@@ -258,6 +258,8 @@ types:
   # and subject while the condition holds and sent to the operator's notifier
   # (story:loop-alerts-when-it-cannot-act); the first condition, `unit-left-to-operator`, a unit
   # of work whose start failed at the launch three times, which the cycle tries no more.
+  # `need-unroutable`, a `[NEED]` whose `<other-repo>` field names no repository of the instance,
+  # its subject `<repo> <request-id>` (story:need-starts-unit-of-work).
   - name: conductor.dispatch.DispatchLogEvent
     kind: enum
     variants:
@@ -348,9 +350,10 @@ types:
   # - `records-commit-refused`: `reason` (`records check`, `repository`, `commit` or `push`), `line`
   #   (what `records check` printed, or the last line the bot route or git printed) and `commit`
   #   when the commit was made and its push refused;
-  # - `alert`: `condition` (`unit-left-to-operator`), `reason` (what the loop cannot do, one
-  #   line), and `id`, the dispatch, when the subject is one; `repo` is the repository, or the
-  #   instance's name for a condition of the instance.
+  # - `alert`: `condition` (`unit-left-to-operator`, `need-unroutable`), `reason` (what the loop
+  #   cannot do, one line), and `id`, the subject when it is no repository: the dispatch, or a
+  #   need's `<repo> <request-id>`; `repo` is the repository, or the instance's name for a
+  #   condition of the instance.
   # `conductor run --once --commit-records` writes its line with no `tick_id`: it runs no tick.
   - name: conductor.dispatch.DispatchLogLine
     kind: struct
@@ -2154,7 +2157,10 @@ commands:
         summary: The message was already handled or rejected.
 
   # A `[NEED]` from one controller becomes a dispatch to the controller of the repository it names
-  # (design § 3). Conductor sends that dispatch first, then routes the message to it.
+  # (design § 3). Conductor sends that dispatch first, then routes the message to it. The loop's
+  # mailbox does so for a repository with no charter, no running controller and no open dispatch
+  # (story:need-starts-unit-of-work): one unit of work (`WorkRequest`), its brief the need's whole
+  # text, its reference `need-<repo>-<request-id>` in the characters a reference takes, cut to 64.
   - name: conductor.dispatch.RouteNeed
     naming:
       wire: route-need
