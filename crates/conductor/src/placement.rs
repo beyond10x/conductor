@@ -272,6 +272,35 @@ pub const API_TOKEN_FD: u32 = 4;
 /// substrate's, since substrate said nothing.
 pub const UNREACHABLE: &str = "placement.substrate-unreachable";
 
+/// Substrate's answer for a workspace or session it does not hold
+/// (`story:failing-start-recreates-box`): a box the daemon stored that substrate answers with it
+/// is gone, and the daemon forgets it ([`close_box`] answers [`Closure::Gone`]) and opens a new
+/// one, never asking for the old one again.
+pub const NOT_FOUND: &str = "resource.not-found";
+
+/// Whether `error`, or a cause of it, is substrate's [`NOT_FOUND`] answer: its text, as
+/// [`Sdk`] writes a refusal (`<name>: <detail>`), starts with that name.
+#[must_use]
+pub fn not_found(error: &anyhow::Error) -> bool {
+    error
+        .chain()
+        .any(|cause| names_not_found(&cause.to_string()))
+}
+
+/// Whether `text` is a refusal named [`NOT_FOUND`]: that name, alone or before `:`.
+fn names_not_found(text: &str) -> bool {
+    text.strip_prefix(NOT_FOUND)
+        .is_some_and(|rest| rest.is_empty() || rest.starts_with(':'))
+}
+
+impl Refused {
+    /// Whether substrate refused with [`NOT_FOUND`].
+    #[must_use]
+    pub fn not_found(&self) -> bool {
+        self.name == NOT_FOUND
+    }
+}
+
 /// The adapters by the word the config writes.
 const ADAPTERS: [(&str, Adapter); 4] = [
     ("systemd", Adapter::Systemd),
@@ -3289,21 +3318,56 @@ pub fn open_box(
     }
 }
 
+/// What [`close_box`] did with a box.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Closure {
+    /// Substrate ended its runtime's session and destroyed its workspace.
+    Closed,
+    /// Substrate answered [`NOT_FOUND`] for its workspace: the box is gone, and only conductor's
+    /// reference to it remains, which the caller forgets (`story:failing-start-recreates-box`).
+    Gone,
+}
+
 /// `conductor.placement.CloseBox` for `opened`: ends its runtime's session, destroys its
-/// workspace and records `BoxClosed`.
+/// workspace and records `BoxClosed`. A session substrate answers [`NOT_FOUND`] for has ended
+/// already; a workspace it answers [`NOT_FOUND`] for is gone, which is recorded `BoxClosed` as
+/// well and answered [`Closure::Gone`]: nothing of it is left to close.
 ///
 /// # Errors
 ///
-/// Substrate refused the stop or the close, or the record could not be written.
+/// Substrate refused the stop or the close otherwise, or the record could not be written.
 pub fn close_box(
     store: &mut Store,
     substrate: &mut dyn Substrate,
     opened: &OpenedBox,
-) -> Result<()> {
-    if substrate.running(&opened.session).unwrap_or(true) {
-        substrate.stop(&opened.session)?;
+) -> Result<Closure> {
+    if substrate.running(&opened.session).unwrap_or(true)
+        && let Err(error) = substrate.stop(&opened.session)
+        && !not_found(&error)
+    {
+        return Err(error);
     }
-    substrate.close(&opened.workspace)?;
+    let closure = match substrate.close(&opened.workspace) {
+        Ok(()) => Closure::Closed,
+        Err(error) if not_found(&error) => Closure::Gone,
+        Err(error) => return Err(error),
+    };
+    record_closed(store, opened)?;
+    Ok(closure)
+}
+
+/// Records `BoxClosed` for `opened`, a box substrate answered [`NOT_FOUND`] for, and asks
+/// substrate nothing (`story:failing-start-recreates-box`): the daemon forgets it.
+///
+/// # Errors
+///
+/// The record could not be written.
+pub fn forget_box(store: &mut Store, opened: &OpenedBox) -> Result<()> {
+    record_closed(store, opened)
+}
+
+/// `conductor.placement.CloseBox` for `opened`, recorded.
+fn record_closed(store: &mut Store, opened: &OpenedBox) -> Result<()> {
     let input = CloseBox {
         actor: crate::actor::daemon(),
         box_id: BoxId(Uuid(opened.box_id.clone())),

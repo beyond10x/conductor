@@ -146,7 +146,10 @@ the daemon) and forgotten when the condition clears, so a second occurrence aler
 notifier that is missing or fails is a journal line; the alert is recorded all the same, and
 `conductor doctor`'s notifier row names the gap. The first condition, `unit-left-to-operator`: a
 unit of work whose start failed at the launch three times, which dispatch v1 tries no more; it
-clears when the dispatch is no longer `Sent`. A condition the loop acts on itself alerts nothing.
+clears when the dispatch is no longer `Sent`. `box-not-recreated` (the daemon,
+`story:failing-start-recreates-box`): a box substrate answered as gone was forgotten and the new
+box's start failed, subject the instance; it clears once a new box ran past the start bound. A
+condition the loop acts on itself alerts nothing.
 
 Decide: a request is classified in code: data loss, a history rewrite, a new, renamed or retired
 repository, an ADR or a change to one, a credential, a login, a paid account → class O (or H for the

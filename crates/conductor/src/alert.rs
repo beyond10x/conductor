@@ -28,6 +28,12 @@ pub const SEEN: &str = "alerts.seen";
 /// the dispatch.
 pub const UNIT_LEFT_TO_OPERATOR: &str = "unit-left-to-operator";
 
+/// The condition of an instance whose stored box substrate answered as gone, which the daemon
+/// forgot, and whose box opened anew then failed its start as well
+/// (`story:failing-start-recreates-box`); its subject is the instance, and it holds until a new
+/// box of the instance runs past the start bound.
+pub const BOX_NOT_RECREATED: &str = "box-not-recreated";
+
 /// How long the desktop notifier may run.
 const NOTIFY_BOUND: Duration = Duration::from_secs(10);
 

@@ -118,6 +118,20 @@ struct Attempt {
     retry_at: Option<Instant>,
 }
 
+/// An instance whose stored box substrate answered as gone ([`crate::placement::NOT_FOUND`]):
+/// the daemon forgot it, and opens a new one (`story:failing-start-recreates-box`). A new box
+/// whose open is refused follows the row of failed starts: it waits [`retry_after`] the refusals
+/// in a row, and its instance reads `Unreachable` with the refusal as its detail.
+#[derive(Debug, Clone, Default)]
+struct Recreated {
+    /// The refused opens of a new box in a row.
+    failures: u32,
+    /// When a new box is asked for again, after a refused open.
+    retry_at: Option<Instant>,
+    /// The last refusal.
+    detail: Option<String>,
+}
+
 /// The log of `instance`'s runtime in a box ([`crate::placement::RUNTIME_LOG`]).
 fn runtime_log(instance: &Instance) -> PathBuf {
     crate::placement::sessions_dir(Path::new(&instance.state)).join(crate::placement::RUNTIME_LOG)
@@ -431,12 +445,16 @@ pub struct Daemon<U: Units> {
     hosts: BTreeMap<String, bool>,
     /// The last start of each runtime this process started, by instance.
     attempts: BTreeMap<String, Attempt>,
+    /// Each instance whose stored box substrate answered as gone, which the daemon forgot, until
+    /// a new box of it runs past the start bound (`story:failing-start-recreates-box`).
+    recreated: BTreeMap<String, Recreated>,
     /// When the daemon last looked ([`Daemon::due`], [`Daemon::pass`]).
     looked: Option<Instant>,
     last_pass: Option<Instant>,
     /// Why the next pass runs while a record the store refused left one undone: the reason of
     /// the pass it is part of, `Cadence` for a record of no pass ([`Daemon::pass`],
-    /// [`Daemon::due`]).
+    /// [`Daemon::due`]); and `LostRuntime` once a run-bound restart forgot a box substrate answered
+    /// as gone, so the next tick opens a new one (`story:failing-start-recreates-box`).
     rerun: Option<ReconcileReason>,
 }
 
@@ -489,6 +507,7 @@ impl<U: Units> Daemon<U> {
             pins,
             hosts: BTreeMap::new(),
             attempts: BTreeMap::new(),
+            recreated: BTreeMap::new(),
             looked: None,
             last_pass: None,
             rerun: None,
@@ -687,6 +706,8 @@ impl<U: Units> Daemon<U> {
         }
         let retry = self.attempts.iter().any(|(name, attempt)| {
             attempt.retry_at.is_some_and(|at| now >= at) && self.started.contains_key(name)
+        }) || self.recreated.iter().any(|(name, recreated)| {
+            recreated.retry_at.is_some_and(|at| now >= at) && !self.started.contains_key(name)
         });
         if lost || retry {
             return Ok(Some(ReconcileReason::LostRuntime));
@@ -760,9 +781,14 @@ impl<U: Units> Daemon<U> {
                     opened.renewed_at = now;
                 }
             }
-            if self.boxes.get(&name) != Some(&opened) {
-                changed = true;
-                self.boxes.insert(name, opened);
+            match self.boxes.get(&name) {
+                // Forgotten: substrate answered its restart as gone ([`Self::restart_in_box`]).
+                None => changed = true,
+                Some(kept) if kept != &opened => {
+                    changed = true;
+                    self.boxes.insert(name, opened);
+                }
+                Some(_) => {}
             }
         }
         if changed {
@@ -792,18 +818,37 @@ impl<U: Units> Daemon<U> {
             &self.config.daemon.secrets,
             opened.remote.as_ref(),
         );
-        let restarted = substrate
-            .stop(&opened.session)
-            .map_err(|error| crate::placement::Refused {
+        // A session substrate answers as gone has ended already.
+        let restarted = match substrate.stop(&opened.session) {
+            Err(error) if !crate::placement::not_found(&error) => Err(crate::placement::Refused {
                 name: crate::placement::UNREACHABLE.to_owned(),
                 detail: format!("{error:#}"),
-            })
-            .and_then(|()| match request.refused.clone() {
-                Some(why) => Err(why),
-                None => substrate.restart(&opened.workspace, &request),
-            });
+            }),
+            _ => Ok(()),
+        }
+        .and_then(|()| match request.refused.clone() {
+            Some(why) => Err(why),
+            None => substrate.restart(&opened.workspace, &request),
+        });
         drop(substrate);
         let outcome = match restarted {
+            // Its workspace is gone: the box is forgotten, and the next pass opens a new one.
+            Err(refused) if refused.not_found() => {
+                self.forget_box(&name, opened)?;
+                crate::placement::forget_box(&mut self.store, opened)?;
+                self.started.remove(&name);
+                self.attempts.remove(&name);
+                self.running.remove(&name);
+                self.last_pass = None;
+                self.rerun = Some(ReconcileReason::LostRuntime);
+                Err(anyhow!(
+                    "the runtime of {name} did not restart in its box {}: {}: {}; the box is \
+                     forgotten and the next pass opens a new one",
+                    opened.workspace,
+                    refused.name,
+                    refused.detail
+                ))
+            }
             Ok(session) => {
                 opened.session = session;
                 opened.started_at = now;
@@ -1070,6 +1115,7 @@ impl<U: Units> Daemon<U> {
                         && held.version == wanted.version
                         && self.pod_current(instance);
                     if same {
+                        self.recreated_holds(&name, now)?;
                         self.refresh_rendering(instance);
                         if let Some(kept) = self.started.get_mut(&name) {
                             kept.last_seen = wanted.last_seen.clone();
@@ -1086,6 +1132,21 @@ impl<U: Units> Daemon<U> {
                     (ReconcileAction::Restart, reason, outcome)
                 }
                 held => {
+                    // A new box whose open was refused waits its row's time, as a failed start.
+                    if held.is_none()
+                        && !matches!(
+                            reason,
+                            ReconcileReason::ConfigChange | ReconcileReason::OperatorCommand
+                        )
+                        && self
+                            .recreated
+                            .get(&name)
+                            .and_then(|recreated| recreated.retry_at)
+                            .is_some_and(|at| now < at)
+                    {
+                        self.running.insert(name, false);
+                        continue;
+                    }
                     // A start that failed is recorded once and waits; nothing starts meanwhile.
                     if held.is_some()
                         && let Some(failed) = self.failed_start(instance, reason, now, &at)?
@@ -1150,6 +1211,9 @@ impl<U: Units> Daemon<U> {
                 self.started.remove(&name);
                 self.attempts.remove(&name);
             }
+            if action == ReconcileAction::Start {
+                self.recreated_start(instance, reason, now, &outcome);
+            }
             self.running.insert(name.clone(), succeeded);
             done.push(self.record(&name, action, why, outcome, &at)?);
         }
@@ -1162,6 +1226,8 @@ impl<U: Units> Daemon<U> {
         self.pins
             .retain(|name, _| instances.iter().any(|instance| &instance.name.0 == name));
         self.attempts
+            .retain(|name, _| instances.iter().any(|instance| &instance.name.0 == name));
+        self.recreated
             .retain(|name, _| instances.iter().any(|instance| &instance.name.0 == name));
         for name in gone {
             self.running.remove(&name);
@@ -1266,6 +1332,9 @@ impl<U: Units> Daemon<U> {
             wait.as_secs(),
             said.map(|said| format!(": {said}")).unwrap_or_default()
         );
+        if self.recreated.contains_key(name) {
+            self.box_not_recreated(instance, &format!("{failed:#}"));
+        }
         self.record(
             name,
             ReconcileAction::Start,
@@ -1330,6 +1399,9 @@ impl<U: Units> Daemon<U> {
                 {
                     Ok(running) => Ok(Some(running)),
                     Err(_) if remote => Ok(None),
+                    // A session substrate answers as gone does not run; its box is closed or
+                    // forgotten before a new one opens ([`Daemon::stop_runtime`]).
+                    Err(error) if crate::placement::not_found(&error) => Ok(Some(false)),
                     Err(error) => Err(error),
                 }
             }
@@ -1632,7 +1704,9 @@ impl<U: Units> Daemon<U> {
                 let closed =
                     crate::placement::close_box(&mut self.store, substrate.as_mut(), &opened);
                 drop(substrate);
-                closed?;
+                if closed? == crate::placement::Closure::Gone {
+                    return self.forget_box(name, &opened);
+                }
                 self.boxes.remove(name);
                 if let Some(slot) = &opened.slot {
                     self.pool().free(slot)?;
@@ -1718,6 +1792,110 @@ impl<U: Units> Daemon<U> {
                 "serve".to_owned(),
             ],
         }
+    }
+
+    /// Forgets the box `opened` of `name`, which substrate answered as gone
+    /// ([`crate::placement::NOT_FOUND`], `story:failing-start-recreates-box`): its `boxes.json`
+    /// entry and its slot go, the daemon's log has one line naming its workspace, and a new box is
+    /// opened for it ([`Recreated`]). Nothing of substrate's is asked or closed.
+    ///
+    /// # Errors
+    ///
+    /// The slot cannot be freed.
+    fn forget_box(&mut self, name: &str, opened: &crate::placement::OpenedBox) -> Result<()> {
+        self.boxes.remove(name);
+        self.recreated.entry(name.to_owned()).or_default();
+        eprintln!(
+            "conductor: daemon serve: forgot the box {} of {name}: substrate answered {} for it; \
+             a new box opens",
+            opened.workspace,
+            crate::placement::NOT_FOUND
+        );
+        if let Some(slot) = &opened.slot {
+            self.pool().free(slot)?;
+        }
+        Ok(())
+    }
+
+    /// After a start of `instance` for `reason` at `now` came to `outcome`: the row of a new box
+    /// of an instance whose box was forgotten ([`Recreated`]). A refused open counts in it, waits
+    /// [`retry_after`] it (none for a changed config file or an operator's command), and raises
+    /// [`crate::alert::BOX_NOT_RECREATED`] ([`Self::box_not_recreated`]); an open ends the wait.
+    fn recreated_start(
+        &mut self,
+        instance: &Instance,
+        reason: ReconcileReason,
+        now: Instant,
+        outcome: &Result<()>,
+    ) {
+        let Some(recreated) = self.recreated.get_mut(&instance.name.0) else {
+            return;
+        };
+        let error = match outcome {
+            Ok(()) => {
+                recreated.retry_at = None;
+                recreated.detail = None;
+                return;
+            }
+            Err(error) => format!("{error:#}"),
+        };
+        recreated.failures = recreated.failures.saturating_add(1);
+        let asked = matches!(
+            reason,
+            ReconcileReason::ConfigChange | ReconcileReason::OperatorCommand
+        );
+        let wait = if asked {
+            Duration::ZERO
+        } else {
+            retry_after(recreated.failures)
+        };
+        recreated.retry_at = Some(now + wait);
+        recreated.detail = Some(error.clone());
+        self.box_not_recreated(instance, &error);
+    }
+
+    /// Raises [`crate::alert::BOX_NOT_RECREATED`] for `instance`, whose new box did not start
+    /// for `why`: once while it holds, its line in the instance's records and the seen file in
+    /// the daemon's directory. An alert that cannot be raised is a line of the daemon's log.
+    fn box_not_recreated(&self, instance: &Instance, why: &str) {
+        let name = &instance.name.0;
+        let reason = format!(
+            "substrate answered the stored box of {name} as gone, and the box opened anew did not \
+             start: {why}"
+        );
+        let records = PathBuf::from(&instance.records);
+        let raised = crate::alert::line(crate::alert::BOX_NOT_RECREATED, name, None, &reason)
+            .and_then(|line| {
+                crate::alert::raise(&self.dir, name, &line, |line| {
+                    crate::records::append_dispatch_in(&records, line)
+                })
+            });
+        if let Err(error) = raised {
+            eprintln!(
+                "conductor: daemon serve: alert {}: {error:#}",
+                crate::alert::BOX_NOT_RECREATED
+            );
+        }
+    }
+
+    /// Ends the row of `name`'s forgotten box once its runtime, found running at `now`, ran past
+    /// the start bound: [`crate::alert::BOX_NOT_RECREATED`] clears, so a second loss alerts again.
+    ///
+    /// # Errors
+    ///
+    /// The seen file cannot be written.
+    fn recreated_holds(&mut self, name: &str, now: Instant) -> Result<()> {
+        let proven = self
+            .attempts
+            .get(name)
+            .is_none_or(|attempt| now.saturating_duration_since(attempt.started) >= start_window());
+        if !proven || self.recreated.remove(name).is_none() {
+            return Ok(());
+        }
+        let held: BTreeSet<String> = self.recreated.keys().cloned().collect();
+        crate::alert::clear(&self.dir, crate::alert::BOX_NOT_RECREATED, |subject| {
+            held.contains(subject)
+        })
     }
 
     /// Records one `Reconciliation` of `action` on `instance`, as the daemon.
@@ -1858,6 +2036,11 @@ impl<U: Units> Daemon<U> {
             .map(|instance| {
                 let name = &instance.name.0;
                 let started = self.started.get(name);
+                let refused = self
+                    .recreated
+                    .get(name)
+                    .filter(|_| started.is_none())
+                    .and_then(|recreated| recreated.detail.clone());
                 let upgrading = self
                     .pins
                     .get(name)
@@ -1866,6 +2049,8 @@ impl<U: Units> Daemon<U> {
                     Some(pods) => pod_state(pods, name, started.is_some(), self.running.get(name)),
                     None => (
                         match (started, self.running.get(name)) {
+                            // A new box whose open was refused waits its row's time.
+                            (None, _) if refused.is_some() => InstanceState::Unreachable,
                             (None, _) => InstanceState::Stopped,
                             (Some(_), Some(false)) => InstanceState::Unreachable,
                             // An upgrade under way reads as that until it settled, whatever came
@@ -1875,7 +2060,7 @@ impl<U: Units> Daemon<U> {
                             (Some(_), _) if self.unproven(name) => InstanceState::Unreachable,
                             (Some(_), _) => InstanceState::Running,
                         },
-                        None,
+                        refused.clone(),
                     ),
                 };
                 // An instance that writes nothing to its forge says so, after any other line,

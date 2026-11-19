@@ -257,7 +257,10 @@ types:
   # theirs. `alert`, a condition the loop or the daemon cannot act on, written once per condition
   # and subject while the condition holds and sent to the operator's notifier
   # (story:loop-alerts-when-it-cannot-act); the first condition, `unit-left-to-operator`, a unit
-  # of work whose start failed at the launch three times, which the cycle tries no more.
+  # of work whose start failed at the launch three times, which the cycle tries no more;
+  # `box-not-recreated`, written by the daemon into the instance's records, a box the daemon
+  # opened anew for an instance whose stored box substrate answered as gone whose start failed
+  # as well (story:failing-start-recreates-box).
   - name: conductor.dispatch.DispatchLogEvent
     kind: enum
     variants:
@@ -348,9 +351,9 @@ types:
   # - `records-commit-refused`: `reason` (`records check`, `repository`, `commit` or `push`), `line`
   #   (what `records check` printed, or the last line the bot route or git printed) and `commit`
   #   when the commit was made and its push refused;
-  # - `alert`: `condition` (`unit-left-to-operator`), `reason` (what the loop cannot do, one
-  #   line), and `id`, the dispatch, when the subject is one; `repo` is the repository, or the
-  #   instance's name for a condition of the instance.
+  # - `alert`: `condition` (`unit-left-to-operator`, `box-not-recreated`), `reason` (what the
+  #   loop or the daemon cannot do, one line), and `id`, the dispatch, when the subject is one;
+  #   `repo` is the repository, or the instance's name for a condition of the instance.
   # `conductor run --once --commit-records` writes its line with no `tick_id`: it runs no tick.
   - name: conductor.dispatch.DispatchLogLine
     kind: struct
