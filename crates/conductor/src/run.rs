@@ -902,44 +902,92 @@ impl<'s, 'a> Tick<'s, 'a> {
         Ok(())
     }
 
+    /// The open goals `repo` serves (`Serving`, the goal `Confirmed` or `Draft`), a confirmed goal
+    /// before a draft, then by id, each with the id of a `Done` dispatch of `repo` for it, when
+    /// one is (`story:dispatch-v1-once-per-goal`).
+    ///
+    /// # Errors
+    ///
+    /// The store does not open, or a goal, a serving or a dispatch does not read.
+    pub fn served_goals(&self, repo: &str) -> Result<Vec<(String, Option<String>)>> {
+        use conductor_model::behaviour::{GoalServingStorage, GoalStorage};
+        use conductor_model::direction::{GoalServingState, GoalState};
+
+        let store = crate::state::open(self.state)?;
+        let mut goals: Vec<(bool, String)> = GoalServingStorage::list(&store)
+            .into_iter()
+            .filter(|held| {
+                held.state == GoalServingState::Serving && held.data.repository.0 == repo
+            })
+            .filter_map(|held| {
+                let goal = GoalStorage::get(&store, &held.data.goal_id)?;
+                match goal.state {
+                    GoalState::Confirmed => Some((false, goal.data.goal_id.0)),
+                    GoalState::Draft => Some((true, goal.data.goal_id.0)),
+                    GoalState::Met | GoalState::Dropped => None,
+                }
+            })
+            .collect();
+        let dispatches = DispatchStorage::list(&store);
+        store.check().context("read the goals")?;
+        goals.sort();
+        goals.dedup();
+        Ok(goals
+            .into_iter()
+            .map(|(_, goal)| {
+                let done = dispatches
+                    .iter()
+                    .find(|held| {
+                        held.state == DispatchState::Done
+                            && held.data.repository.0 == repo
+                            && held.data.goal_id.as_ref().is_some_and(|id| id.0 == goal)
+                    })
+                    .map(|held| held.data.dispatch_id.0.clone());
+                (goal, done)
+            })
+            .collect())
+    }
+
+    /// Why dispatch v1 starts no controller for `repo` (`story:dispatch-v1-once-per-goal`): it has
+    /// no open dispatch, serves an open goal, and has a `Done` dispatch for every open goal it
+    /// serves: `skips goal <goal>: done in <dispatch>` for the first. None otherwise.
+    ///
+    /// # Errors
+    ///
+    /// The store does not open.
+    pub fn part_done(&self, repo: &str) -> Result<Option<String>> {
+        if self.open_dispatch(repo)? {
+            return Ok(None);
+        }
+        let goals = self.served_goals(repo)?;
+        if goals.is_empty() || goals.iter().any(|(_, done)| done.is_none()) {
+            return Ok(None);
+        }
+        Ok(goals
+            .into_iter()
+            .next()
+            .and_then(|(goal, done)| done.map(|done| format!("skips goal {goal}: done in {done}"))))
+    }
+
     /// The dispatch a controller of `repo` this tick starts works on, which its charter names
     /// (`story:spawn-without-dispatch-reports`): the repository's open dispatch
-    /// ([`crate::dispatch::open_of`]); with none open, one sent now (`sent`) for the goal the
-    /// repository serves, a confirmed goal before a draft, the first by id; with several open, or
-    /// no open goal served, none.
+    /// ([`crate::dispatch::open_of`]); with none open, one sent now (`sent`) for the first goal the
+    /// repository serves ([`Tick::served_goals`]) that it has no `Done` dispatch for
+    /// (`story:dispatch-v1-once-per-goal`); with several open, or no such goal, none.
     ///
     /// # Errors
     ///
     /// The store does not open, or the dispatch is refused.
     fn dispatch_for(&mut self, repo: &str) -> Result<Option<String>> {
-        use conductor_model::behaviour::{GoalServingStorage, GoalStorage};
-        use conductor_model::direction::{GoalServingState, GoalState};
-
         match crate::dispatch::open_of(self.state, repo)? {
             crate::dispatch::Open::One(id) => return Ok(Some(id)),
             crate::dispatch::Open::Several(_) => return Ok(None),
             crate::dispatch::Open::None => {}
         }
-        let goal = {
-            let store = crate::state::open(self.state)?;
-            let mut goals: Vec<(bool, String)> = GoalServingStorage::list(&store)
-                .into_iter()
-                .filter(|held| {
-                    held.state == GoalServingState::Serving && held.data.repository.0 == repo
-                })
-                .filter_map(|held| {
-                    let goal = GoalStorage::get(&store, &held.data.goal_id)?;
-                    match goal.state {
-                        GoalState::Confirmed => Some((false, goal.data.goal_id.0)),
-                        GoalState::Draft => Some((true, goal.data.goal_id.0)),
-                        GoalState::Met | GoalState::Dropped => None,
-                    }
-                })
-                .collect();
-            store.check().context("read the goals")?;
-            goals.sort();
-            goals.into_iter().next().map(|(_, goal)| goal)
-        };
+        let goal = self
+            .served_goals(repo)?
+            .into_iter()
+            .find_map(|(goal, done)| done.is_none().then_some(goal));
         let Some(goal) = goal else {
             return Ok(None);
         };

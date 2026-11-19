@@ -3938,6 +3938,126 @@ fn a_working_session_with_no_open_dispatch_keeps_its_place() {
     assert!(!said.contains("stopped"), "{said}");
 }
 
+/// A cycle that runs no step (the steps are logged, none runs): no snapshot is taken.
+fn cycle(case: &Case) -> Value {
+    case.child(json!({
+        "do": "cycle",
+        "program": case.bin().join("conductor-steps"),
+    }))
+}
+
+/// `story:dispatch-v1-once-per-goal`: alpha, Active with a charter, serves the goal G1 and has a
+/// dispatch for it that ended, `Done` with `done`, else `Failed`; answers that dispatch's id.
+fn served_and_ended(case: &Case, done: bool) -> String {
+    let id = case.dispatch("alpha");
+    case.ok(&[
+        "goal",
+        "add-serving",
+        "--goal-id",
+        "G1",
+        "--repository",
+        "alpha",
+    ]);
+    case.ok(&["dispatch", "report-started", "--dispatch-id", &id]);
+    if done {
+        case.ok(&[
+            "dispatch",
+            "report-done",
+            "--dispatch-id",
+            &id,
+            "--evidence",
+            "the intake is written",
+        ]);
+    } else {
+        case.ok(&[
+            "dispatch",
+            "report-failed",
+            "--dispatch-id",
+            &id,
+            "--reason",
+            "the checkout did not build",
+        ]);
+    }
+    mark_active(case, "alpha");
+    id
+}
+
+/// A repository whose dispatch for the goal it serves is `Done` is sent no other for that goal,
+/// and no controller starts for it; the `cycle` line says why, naming the goal and the dispatch.
+#[test]
+fn a_repository_with_a_done_dispatch_for_its_goal_is_sent_no_other() {
+    let case = Case::new("once-per-goal");
+    let done = served_and_ended(&case, true);
+    let tick = cycle(&case);
+    assert_eq!(
+        case.view(&["dispatch", "dispatches"]).len(),
+        1,
+        "no second dispatch: {tick}"
+    );
+    assert!(case.launched().is_empty(), "{:?}", case.launched());
+    let said = cycle_said(&case, &tick);
+    assert!(
+        said.contains(&format!("alpha skips goal G1: done in {done}")),
+        "{said}"
+    );
+}
+
+/// A `Failed` dispatch does not end the repository's part: the next cycle sends the goal again and
+/// starts the controller.
+#[test]
+fn a_failed_dispatch_does_not_end_the_repository_s_part() {
+    let case = Case::new("failed-goal");
+    let failed = served_and_ended(&case, false);
+    let tick = cycle(&case);
+    let rows = case.view(&["dispatch", "dispatches"]);
+    assert_eq!(rows.len(), 2, "a second dispatch: {rows:?}");
+    assert!(
+        rows.iter()
+            .any(|row| row["dispatch_id"] != failed.as_str() && row["state"] == "Sent"),
+        "{rows:?}"
+    );
+    assert_eq!(case.launched(), ["ex-alpha"], "{tick}");
+}
+
+/// With `controllers.max_working: 1` held, gamma waits a cycle; beta becomes Active after it. When
+/// the place frees, gamma, which has waited longest, takes it, not beta, first by name.
+#[test]
+fn repositories_waiting_for_a_place_are_taken_oldest_first_not_by_name() {
+    let case = Case::new("oldest-first");
+    case.configure("{provider: none}", "{max_working: 1}");
+    for repo in ["beta", "gamma"] {
+        write(
+            &case.charter(repo),
+            &format!("# Charter: {repo}\n\nKeep main green.\n"),
+        );
+    }
+    case.spawn("alpha", FIRST);
+    mark_active(&case, "gamma");
+    let first = cycle(&case);
+    let said = cycle_said(&case, &first);
+    assert!(
+        said.contains("gamma waits: max_working 1 reached"),
+        "{said}"
+    );
+    mark_active(&case, "beta");
+    case.ok(&[
+        "controller",
+        "stop-controller",
+        "--controller-id",
+        case.view(&["controller", "all-controllers"])[0]["controller_id"]
+            .as_str()
+            .expect("alpha's controller"),
+        "--reason",
+        "test",
+    ]);
+    let second = cycle(&case);
+    assert_eq!(states_of(&case, "gamma"), ["Running"], "{second}");
+    assert_eq!(states_of(&case, "beta"), Vec::<String>::new(), "{second}");
+    let said = cycle_said(&case, &second);
+    assert!(said.contains("spawned gamma"), "{said}");
+    assert!(said.contains("beta waits: max_working 1 reached"), "{said}");
+}
+
 /// The daily tick computes the previous day's metrics and writes `REPORT.md` with deviations
 /// only.
 #[test]
