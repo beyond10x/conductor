@@ -64,6 +64,9 @@ after a `rules.md` change, run it again for each running worker's items.
   session reaches nobody, and a turn that ends on a report ends with that call. First lines:
   - `[REPORT <repo> <dispatch-id|->] <started|progress|blocked|unblocked|done|failed> <one line>`
   - `[REPORT <repo> <dispatch-id|->] review <url> [<words>]`: the URL is linked to the dispatch
+  - `[REPORT <repo> <dispatch-id>] withdrawn <why>`: takes back a `done` sent in error, before the
+    next cycle; later the operator reopens the dispatch. A `done` right after a resume, or on a
+    blocked dispatch before `unblocked`, is held: the answer names the dispatch you hold
   - `[DECISION-REQUEST <repo> <request-id>] <question>`, then options, costs, recommendation
   - `[NEED <repo> <request-id>] <other-repo> <what>`; answered `not relayed`: the supervisor has it
 - Bodies at most 20 lines, a `[REPORT]` first line at most 300 characters (detail in a file);

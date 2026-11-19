@@ -96,7 +96,12 @@ body under `<state>/mailbox/conductor/<ulid>.md`. The daemon reads new files eac
 still `Sent` reports it `started` first, both lines in the log, and a `started` on a `Blocked`
 dispatch (a controller restarted after a hand-over) is recorded `unblocked`; a `started` on a
 `Started` dispatch or a `blocked` on a `Blocked` one (a controller resumed after a runtime restart
-repeats its report) moves nothing and is not refused; `[NEED]` is routed; `[DECISION-REQUEST]` goes to
+repeats its report) moves nothing and is not refused; a `done` within ten minutes of the
+controller session's resume from its transcript, or on a `Blocked` dispatch, is held as a claim
+(`done-held`, the dispatch unmoved, the controller told its dispatch) for `dispatch report-done`
+to confirm, and a controller's `withdrawn` on a `done` taken since the last cycle started reopens
+the dispatch (`reopened`; later only `dispatch reopen-dispatch` does, issue #202); a resumed
+session's first input is its open dispatch; `[NEED]` is routed; `[DECISION-REQUEST]` goes to
 decide; `[RESOURCE]` is answered "use conductor build run"; `[HANDOVER]` from a controller
 (`blocked handover <path>`) is a report. A message the daemon refuses is answered to the
 controller of the repository it names, as one message: `[REPORT <repo> -] refused: <reason>`, the

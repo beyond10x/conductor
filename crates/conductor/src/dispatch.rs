@@ -22,7 +22,8 @@
 //!
 //! Once the store kept it, `send-dispatch`, each `report-*` and `cancel-dispatch` append one line
 //! to the records' dispatch log ([`crate::records`]): `sent`, `started`, `blocked`, `unblocked`,
-//! `done`, `failed`, `cancelled`, with the dispatch's id and its repository as `repo`.
+//! `done`, `failed`, `cancelled`, with the dispatch's id and its repository as `repo`; and
+//! `reopen-dispatch` appends `reopened` (issue #202).
 //!
 //! The view opens only an existing store ([`crate::state::open_reader`]) and creates nothing. It
 //! lists every row it can read, in the order the dispatches were first stored, and answers through
@@ -41,15 +42,17 @@ use conductor_model::behaviour::{
 use conductor_model::direction::GoalId;
 use conductor_model::dispatch::obligations::{
     CancelDispatchBehavior, DispatchesQuery, RecordDispatchLinkBehavior,
-    RecordDispatchWaitingBehavior, ReportBlockedBehavior, ReportDoneBehavior, ReportFailedBehavior,
-    ReportStartedBehavior, ReportUnblockedBehavior, SendDispatchBehavior,
+    RecordDispatchWaitingBehavior, ReopenDispatchBehavior, ReportBlockedBehavior,
+    ReportDoneBehavior, ReportFailedBehavior, ReportStartedBehavior, ReportUnblockedBehavior,
+    SendDispatchBehavior,
 };
 use conductor_model::dispatch::{
     CancelDispatch, CancelDispatchOutcome, DispatchId, DispatchLogEvent, DispatchLogLine,
     DispatchState, RecordDispatchLink, RecordDispatchLinkOutcome, RecordDispatchWaiting,
-    RecordDispatchWaitingOutcome, ReportBlocked, ReportBlockedOutcome, ReportDone,
-    ReportDoneOutcome, ReportFailed, ReportFailedOutcome, ReportStarted, ReportStartedOutcome,
-    ReportUnblocked, ReportUnblockedOutcome, SendDispatch, SendDispatchOutcome,
+    RecordDispatchWaitingOutcome, ReopenDispatch, ReopenDispatchOutcome, ReportBlocked,
+    ReportBlockedOutcome, ReportDone, ReportDoneOutcome, ReportFailed, ReportFailedOutcome,
+    ReportStarted, ReportStartedOutcome, ReportUnblocked, ReportUnblockedOutcome, SendDispatch,
+    SendDispatchOutcome,
 };
 use conductor_model::obligation::UnmetObligation;
 use conductor_model::observation::RepositoryName;
@@ -58,8 +61,8 @@ use serde_json::Value;
 
 use crate::cli::{
     CancelDispatchArgs, JsonInput, RecordDispatchLinkArgs, RecordDispatchWaitingArgs,
-    ReportBlockedArgs, ReportDoneArgs, ReportFailedArgs, ReportStartedArgs, ReportUnblockedArgs,
-    SendDispatchArgs, ViewArgs,
+    ReopenDispatchArgs, ReportBlockedArgs, ReportDoneArgs, ReportFailedArgs, ReportStartedArgs,
+    ReportUnblockedArgs, SendDispatchArgs, ViewArgs,
 };
 use crate::decide::{ATTEMPTS, highest, in_allocator_form, next_id, utc_day};
 use crate::not_implemented;
@@ -1077,6 +1080,92 @@ pub fn cancel_dispatch(state: Option<&Path>, args: CancelDispatchArgs) -> Result
             |line| line.reason = Some(reason),
             "the dispatch already ended",
         ),
+    }
+}
+
+/// What reopening a done dispatch answered ([`reopen`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Reopening {
+    /// The dispatch is `Started` again; its `reopened` line is written.
+    Reopened,
+    /// The specification refused it: the error's name in `conductor.dispatch` and its one line.
+    Refused { error: &'static str, detail: String },
+}
+
+/// Reopens the done dispatch `dispatch` as `actor`, for `reason` (`conductor.dispatch.ReopenDispatch`,
+/// issue #202): the code `dispatch reopen-dispatch` runs, and the loop's on a controller's
+/// withdrawal of its own `done` ([`crate::run::mailbox`]), whose `tick` id the `reopened` line
+/// carries.
+///
+/// # Errors
+///
+/// The store does not open or keep the move, or the records' line is not written.
+pub fn reopen(
+    state: Option<&Path>,
+    dispatch: DispatchId,
+    reason: String,
+    actor: conductor_model::operator::Actor,
+    tick: Option<&str>,
+) -> Result<Reopening> {
+    const COMMAND: &str = "dispatch reopen-dispatch";
+    let input = ReopenDispatch {
+        actor,
+        dispatch_id: dispatch,
+        reason,
+    };
+    let (outcome, store) = run(state, COMMAND, |generated| generated.reopen_dispatch(input))?;
+    Ok(match outcome {
+        ReopenDispatchOutcome::Reopened { dispatch_reopened } => {
+            let _ = logged(
+                COMMAND,
+                &store,
+                &dispatch_reopened.dispatch_id,
+                DispatchLogEvent::Reopened,
+                |line| {
+                    line.reason = Some(dispatch_reopened.reason.clone());
+                    line.tick_id = tick.map(str::to_owned);
+                },
+            )?;
+            Reopening::Reopened
+        }
+        ReopenDispatchOutcome::AgentActor { error } => Reopening::Refused {
+            error: "ReopenByAgent",
+            detail: format!(
+                "{} is an agent, and an agent does not reopen a dispatch: the operator does; \
+                 nothing moved",
+                crate::actor::written(&error.actor)
+            ),
+        },
+        ReopenDispatchOutcome::NoSuchDispatch { error } => Reopening::Refused {
+            error: "DispatchNotFound",
+            detail: format!("no dispatch has the id {}", error.dispatch_id.0),
+        },
+        ReopenDispatchOutcome::WrongState { error } => Reopening::Refused {
+            error: "DispatchStateConflict",
+            detail: format!(
+                "dispatch {} did not move: only a done dispatch is reopened",
+                error.dispatch_id.0
+            ),
+        },
+    })
+}
+
+/// `conductor dispatch reopen-dispatch`: the command `conductor.dispatch.ReopenDispatch`
+/// ([`reopen`]).
+///
+/// # Errors
+///
+/// A flag is missing, `--input-json` is given ([`NotImplemented`](crate::NotImplemented)), the
+/// store does not open or keep the move, or the specification refuses it: `ReopenByAgent`,
+/// `DispatchNotFound`, `DispatchStateConflict`.
+pub fn reopen_dispatch(state: Option<&Path>, args: ReopenDispatchArgs) -> Result<ExitCode> {
+    const COMMAND: &str = "dispatch reopen-dispatch";
+    flags_only(args.input_json, "dispatch reopen-dispatch --input-json")?;
+    let dispatch = dispatch_id(COMMAND, args.dispatch_id)?;
+    let reason = flag(COMMAND, "--reason", args.reason)?;
+    match reopen(state, dispatch, reason, crate::actor::chosen(), None)? {
+        Reopening::Reopened => Ok(ExitCode::SUCCESS),
+        Reopening::Refused { error, detail } => refused(COMMAND, error, &detail),
     }
 }
 

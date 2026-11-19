@@ -1263,6 +1263,88 @@ fn the_controller_commands_stop_and_resume_the_session_through_the_provider() {
     assert_eq!(case.controllers()[0]["state"], "Stopped");
 }
 
+/// Issue #202: a controller resumed from its transcript is given, as its first input, the dispatch
+/// its repository holds open now: the § 6 form with its id and goal, and its brief; and the
+/// instant of the resume is kept beside its measurement, for the mailbox's hold of a `done`.
+#[test]
+fn a_resumed_controller_is_told_its_open_dispatch_first() {
+    let case = Case::new("resume-names-dispatch");
+    let spawned = case.spawn_fake();
+    assert_eq!(spawned.status.code(), Some(0), "{}", describe(&spawned));
+    let controller = case.controllers()[0]["controller_id"]
+        .as_str()
+        .expect("a controller id")
+        .to_owned();
+    for args in [
+        &[
+            "goal",
+            "propose-goal",
+            "--goal-id",
+            "G2",
+            "--title",
+            "Ship goal B",
+            "--exit-evidence",
+            "goal B is on main",
+        ][..],
+        &[
+            "dispatch",
+            "send-dispatch",
+            "--repository",
+            "alpha",
+            "--goal-id",
+            "G2",
+            "--dispatch-id",
+            "DSP-20261119-01",
+            "--brief",
+            "Ship goal B's ```fenced``` part",
+            "--sent-at",
+            "2026-11-19T09:00:00Z",
+            "--priority",
+            "0",
+        ][..],
+    ] {
+        let output = case.run(args);
+        assert!(output.status.success(), "{args:?}: {}", describe(&output));
+    }
+    case.sessions(&json!([{"id": "fake-ex-alpha", "name": "ex-alpha", "pid": 4242}]));
+    let paused = case.run_fake(&[
+        "controller",
+        "pause-controller",
+        "--controller-id",
+        &controller,
+    ]);
+    assert_eq!(paused.status.code(), Some(0), "{}", describe(&paused));
+    case.sessions(&json!([]));
+    let resumed = case.run_fake(&[
+        "controller",
+        "resume-controller",
+        "--controller-id",
+        &controller,
+    ]);
+    assert_eq!(resumed.status.code(), Some(0), "{}", describe(&resumed));
+    let logged = calls(&case.fake());
+    let resume = logged
+        .iter()
+        .rev()
+        .find(|call| call["call"] == "resume")
+        .expect("a resume call");
+    let first = resume["first"].as_str().expect("a first input");
+    assert!(
+        first.starts_with("[DISPATCH alpha DSP-20261119-01] G2 resumed: "),
+        "{first}"
+    );
+    for said in [
+        "Your open dispatch is DSP-20261119-01, for goal G2",
+        "[REPORT alpha DSP-20261119-01]",
+        "Ship goal B's ```fenced``` part",
+    ] {
+        assert!(first.contains(said), "names {said:?}: {first}");
+    }
+    let kept = fs::read_to_string(case.state().join("sessions/ex-alpha.resumed"))
+        .expect("the resume's instant is kept");
+    assert!(kept.trim().ends_with('Z'), "{kept:?}");
+}
+
 /// With `confinement.provider: none`, spawn launches today's start form, and the measurement it
 /// writes says the controller runs unboxed.
 #[test]
@@ -1310,7 +1392,13 @@ fn the_none_provider_resumes_with_the_start_form() {
         .map(str::to_owned)
         .chain(form[1..form.len() - 1].iter().cloned())
         .collect();
-    assert_eq!(case.argv(), resumed, "the resume form");
+    let argv = case.argv();
+    assert_eq!(argv[..argv.len() - 1], resumed, "the resume form");
+    // Issue #202: its last argument, its first input, says it holds no dispatch.
+    assert!(
+        argv[argv.len() - 1].starts_with("[REPORT alpha -] resumed: alpha has no open dispatch"),
+        "{argv:?}"
+    );
     assert_eq!(case.controllers()[0]["state"], "Running");
 }
 

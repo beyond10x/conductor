@@ -71,6 +71,7 @@ components:
         - conductor.dispatch.ReportDone
         - conductor.dispatch.ReportFailed
         - conductor.dispatch.CancelDispatch
+        - conductor.dispatch.ReopenDispatch
         - conductor.dispatch.RecordDispatchLink
         - conductor.dispatch.RecordDispatchWaiting
         - conductor.dispatch.ReceiveMessage
@@ -281,6 +282,7 @@ components:
             - conductor.dispatch.ReportDone
             - conductor.dispatch.ReportFailed
             - conductor.dispatch.CancelDispatch
+            - conductor.dispatch.ReopenDispatch
             - conductor.dispatch.RecordDispatchLink
             - conductor.dispatch.RecordDispatchWaiting
           views:

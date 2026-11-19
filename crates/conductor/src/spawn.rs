@@ -64,7 +64,10 @@
 //! [`end`] and [`resume`] stop and resume a controller session through its instance's provider,
 //! for `controller pause-controller`, `resume-controller` and `stop-controller`
 //! ([`crate::controller`]): the session's provider, unit and id are those its measurement
-//! records under the state directory.
+//! records under the state directory. A resumed session's first input is the dispatch its
+//! repository holds open now ([`resumed_input`], issue #202), and the instant of the resume is
+//! kept in `<state>/sessions/<session name>.resumed` ([`resumed_at`]), which the loop's mailbox
+//! reads to hold a `done` that comes right after it.
 //!
 //! A launch that succeeds appends one `sent` line to the records' dispatch log
 //! ([`crate::records`]): the repository as `repo`, the controller's id, the session name as `to`,
@@ -660,7 +663,8 @@ pub fn resume_leased(
         .map_err(|detail| anyhow!("{detail}"))?;
     let chosen = confine::choose(providers, &crate::config::legacy(instance).confinement)
         .map_err(|refusal| anyhow!("{}", refusal_detail(refusal)))?;
-    let started = match chosen.resume(&session, &launch, &state_dir) {
+    let first = resumed_input(state, repository)?;
+    let started = match chosen.resume(&session, &launch, &state_dir, &first) {
         Ok(started) => started,
         Err(refusal) => {
             if lease.is_some() {
@@ -669,6 +673,7 @@ pub fn resume_leased(
             bail!("{}", refusal_detail(refusal));
         }
     };
+    keep_resumed(&state_dir, session_name, time::OffsetDateTime::now_utc())?;
     let id = started
         .session
         .session_id
@@ -679,6 +684,103 @@ pub fn resume_leased(
         None => format!("{} ({id})", session_name.0),
     };
     Ok(Some((shown, lease)))
+}
+
+/// How long after a controller session's resume a `done` it reports through the mailbox is held
+/// as a claim instead of closing its dispatch (issue #202): the resumed session may still be
+/// reporting what its transcript said last, an older dispatch's work.
+pub const RESUME_HOLD: time::Duration = time::Duration::minutes(10);
+
+/// The file that keeps when the session `name` was last resumed, beside its measurement.
+fn resumed_file(state_dir: &Path, name: &SessionName) -> PathBuf {
+    state_dir
+        .join("sessions")
+        .join(format!("{}.resumed", name.0))
+}
+
+/// Keeps `at` as the instant the session `name` was resumed.
+fn keep_resumed(state_dir: &Path, name: &SessionName, at: time::OffsetDateTime) -> Result<()> {
+    let file = resumed_file(state_dir, name);
+    let text = at
+        .format(&time::format_description::well_known::Rfc3339)
+        .context("format the instant of the resume")?;
+    fs::write(&file, format!("{text}\n"))
+        .with_context(|| format!("keep the resume in {}", file.display()))
+}
+
+/// When the session `name` was last resumed from its transcript ([`resume`]), as
+/// `<state>/sessions/<name>.resumed` keeps it; `None` when it never was, or the file does not
+/// read.
+#[must_use]
+pub fn resumed_at(state: Option<&Path>, name: &SessionName) -> Option<time::OffsetDateTime> {
+    let dir = crate::state::dir(state).ok()?;
+    let text = fs::read_to_string(resumed_file(&dir, name)).ok()?;
+    time::OffsetDateTime::parse(text.trim(), &time::format_description::well_known::Rfc3339).ok()
+}
+
+/// The first input of `repository`'s controller session resumed from its transcript (issue
+/// #202), as a fresh spawn's charter names its dispatch: each open dispatch of the repository
+/// (sent, started or blocked), in the § 6 form `[DISPATCH <repo> <id>] <goal|-> resumed: ...`,
+/// its goal or reference and its brief verbatim in a fenced block ([`fenced`]); with none open,
+/// `[REPORT <repo> -] resumed: <repo> has no open dispatch ...`. It says that a `done` within
+/// [`RESUME_HOLD`] of the resume is held, so the session reports this dispatch's work only.
+///
+/// # Errors
+///
+/// The store does not open or a dispatch does not read.
+pub fn resumed_input(state: Option<&Path>, repository: &str) -> Result<String> {
+    use conductor_model::behaviour::DispatchStorage;
+    use conductor_model::dispatch::DispatchState;
+    let store = crate::state::open(state)?;
+    let open: Vec<_> = DispatchStorage::list(&store)
+        .into_iter()
+        .filter(|held| held.data.repository.0 == repository)
+        .filter(|held| {
+            matches!(
+                held.state,
+                DispatchState::Sent | DispatchState::Started | DispatchState::Blocked
+            )
+        })
+        .collect();
+    store.check().context("read the open dispatches")?;
+    let minutes = RESUME_HOLD.whole_minutes();
+    if open.is_empty() {
+        return Ok(format!(
+            "[REPORT {repository} -] resumed: {repository} has no open dispatch\n\n\
+             You were resumed from your transcript. No dispatch is open for {repository} now: \
+             what your transcript says you worked on is not yours to report. Report with `-`, \
+             which moves nothing, until conductor sends you a dispatch.\n"
+        ));
+    }
+    let mut text = String::new();
+    for held in &open {
+        let data = &held.data;
+        let id = &data.dispatch_id.0;
+        let goal = data.goal_id.as_ref().map_or("-", |goal| goal.0.as_str());
+        if !text.is_empty() {
+            text.push('\n');
+        }
+        text.push_str(&format!(
+            "[DISPATCH {repository} {id}] {goal} resumed: this is the dispatch you hold now\n\n\
+             You were resumed from your transcript. Your open dispatch is {id}"
+        ));
+        match (&data.goal_id, &data.reference) {
+            (Some(goal), _) => text.push_str(&format!(", for goal {}", goal.0)),
+            (None, Some(reference)) => text.push_str(&format!(", the unit {reference}")),
+            (None, None) => {}
+        }
+        let (fence, block) = fenced(&data.brief);
+        text.push_str(&format!(
+            ". Report on it as `[REPORT {repository} {id}] \
+             <started|progress|blocked|unblocked|done|failed> <one line>`, with the evidence of \
+             its brief only: work your transcript names for another dispatch or goal is not \
+             this one's. A `done` within {minutes} minutes of this resume, or on a blocked \
+             dispatch before `unblocked`, is held for confirmation, not taken. A `done` sent in \
+             error is withdrawn with `[REPORT {repository} {id}] withdrawn <why>` before the next \
+             cycle.\n\nIts brief, verbatim, between the two lines of {fence} backticks:\n\n{block}"
+        ));
+    }
+    Ok(text)
 }
 
 /// What a refusal of the confinement says, named.

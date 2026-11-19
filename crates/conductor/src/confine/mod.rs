@@ -193,12 +193,18 @@ pub trait Provider {
     /// The session was not stopped.
     fn stop(&mut self, session: &StartedSession, request: &SessionRequest) -> Result<()>;
 
-    /// Starts `session` again from its transcript, for `launch`.
+    /// Starts `session` again from its transcript, for `launch`, with `first` its first input
+    /// (issue #202: the dispatch it holds now, [`crate::spawn::resumed_input`]).
     ///
     /// # Errors
     ///
     /// It did not start.
-    fn resume(&mut self, session: &StartedSession, launch: &Launch) -> Result<StartedSession>;
+    fn resume(
+        &mut self,
+        session: &StartedSession,
+        launch: &Launch,
+        first: &str,
+    ) -> Result<StartedSession>;
 
     /// The box `session` runs in, read back at its boundary, for `request`.
     ///
@@ -304,7 +310,12 @@ impl Provider for Unserved {
         crate::systemd::stop_unit(&unit)
     }
 
-    fn resume(&mut self, _session: &StartedSession, _launch: &Launch) -> Result<StartedSession> {
+    fn resume(
+        &mut self,
+        _session: &StartedSession,
+        _launch: &Launch,
+        _first: &str,
+    ) -> Result<StartedSession> {
         bail!("{SESSIONS_UNSERVED}")
     }
 
@@ -417,12 +428,19 @@ impl Provider for Unboxed {
         Self::call(&request.cwd, &["rm", id])
     }
 
-    fn resume(&mut self, session: &StartedSession, launch: &Launch) -> Result<StartedSession> {
+    fn resume(
+        &mut self,
+        session: &StartedSession,
+        launch: &Launch,
+        first: &str,
+    ) -> Result<StartedSession> {
         let id = session
             .session_id
             .as_deref()
             .ok_or_else(|| anyhow!("the session {} has no id", session.session_name.0))?;
-        let args = background_args(&["--bg", "--resume", id], &launch.args);
+        let mut args = background_args(&["--bg", "--resume", id], &launch.args);
+        // The first input, last, as a fresh spawn's charter is (issue #202).
+        args.push(first.to_owned());
         let output = run_launch(&mut Self::command(launch, &args))?;
         if !output.status.success() {
             bail!("{}", exited(&output));
@@ -600,7 +618,8 @@ impl Chosen {
         self.measured(session, said, request, state)
     }
 
-    /// Resumes `session` from its transcript through the chosen provider, for `launch`, measures
+    /// Resumes `session` from its transcript through the chosen provider, for `launch`, with
+    /// `first` its first input, measures
     /// the box it runs in now and writes the measurement under `state`, as [`Chosen::start`]
     /// does; under `strict` a box short of the request is stopped again and nothing is written.
     ///
@@ -613,14 +632,15 @@ impl Chosen {
         session: &StartedSession,
         launch: &Launch,
         state: &Path,
+        first: &str,
     ) -> Result<Started, Refusal> {
-        let resumed =
-            self.provider
-                .resume(session, launch)
-                .map_err(|error| Refusal::LaunchFailed {
-                    detail: format!("{error:#}"),
-                    session: None,
-                })?;
+        let resumed = self
+            .provider
+            .resume(session, launch, first)
+            .map_err(|error| Refusal::LaunchFailed {
+                detail: format!("{error:#}"),
+                session: None,
+            })?;
         self.measured(resumed, Said::default(), &launch.request, state)
     }
 

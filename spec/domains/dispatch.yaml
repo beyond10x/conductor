@@ -227,7 +227,7 @@ types:
   # commands), `cancelled` (`CancelDispatch`), `message-received` (`ReceiveMessage`),
   # `resource-granted`, `resource-refused` (`GrantResource`, `RefuseResource`),
   # `charter-revised` (`ReviseCharter`), `linked` (`RecordDispatchLink`, a link the dispatch did
-  # not hold) and `waiting` (`RecordDispatchWaiting`, a reason the dispatch did not hold). The work call and the loop write `start-refused`, a start of a controller for a
+  # not hold) and `waiting` (`RecordDispatchWaiting`, a reason the dispatch did not hold), `reopened` (`ReopenDispatch`). The work call and the loop write `start-refused`, a start of a controller for a
   # dispatch with a `reference` that was refused (`WorkStartRefusal`).
   # The run daemon writes the rest (story:run-daemon, docs/design/conductor-run.md § 3), one per
   # action its handlers take, and `conductor session deliver` writes `delivered`
@@ -244,7 +244,8 @@ types:
   # mailbox `[NEED]` delivered to the live controller of the repository it asks, or the answer to
   # a mailbox `[RESOURCE]`; `red-ci`, a red main with no controller, dispatched or noted;
   # `stalled`, a check-in delivered to a stalled or silent session; `cleanup`, `gc` run on `disk
-  # low`; `decision-sent`, an answered request's `[DECISION]` delivered to the controller that
+  # low`; `done-held`, a controller's `done` the mailbox held as a claim instead of closing the
+  # dispatch (issue #202); `decision-sent`, an answered request's `[DECISION]` delivered to the controller that
   # raised it; `cycle`, one per cycle tick, after `snapshot start-snapshot`, `publish-board`,
   # `records check` and dispatch v1 ran (story:run-daemon acceptance 5); `records-committed`, the
   # records directory committed (and pushed, when it has an `origin`) through the route
@@ -285,6 +286,8 @@ types:
       - RecordsCommitRefused
       - StartRefused
       - Waiting
+      - DoneHeld
+      - Reopened
 
   # One line of `<records>/dispatches/YYYY-MM.jsonl`: a JSON object holding `at` (when it was
   # written, RFC 3339 UTC), `event`, `repo` (the repository; the key is `repo`, never
@@ -300,8 +303,8 @@ types:
   #   printed) and `charter_revision`;
   # - `start-refused`: `id` (the dispatch), `reason` (the `WorkStartRefusal`'s name) and `line`
   #   (what the refusal found), and `tick_id` when the loop wrote it;
-  # - `started`, `unblocked`: `id`; `blocked`, `failed`, `cancelled`: `id`, `reason`; `done`:
-  #   `id`, `evidence`;
+  # - `started`, `unblocked`: `id`; `blocked`, `failed`, `cancelled`, `reopened`: `id`,
+  #   `reason`; `done`: `id`, `evidence`;
   # - `message-received`: `id`, `from`, `to`, `kind`, `first_line`; `repo` is the repository the
   #   first line names, else the sender;
   # - `resource-granted`: `id`, `resource`, `amount`; `resource-refused`: those and `reason`;
@@ -331,6 +334,10 @@ types:
   #   `disk low` line starts runs beside the ticks, and the line carries the id of the first
   #   watch tick that found it ended;
   # - `decision-sent`: `id` (the request), `session` and `grant` (the decision that answered it);
+  # - `done-held`: `id` (the dispatch), `evidence` (the report's) and `reason`: `resumed <at>`,
+  #   the repository's controller session resumed from its transcript at `<at>`, less than ten
+  #   minutes before, or `blocked`, the dispatch blocked with no `unblocked` since; the answer to
+  #   the controller is its own `relayed` line;
   # - `cycle`: `line`, one line naming what each step of the cycle did;
   # - `records-committed`: `commit` (the commit's id as the bot route printed it), `line` (the
   #   commit's message) and `evidence` (`pushed origin main`, or `no origin`);
@@ -591,6 +598,12 @@ entities:
         - name: cancel
           from: [Sent, Started, Blocked]
           to: Cancelled
+        # A done dispatch closed in error is worked again (issue #202): the operator's
+        # `ReopenDispatch`, or the loop's on a controller's `withdrawn` report of its own `done`
+        # before the next cycle started.
+        - name: reopen
+          from: [Done]
+          to: Started
 
   - name: conductor.dispatch.Message
     identity:
@@ -718,6 +731,7 @@ actors:
       - conductor.dispatch.ReportDone
       - conductor.dispatch.ReportFailed
       - conductor.dispatch.CancelDispatch
+      - conductor.dispatch.ReopenDispatch
       - conductor.dispatch.RecordDispatchLink
       - conductor.dispatch.RecordDispatchWaiting
       - conductor.dispatch.ReceiveMessage
@@ -805,6 +819,14 @@ errors:
     fields:
       - name: dispatch_id
         type: conductor.dispatch.DispatchId
+
+  - name: conductor.dispatch.ReopenByAgent
+    summary: >
+      An agent does not reopen a dispatch: the operator does, or the loop on a controller's
+      withdrawal of its own `done`; nothing moved.
+    fields:
+      - name: actor
+        type: conductor.operator.Actor
 
   - name: conductor.dispatch.GoalOrReferenceMissing
     summary: >
@@ -1652,6 +1674,54 @@ commands:
             dispatch_id: input.dispatch_id
         summary: The dispatch already ended.
 
+  # Records line (`DispatchLogLine`): `reopened`, with `id` and `reason` (issue #202). A done
+  # dispatch closed in error, as a resumed controller's `done` with an older goal's evidence closed
+  # one, is worked again: it moves back to `Started`. The operator reopens it with `dispatch
+  # reopen-dispatch`; the loop reopens it, as itself, when the controller reports `withdrawn` on it
+  # before the next cycle started (`crates/conductor/src/run/mailbox.rs`). An agent is refused.
+  - name: conductor.dispatch.ReopenDispatch
+    naming:
+      wire: reopen-dispatch
+      display: Reopen a done dispatch
+    input:
+      - {name: actor, type: conductor.operator.Actor}
+      - name: dispatch_id
+        type: conductor.dispatch.DispatchId
+      - name: reason
+        type: String
+    outcomes:
+      - name: agent-actor
+        when: actor.kind == Agent
+        error: conductor.dispatch.ReopenByAgent
+        payload:
+          conductor.dispatch.ReopenByAgent:
+            actor: input.actor
+        summary: An agent does not reopen a dispatch; nothing moved.
+      - name: reopened
+        moves: conductor.dispatch.Dispatch.reopen
+        instance: dispatch_id
+        emits:
+          - conductor.dispatch.DispatchReopened
+        payload:
+          conductor.dispatch.DispatchReopened:
+            actor: input.actor
+            dispatch_id: input.dispatch_id
+            reason: input.reason
+        summary: The dispatch closed in error is worked again.
+      - name: no-such-dispatch
+        unknown_instance: true
+        error: conductor.dispatch.DispatchNotFound
+        payload:
+          conductor.dispatch.DispatchNotFound:
+            dispatch_id: input.dispatch_id
+      - name: wrong-state
+        wrong_state: true
+        error: conductor.dispatch.DispatchStateConflict
+        payload:
+          conductor.dispatch.DispatchStateConflict:
+            dispatch_id: input.dispatch_id
+        summary: Only a done dispatch is reopened.
+
   # Records line (`DispatchLogLine`): `linked`, with `id` and `link`, when the link was appended.
   # A link is a merge or pull request the dispatch's work opened, as the session reported it
   # (story:control-plane-work-handler): the loop records the URL of a controller's
@@ -2456,6 +2526,15 @@ events:
       - name: dispatch_id
         type: conductor.dispatch.DispatchId
       - name: evidence
+        type: String
+
+  - name: conductor.dispatch.DispatchReopened
+    fields:
+      - name: actor
+        type: conductor.operator.Actor
+      - name: dispatch_id
+        type: conductor.dispatch.DispatchId
+      - name: reason
         type: String
 
   - name: conductor.dispatch.DispatchFailed

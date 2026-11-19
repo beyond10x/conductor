@@ -13,6 +13,8 @@
 //! | first line | what the tick does |
 //! |---|---|
 //! | `[REPORT <repo> <dispatch-id>] started\|blocked\|unblocked\|done\|failed <rest>` | moves the dispatch as `dispatch report-<verb>` does, `<rest>` its reason or evidence (`story:report-to-state`); `-` for the dispatch is the repository's one open dispatch, and with none open the report moves nothing and is not refused; `blocked handover <path>` is a report like any. A `blocked`, `done` or `failed` on a dispatch still `Sent` is reported `started` first, so the log holds both lines; a `started` on a `Blocked` dispatch is recorded `unblocked`, as a controller restarted after a hand-over reports; a `started` on a `Started` dispatch or a `blocked` on a `Blocked` one, as a controller resumed after a runtime restart repeats, moves nothing and is not refused |
+//! | `[REPORT <repo> <dispatch-id>] done <evidence>`, held | a `done` is held as a claim, not taken (issue #202), when the repository's controller session was resumed from its transcript less than [`crate::spawn::RESUME_HOLD`] before ([`crate::spawn::resumed_at`]), or on a `Blocked` dispatch, which no `unblocked` followed: the dispatch does not move, a `done-held` line names the evidence and why, and the controller is answered with its dispatch (id, goal, brief) and what takes a `done` then. The operator, or the loop's decider as conductor, confirms it with `dispatch report-done` ([`hold`]) |
+//! | `[REPORT <repo> <dispatch-id>] withdrawn <why>` | the controller withdraws its own `done`: a `Done` dispatch whose `done` this mailbox took after the last cycle started ([`TAKEN`]) is reopened by the loop (`dispatch reopen-dispatch`, `reopened`); an older one is refused, the answer naming `dispatch reopen-dispatch`, the operator's; on an open dispatch it moves nothing ([`withdrawn`]) |
 //! | `[REPORT <repo> <dispatch-id\|->] review <url> [<words>]` | the controller's pull request ([`review`]): a `Sent` dispatch is reported `started`, another moves nothing, as `progress`; the URL, the first word after the verb, is then recorded on the dispatch as `dispatch record-link` records it. A first word that is no link a dispatch takes, or none, is a `progress` report with nothing linked, and a dispatch that holds the most links takes the report without it: neither is refused, and the journal names it in one line. No other verb records a link |
 //! | `[HANDOVER <repo>] <rest>` | recorded as a report: the repository's open dispatch is reported blocked, `handover: <rest>` |
 //! | `[NEED <repo> <request-id>] <other-repo> <what>` | the whole message delivered to the running controller of `<other-repo>` (`relayed`), else kept for its next start; the repository is the field's leading run of name characters (`docs:` names `docs`). A field that names no repository the instance knows is not relayed and nothing is kept for it: the file stays in the mailbox, where the supervisor reads it, and the sender is told so in one message, `[REPORT <repo> -] not relayed: <reason>`; one that names the mailbox's own recipient, `conductor`, is the supervisor's and is answered by no one (`story:need-repository-from-tag`) |
@@ -42,10 +44,16 @@ use crate::cli::{
     EscalateRequestArgs, HandleMessageArgs, RaiseDecisionRequestArgs, ReportBlockedArgs,
     ReportDoneArgs, ReportFailedArgs, ReportStartedArgs, ReportUnblockedArgs,
 };
-use crate::dispatch::{Linking, Open};
+use crate::dispatch::{Linking, Open, Reopening};
 
 /// The files handled, one name per line, in `<state>/run/`.
 const HANDLED: &str = "mailbox.handled";
+
+/// The dispatches whose `done` this mailbox took, each with the instant it took it (a JSON object
+/// of RFC 3339 instants by dispatch id), in `<state>/run/`: a controller withdraws such a `done`
+/// until the next cycle starts ([`withdrawn`]). An entry no later than the last cycle's start is
+/// dropped when the file is written again.
+const TAKEN: &str = "done.taken";
 
 /// The recipient whose mailbox the tick reads, `<state>/mailbox/conductor/`: what a controller
 /// names with `conductor message send --to`.
@@ -150,7 +158,8 @@ const FORMS: [(&str, &str); 5] = [
     (
         "REPORT",
         "[REPORT <repo> <dispatch-id|->] <started|progress|blocked|unblocked|done|failed> <one line>, \
-         or [REPORT <repo> <dispatch-id|->] review <url> [<words>]",
+         or [REPORT <repo> <dispatch-id|->] review <url> [<words>], or [REPORT <repo> \
+         <dispatch-id>] withdrawn <why>",
     ),
     ("HANDOVER", "[HANDOVER <repo>] <path of the hand-over>"),
     ("NEED", "[NEED <repo> <request-id>] <other-repo> <what>"),
@@ -280,6 +289,16 @@ fn report(
         review(tick, &dispatch, held, said.as_deref())?;
         return Ok((true, reported));
     }
+    if verb == "withdrawn" {
+        withdrawn(tick, &dispatch, held, said.as_deref())?;
+        return Ok((true, reported));
+    }
+    if verb == "done"
+        && let Some(why) = held_why(tick, repo, held)
+    {
+        hold(tick, repo, &dispatch, &why, said.as_deref())?;
+        return Ok((true, reported));
+    }
     // A controller resumed after a runtime restart repeats the report it made before
     // (story:started-report-after-restart): the dispatch is where the report would move it, so
     // the report is progress, not a refusal.
@@ -355,6 +374,7 @@ fn report(
                     input_json: None,
                 },
             )?;
+            take(tick, &dispatch);
             DispatchLogEvent::Done
         }
         "failed" => {
@@ -374,6 +394,191 @@ fn report(
     };
     tick.wrote(event);
     Ok((true, reported))
+}
+
+/// Why a controller's `done` on a dispatch of `repo` held in `held` is held as a claim rather
+/// than taken (issue #202), if it is: the repository's controller session was resumed from its
+/// transcript less than [`crate::spawn::RESUME_HOLD`] before (`resumed <at>`), or the dispatch is
+/// `Blocked` with no `unblocked` since (`blocked`). A dispatch that is not open, or that the store
+/// does not hold, is never held: the report meets its refusal as before.
+fn held_why(tick: &Tick<'_, '_>, repo: &str, held: Option<DispatchState>) -> Option<String> {
+    if !matches!(
+        held,
+        Some(DispatchState::Sent | DispatchState::Started | DispatchState::Blocked)
+    ) {
+        return None;
+    }
+    let session = crate::config::session_name(tick.instance(), repo);
+    let now = OffsetDateTime::now_utc();
+    if let Some(at) = crate::spawn::resumed_at(tick.state, &session)
+        && now - at < crate::spawn::RESUME_HOLD
+    {
+        return Some(format!(
+            "resumed {}",
+            at.format(&Rfc3339).unwrap_or_default()
+        ));
+    }
+    (held == Some(DispatchState::Blocked)).then(|| "blocked".to_owned())
+}
+
+/// Holds a controller's `done` on the open dispatch `id` of `repo` for `why` ([`held_why`]):
+/// nothing moves, a `done-held` line keeps the evidence `said` and the reason, and the controller
+/// is answered (`relayed`, or kept for its next start) with its dispatch, its goal and brief, and
+/// what takes a `done` then.
+///
+/// # Errors
+///
+/// The store does not open, or the line or the answer cannot be written.
+fn hold(
+    tick: &mut Tick<'_, '_>,
+    repo: &str,
+    id: &str,
+    why: &str,
+    said: Option<&str>,
+) -> Result<()> {
+    let evidence = said.unwrap_or("done").to_owned();
+    let mut line = tick.line(DispatchLogEvent::DoneHeld, repo)?;
+    line.id = Some(id.to_owned());
+    line.evidence = Some(evidence.clone());
+    line.reason = Some(why.to_owned());
+    tick.write(&line)?;
+    let store = crate::state::open(tick.state)?;
+    let held = DispatchStorage::get(&store, &DispatchId(id.to_owned()));
+    store.check().context("read the dispatch")?;
+    let (goal, brief) = held.map_or_else(
+        || ("-".to_owned(), String::new()),
+        |held| {
+            (
+                held.data
+                    .goal_id
+                    .map_or_else(|| "-".to_owned(), |goal| goal.0),
+                held.data.brief,
+            )
+        },
+    );
+    let then = match why.strip_prefix("resumed ") {
+        Some(at) => format!(
+            "your session was resumed from its transcript at {at}, less than {} minutes ago, and \
+             may be reporting an older dispatch's work. Check your evidence against the brief \
+             below, and report `done` again once that time has passed",
+            crate::spawn::RESUME_HOLD.whole_minutes()
+        ),
+        None => "the dispatch is blocked and you reported no `unblocked`. Report `unblocked` \
+                 first, then `done` with the evidence of the brief below"
+            .to_owned(),
+    };
+    let first = format!("[REPORT {repo} {id}] done {evidence}");
+    let (fence, block) = crate::spawn::fenced(&brief);
+    let answer = format!(
+        "[REPORT {repo} {id}] done held: {why}\n\
+         Your done on {id} is held as a claim, not taken: {then}; or the operator confirms it \
+         with `conductor dispatch report-done --dispatch-id {id} --evidence <evidence>`.\n\
+         Your message: {}\n\
+         Your dispatch: {id}, goal {goal}. Its brief, verbatim, between the two lines of {fence} \
+         backticks:\n\n{block}",
+        one_line(&first)
+    );
+    deliver_or_keep(
+        tick,
+        json!({"repo": repo, "text": answer, "event": "relayed", "line": first}),
+    )
+}
+
+/// Keeps that this mailbox took a controller's `done` on the dispatch `id` now ([`TAKEN`]), and
+/// drops the entries no later than the last cycle's start. A file that cannot be written is named
+/// on standard error: the `done` stands, and only its withdrawal is lost.
+fn take(tick: &Tick<'_, '_>, id: &str) {
+    let file = tick.dir.join(TAKEN);
+    let since = cycle_started(&tick.dir);
+    let mut taken: serde_json::Map<String, Value> = fs::read_to_string(&file)
+        .ok()
+        .and_then(|text| serde_json::from_str(&text).ok())
+        .unwrap_or_default();
+    taken.retain(|_, at| instant(at).is_some_and(|at| since.is_none_or(|since| at > since)));
+    let now = OffsetDateTime::now_utc()
+        .format(&Rfc3339)
+        .unwrap_or_default();
+    taken.insert(id.to_owned(), Value::from(now));
+    if let Err(error) = write_file(&file, &format!("{}\n", Value::Object(taken))) {
+        tick.note(TAKEN, &error);
+    }
+}
+
+/// The RFC 3339 instant `value` holds.
+fn instant(value: &Value) -> Option<OffsetDateTime> {
+    value
+        .as_str()
+        .and_then(|at| OffsetDateTime::parse(at, &Rfc3339).ok())
+}
+
+/// The start of the last cycle, the one running or the last one that ended, whichever is later
+/// (`cycle.running`, `cycle.last` in `dir`); `None` before any.
+fn cycle_started(dir: &Path) -> Option<OffsetDateTime> {
+    [super::CYCLE_RUNNING, super::CYCLE_LAST]
+        .iter()
+        .filter_map(|name| fs::read_to_string(dir.join(name)).ok())
+        .filter_map(|text| OffsetDateTime::parse(text.trim(), &Rfc3339).ok())
+        .max()
+}
+
+/// `withdrawn <why>` on the dispatch `id`, held in `held`: the controller withdraws its own
+/// `done` (issue #202). A `Done` dispatch whose `done` this mailbox took after the last cycle
+/// started ([`TAKEN`]) is reopened as the loop (`dispatch reopen-dispatch`, `reopened`, the
+/// reason `withdrawn by the controller: <why>`); an open one moves nothing, as its `done` was
+/// held or never sent.
+///
+/// # Errors
+///
+/// No dispatch has the id; the dispatch ended otherwise, or its `done` was taken before the last
+/// cycle started, so only the operator reopens it, which the answer names; or the reopen failed.
+fn withdrawn(
+    tick: &mut Tick<'_, '_>,
+    id: &str,
+    held: Option<DispatchState>,
+    said: Option<&str>,
+) -> Result<()> {
+    match held {
+        None => bail!("DispatchNotFound: no dispatch has the id {id}"),
+        Some(DispatchState::Sent | DispatchState::Started | DispatchState::Blocked) => {
+            return Ok(());
+        }
+        Some(DispatchState::Done) => {}
+        Some(_) => bail!(
+            "DispatchStateConflict: dispatch {id} did not move: only a done dispatch is reopened"
+        ),
+    }
+    let taken: Value = fs::read_to_string(tick.dir.join(TAKEN))
+        .ok()
+        .and_then(|text| serde_json::from_str(&text).ok())
+        .unwrap_or_default();
+    let since = cycle_started(&tick.dir);
+    let open = instant(&taken[id]).is_some_and(|at| since.is_none_or(|since| at > since));
+    if !open {
+        bail!(
+            "the done of {id} was not taken from you since the last cycle started, so you cannot \
+             withdraw it; the operator reopens it with `conductor dispatch reopen-dispatch \
+             --dispatch-id {id} --reason <why>`"
+        );
+    }
+    let reason = format!(
+        "withdrawn by the controller: {}",
+        said.map_or_else(|| "no reason given".to_owned(), one_line)
+    );
+    match crate::dispatch::reopen(
+        tick.state,
+        DispatchId(id.to_owned()),
+        reason,
+        crate::actor::chosen(),
+        Some(&tick.id),
+    )? {
+        Reopening::Reopened => {
+            tick.wrote(DispatchLogEvent::Reopened);
+            Ok(())
+        }
+        Reopening::Refused { error, detail } => {
+            bail!("dispatch reopen-dispatch: {error}: {detail}")
+        }
+    }
 }
 
 /// Whether the report `verb` on a dispatch held in `held` repeats the move that put it there: a
