@@ -1890,7 +1890,8 @@ fn a_gone_session_with_an_open_dispatch_is_respawned() {
 }
 
 /// The maintainer role the conductor-dev cases add, under its old name, so its session is
-/// `ex-conductor-dev`.
+/// `conductor-dev`, the host's role carrying no instance prefix
+/// (`story:host-role-session-unprefixed`).
 const MAINTAINER: &str = "\x20     - {role: conductor-dev, harness: claude, model: opus}\n";
 
 /// The conductor-dev session's id, and the eight characters the watch names it by.
@@ -1921,7 +1922,7 @@ fn dev_gone(case: &Case, active: &[&str]) -> (Value, Vec<String>, PathBuf) {
     write(
         &listed,
         &json!({
-            "id": DEV, "sessionId": DEV, "name": "ex-conductor-dev", "pid": 4343,
+            "id": DEV, "sessionId": DEV, "name": "conductor-dev", "pid": 4343,
             "cwd": product, "status": "busy", "state": "working",
         })
         .to_string(),
@@ -1943,11 +1944,11 @@ fn a_gone_conductor_dev_is_started_again_while_the_plan_has_an_active_story() {
     let case = Case::new("dev-gone-active");
     let (gone, said, product) = dev_gone(&case, &["story:one"]);
 
-    assert_eq!(case.launched(), ["ex-conductor-dev"], "{gone} {said:?}");
+    assert_eq!(case.launched(), ["conductor-dev"], "{gone} {said:?}");
     let start = case
         .claude_args()
         .into_iter()
-        .find(|call| call.starts_with("--bg -n ex-conductor-dev "))
+        .find(|call| call.starts_with("--bg -n conductor-dev "))
         .expect("conductor-dev's start");
     assert!(start.contains("--model opus"), "{start}");
     let asked = fs::read_to_string(case.fake().join("aep.calls")).unwrap_or_default();
@@ -1959,7 +1960,7 @@ fn a_gone_conductor_dev_is_started_again_while_the_plan_has_an_active_story() {
     );
     let written = case.lines_of(&gone);
     assert_eq!(events(&written), ["controller-restarted"], "{written:?}");
-    assert_eq!(written[0]["session"], "ex-conductor-dev");
+    assert_eq!(written[0]["session"], "conductor-dev");
     assert_eq!(written[0]["repo"], "conductor");
     assert_eq!(written[0]["reason"], "conductor-dev gone; 1 active stories");
 }
