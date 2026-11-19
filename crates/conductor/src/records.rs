@@ -426,6 +426,23 @@ pub fn append_dispatch(line: &DispatchLogLine) -> Result<()> {
     append(DISPATCHES, &line.at, &dispatch_object(line))
 }
 
+/// Appends `line` to the dispatch log of the records directory `records`, for a process that
+/// serves more than one instance (the daemon, `story:failing-start-recreates-box`). Where
+/// `records` is no directory (one `conductor init` did not make) nothing is written.
+///
+/// # Errors
+///
+/// The log's directory cannot be made, or the line cannot be appended; each names the file.
+pub fn append_dispatch_in(records: &Path, line: &DispatchLogLine) -> Result<()> {
+    if !records.is_dir() {
+        return Ok(());
+    }
+    let dir = records.join(DISPATCHES);
+    fs::create_dir_all(&dir)
+        .with_context(|| format!("create the records log {}", dir.display()))?;
+    append_to(&dir, &line.at, &dispatch_object(line))
+}
+
 /// Appends `line` to the records' decision log, as the module documentation says.
 ///
 /// # Errors
@@ -489,6 +506,11 @@ fn append(log: &str, at: &Timestamp, object: &Map<String, Value>) -> Result<()> 
     let Some(dir) = log_dir(log)? else {
         return Ok(());
     };
+    append_to(&dir, at, object)
+}
+
+/// Appends `object` as one line, in one write, to the month's file under the log directory `dir`.
+fn append_to(dir: &Path, at: &Timestamp, object: &Map<String, Value>) -> Result<()> {
     let file = dir.join(month_file(at)?);
     let mut text = serde_json::to_string(object).context("encode a records line")?;
     text.push('\n');

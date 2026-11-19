@@ -55,6 +55,9 @@ use serde_json::Value;
 // The fake substrate and the fake service manager
 // ---------------------------------------------------------------------------------------------
 
+/// Substrate's answer for a workspace or session it does not hold.
+const NOT_FOUND: &str = "resource.not-found";
+
 /// What the fake substrate saw and how it answers.
 #[derive(Debug, Default)]
 struct Log {
@@ -88,6 +91,9 @@ struct Log {
     strays: Vec<(String, String)>,
     /// For each box asked for, how many boxes of its instance the daemon held at that moment.
     held_at_open: Vec<usize>,
+    /// The workspaces and sessions the daemon no longer holds, by id: every question about one
+    /// is answered `resource.not-found` (`story:failing-start-recreates-box`).
+    gone: BTreeSet<String>,
 }
 
 impl Log {
@@ -102,7 +108,9 @@ impl Log {
             .iter()
             .cloned()
             .chain(opened)
-            .filter(|(workspace, of)| of == instance && !self.closed.contains(workspace))
+            .filter(|(workspace, of)| {
+                of == instance && !self.closed.contains(workspace) && !self.gone.contains(workspace)
+            })
             .map(|(workspace, _)| workspace)
             .collect()
     }
@@ -176,6 +184,9 @@ impl Substrate for Fake {
         if log.silent {
             anyhow::bail!("placement.substrate-unreachable: the daemon did not answer");
         }
+        if log.gone.contains(session) {
+            anyhow::bail!("{}: no session {session}", NOT_FOUND);
+        }
         Ok(log.running.contains(session))
     }
 
@@ -184,17 +195,20 @@ impl Substrate for Fake {
         if log.silent {
             anyhow::bail!("placement.substrate-unreachable: the daemon did not answer");
         }
+        if log.gone.contains(session) {
+            anyhow::bail!("{}: no session {session}", NOT_FOUND);
+        }
         log.running.remove(session);
         log.stopped.push(session.to_owned());
         Ok(())
     }
 
     fn close(&mut self, workspace: &str) -> Result<()> {
-        self.log
-            .lock()
-            .expect("the log")
-            .closed
-            .push(workspace.to_owned());
+        let mut log = self.log.lock().expect("the log");
+        if log.gone.contains(workspace) {
+            anyhow::bail!("{}: no workspace {workspace}", NOT_FOUND);
+        }
+        log.closed.push(workspace.to_owned());
         Ok(())
     }
 
@@ -231,6 +245,12 @@ impl Substrate for Fake {
 
     fn restart(&mut self, workspace: &str, request: &BoxRequest) -> Result<String, Refused> {
         let mut log = self.log.lock().expect("the log");
+        if log.gone.contains(workspace) {
+            return Err(Refused {
+                name: NOT_FOUND.to_owned(),
+                detail: format!("no workspace {workspace}"),
+            });
+        }
         log.restarted.push((workspace.to_owned(), request.clone()));
         let session = format!("ses_r{}", log.restarted.len());
         log.running.insert(session.clone());
@@ -2261,6 +2281,204 @@ fn conductord_renews_a_box_and_restarts_its_runtime_in_the_same_box_before_the_r
         )
         .expect("a pass");
     assert!(done.is_empty(), "the restarted runtime runs: {done:?}");
+}
+
+// ---------------------------------------------------------------------------------------------
+// `story:failing-start-recreates-box`: a box substrate answers as gone is forgotten, a new one opens
+// ---------------------------------------------------------------------------------------------
+
+impl Fake {
+    /// Substrate no longer holds the box `n` it opened: its workspace `ws_<n>` and its session
+    /// `ses_<n>` are answered `resource.not-found`.
+    fn lose(&self, n: usize) {
+        let mut log = self.log.lock().expect("the log");
+        log.running.remove(&format!("ses_{n}"));
+        log.gone.insert(format!("ws_{n}"));
+        log.gone.insert(format!("ses_{n}"));
+    }
+}
+
+/// The workspaces of `boxes.json` in the daemon's directory of `case`.
+fn stored_workspaces(case: &Case) -> Vec<String> {
+    let text = fs::read_to_string(case.dir.join("daemon").join("boxes.json")).unwrap_or_default();
+    let boxes: Value = serde_json::from_str(&text).unwrap_or(Value::Null);
+    boxes
+        .as_object()
+        .map(|boxes| {
+            boxes
+                .values()
+                .filter_map(|opened| opened["workspace"].as_str().map(str::to_owned))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// The `alert` lines of `condition` in the dispatch log of `case`'s instance `name`.
+fn alert_lines(case: &Case, name: &str, condition: &str) -> Vec<Value> {
+    let dir = case.dir.join(name).join("records").join("dispatches");
+    let mut lines = Vec::new();
+    for entry in fs::read_dir(&dir).into_iter().flatten().flatten() {
+        let text = fs::read_to_string(entry.path()).unwrap_or_default();
+        lines.extend(
+            text.lines()
+                .filter_map(|line| serde_json::from_str::<Value>(line).ok())
+                .filter(|line| line["event"] == "alert" && line["condition"] == condition),
+        );
+    }
+    lines
+}
+
+#[test]
+fn a_box_whose_close_substrate_answers_not_found_is_forgotten_and_a_new_one_opens_in_the_pass() {
+    use conductor_model::instance::ReconcileReason;
+    assert_eq!(
+        placement::NOT_FOUND,
+        NOT_FOUND,
+        "the fake answers as substrate does"
+    );
+    let case = Case::new("gone-close");
+    case.config(&[("alpha", "linux")]);
+    let fake = Fake::default();
+    let mut daemon = case.daemon(fake.clone());
+    let start = std::time::Instant::now();
+    daemon
+        .pass(ReconcileReason::ConfigChange, start)
+        .expect("a pass");
+    assert_eq!(stored_workspaces(&case), ["ws_1"]);
+    drop(daemon);
+
+    // Substrate loses the workspace; a restarted daemon finds its stored box gone.
+    fake.lose(1);
+    let mut daemon = case.daemon(fake.clone());
+    let done = daemon
+        .pass(ReconcileReason::Cadence, start)
+        .expect("a pass that substrate answers not-found for does not fail");
+    assert_eq!(done.len(), 1, "one record: {done:?}");
+    assert_eq!(
+        (done[0].action, done[0].result),
+        (ReconcileAction::Start, ReconcileResult::Succeeded),
+        "{done:?}"
+    );
+    {
+        let log = fake.log.lock().expect("the log");
+        assert_eq!(log.opened.len(), 2, "a new box in the same pass");
+        assert!(log.closed.is_empty(), "nothing substrate holds is closed");
+    }
+    assert_eq!(
+        stored_workspaces(&case),
+        ["ws_2"],
+        "the gone box is forgotten"
+    );
+    assert_eq!(daemon.started()["alpha"].unit, "substrate:ses_2");
+    assert!(
+        ReconciliationStorage::list(daemon.store())
+            .iter()
+            .all(|row| row.data.result != ReconcileResult::Refused),
+        "no refused record"
+    );
+    let boxes = BoxStorage::list(daemon.store());
+    assert_eq!(
+        boxes
+            .iter()
+            .filter(|row| row.state == BoxState::Opened)
+            .count(),
+        1,
+        "one box open on record: {boxes:?}"
+    );
+}
+
+#[test]
+fn a_box_whose_run_bound_restart_substrate_answers_not_found_is_replaced_at_the_next_pass() {
+    use conductor_model::instance::ReconcileReason;
+    let case = Case::new("gone-restart");
+    case.config(&[("alpha", "linux")]);
+    let fake = Fake::default();
+    let mut daemon = case.daemon(fake.clone());
+    let start = std::time::Instant::now();
+    daemon
+        .pass(ReconcileReason::ConfigChange, start)
+        .expect("a pass");
+    let hour = std::time::Duration::from_secs(3600);
+
+    fake.lose(1);
+    let done = daemon
+        .keep_boxes(std::time::SystemTime::now() + 23 * hour + hour / 2)
+        .expect("keep the boxes");
+    assert_eq!(done.len(), 1, "{done:?}");
+    assert_eq!(done[0].action, ReconcileAction::Restart);
+    assert!(
+        stored_workspaces(&case).is_empty(),
+        "the gone box is forgotten"
+    );
+
+    let later = start + std::time::Duration::from_secs(4);
+    let reason = daemon.due(later).expect("due");
+    assert!(reason.is_some(), "a pass is due at the next tick");
+    let done = daemon
+        .pass(reason.expect("a reason"), later)
+        .expect("a pass");
+    assert_eq!(done.len(), 1, "{done:?}");
+    assert_eq!(
+        (done[0].action, done[0].result),
+        (ReconcileAction::Start, ReconcileResult::Succeeded),
+        "{done:?}"
+    );
+    assert_eq!(fake.log.lock().expect("the log").opened.len(), 2);
+    assert_eq!(stored_workspaces(&case), ["ws_2"]);
+    assert_eq!(daemon.started()["alpha"].unit, "substrate:ses_2");
+}
+
+#[test]
+fn a_recreated_box_whose_open_is_refused_alerts_once_over_three_passes() {
+    use conductor_model::instance::ReconcileReason;
+    use std::time::Duration;
+    let case = Case::new("gone-refused");
+    case.config(&[("alpha", "linux")]);
+    fs::create_dir_all(case.dir.join("alpha").join("records")).expect("the records directory");
+    let fake = Fake::default();
+    let mut daemon = case.daemon(fake.clone());
+    let start = std::time::Instant::now();
+    daemon
+        .pass(ReconcileReason::ConfigChange, start)
+        .expect("a pass");
+
+    fake.lose(1);
+    fake.log.lock().expect("the log").refuse = Some("exec.sandbox-unavailable".to_owned());
+    let mut at = start + conductor_cli::daemon::reconcile::RAN_BOUND + Duration::from_secs(2);
+    let mut refused = 0;
+    for _ in 0..3 {
+        let done = daemon
+            .pass(ReconcileReason::LostRuntime, at)
+            .expect("a pass");
+        refused += done
+            .iter()
+            .filter(|done| {
+                done.action == ReconcileAction::Start && done.result == ReconcileResult::Refused
+            })
+            .count();
+        assert_eq!(
+            daemon.rows()[0]["state"],
+            "Unreachable",
+            "{:?}",
+            daemon.rows()
+        );
+        assert!(
+            daemon.rows()[0]["detail"]
+                .as_str()
+                .is_some_and(|detail| detail.contains("exec.sandbox-unavailable")),
+            "the refusal is the detail: {:?}",
+            daemon.rows()
+        );
+        at += conductor_cli::daemon::reconcile::RETRY_CAP + Duration::from_secs(1);
+    }
+    assert_eq!(
+        refused, 3,
+        "each pass asks for a new box once its wait is over"
+    );
+    assert!(stored_workspaces(&case).is_empty());
+    let alerts = alert_lines(&case, "alpha", "box-not-recreated");
+    assert_eq!(alerts.len(), 1, "one alert over three refusals: {alerts:?}");
+    assert_eq!(alerts[0]["repo"], "alpha");
 }
 
 // ---------------------------------------------------------------------------------------------

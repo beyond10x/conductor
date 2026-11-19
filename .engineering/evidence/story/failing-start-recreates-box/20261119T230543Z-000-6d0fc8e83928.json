@@ -1,0 +1,13 @@
+{
+  "at": "2026-11-19T23:05:43Z",
+  "actor": "human:unknown",
+  "artifact": "story:failing-start-recreates-box",
+  "kind": "story",
+  "revision": 10,
+  "change": {
+    "change": "evidence",
+    "kind": "test_result",
+    "source": "cargo test -p conductor-cli --test placement: the three new tests (a_box_whose_close_substrate_answers_not_found_..., a_box_whose_run_bound_restart_substrate_answers_not_found_..., a_recreated_box_whose_open_is_refused_alerts_once_over_three_passes) fail on 5f470dcb and pass; 86 passed, 24 failed, every failure a Unix socket bind refused by this box (needs CI); --lib 157, daemon 15, box_upgrade 5, no_organization 4 passed; clippy -D warnings clean; ess specify validate and conformance 733/733",
+    "reference": "github:beyond10x/conductor#207"
+  }
+}

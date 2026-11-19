@@ -13,12 +13,18 @@ relations:
 - depends_on: story:loop-alerts-when-it-cannot-act
 scope:
 - confidence: cited
+  path: crates/conductor/src/alert.rs
+- confidence: cited
   path: crates/conductor/src/daemon/reconcile.rs
 - confidence: cited
   path: crates/conductor/src/placement.rs
 - confidence: cited
+  path: crates/conductor/src/records.rs
+- confidence: cited
   path: crates/conductor/tests/placement.rs
-revision: 9
+- confidence: cited
+  path: spec/domains/dispatch.yaml
+revision: 10
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-19T19:24:59Z", actor: "human:unknown", revision: 8}
 - {from: "proposed", to: "active", at: "2026-11-19T19:24:59Z", actor: "human:unknown", revision: 9}
