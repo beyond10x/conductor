@@ -308,6 +308,17 @@ pub const DIAL_HELLO: &str = "CONDUCTOR-DIAL/1";
 /// [`DIAL_HELLO`]; then one pool call, one answer, the close ([`crate::token::pool_call`]).
 pub const POOL_HELLO: &str = "CONDUCTOR-POOL/1";
 
+/// The protocols between a runtime and conductord this binary speaks as the daemon, each the
+/// first word of the line a runtime opens a connection with; `GET /v1/version` names them
+/// (`story:upgrade-checks-daemon-protocols`).
+pub const PROTOCOLS: &[&str] = &[DIAL_HELLO, POOL_HELLO];
+
+/// Each protocol a runtime needs of conductord, with the first release whose runtime needs it:
+/// a runtime of that release or later in a box opens its connections with it
+/// (`story:upgrade-checks-daemon-protocols`). A daemon too old to name its protocols speaks the
+/// ones of the releases up to its own.
+pub const RUNTIME_NEEDS: &[(&str, &str)] = &[(DIAL_HELLO, "1.10.0"), (POOL_HELLO, "1.16.0")];
+
 /// The line the daemon sends on a dialed connection it admitted and closes because the
 /// instance's pool is full ([`crate::daemon::dial::MAX_IDLE`]): a surplus connection, which the
 /// runtime does not take for a refusal (`story:dial-refusal-diagnosable`).
@@ -835,6 +846,9 @@ pub fn instance_serve(
     }
     if let Some(address) = &dial {
         crate::token::hold_dial(address, &active.instance.name.0, &token);
+        // story:upgrade-checks-daemon-protocols: what a spawn needs of conductord, reached now,
+        // so an upgrade counts this start as answering only once it is.
+        crate::token::keep_probing(format!("{}-runtime", active.instance.name.0));
     }
     let what = format!("conductor instance {}", active.instance.name.0);
     let listener = if let Some(address) = &dial {

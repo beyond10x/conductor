@@ -19,7 +19,11 @@
 //!
 //! Whether a runtime in a box runs, and whether it answers, is substrate's answer for its
 //! session, as the reconciler reads it (`Daemon::look`); the service manager knows no
-//! `substrate:<session>` unit. Its rollback opens a box on the previous binary.
+//! `substrate:<session>` unit. Its rollback opens a box on the previous binary. From
+//! [`crate::token::PROBE_SINCE`] on, it answers only once its new start also reached the host's
+//! token pool through conductord, what every spawn of it needs ([`crate::token::probed`],
+//! `story:upgrade-checks-daemon-protocols`). `conductor instance upgrade` refuses a release whose
+//! runtime needs a protocol the running conductord does not speak ([`daemon_lacks`]).
 //!
 //! The instance is then `Upgrading` until [`Daemon::settle`] sees its runtime answer (`up`,
 //! `Succeeded`), or puts the previous binary back and starts it (`rollback`, `RolledBack`): when
@@ -450,7 +454,7 @@ impl<U: Units> Daemon<U> {
             // decides; a silent remote daemon is neither lost nor answering, until the deadline.
             let (running, answers) = match &unit {
                 Some(unit) if self.in_box(&name, unit) => match self.look(&name, unit)? {
-                    Some(running) => (running, running),
+                    Some(running) => (running, running && self.reaches_pool(&name, &upgrade)),
                     None => (true, false),
                 },
                 Some(unit) => {
@@ -492,6 +496,29 @@ impl<U: Units> Daemon<U> {
             self.save()?;
         }
         Ok(done)
+    }
+
+    /// Whether the runtime of `name` in a box, upgraded as `upgrade` says, reached the host's
+    /// token pool, what each of its spawns needs (`story:upgrade-checks-daemon-protocols`): its
+    /// new start probed it ([`crate::token::probed`]). A release before
+    /// [`crate::token::PROBE_SINCE`] probes nothing and is taken as reaching it.
+    fn reaches_pool(&self, name: &str, upgrade: &Upgrading) -> bool {
+        let probes = match (
+            crate::upgrade::parse_version(&upgrade.version),
+            crate::upgrade::parse_version(crate::token::PROBE_SINCE),
+        ) {
+            (Some(version), Some(since)) => version >= since,
+            _ => true,
+        };
+        if !probes {
+            return true;
+        }
+        let start = self
+            .started
+            .get(name)
+            .and_then(|started| started.token.as_deref())
+            .map(crate::token::runtime_tag);
+        start.is_some() && crate::token::probed(name) == start
     }
 
     /// Puts `instance`'s previous binary back as its desired one and starts its runtime on it,
@@ -739,12 +766,15 @@ pub fn post(path: &str, body: &[u8], actor: Actor) -> (&'static str, Value) {
 /// file (`127.0.0.1:<daemon.port>`) to upgrade one instance, or with `--all` each instance of the
 /// file in its order, one at a time: each `POST /v1/instances/{name}/upgrade`, then
 /// `GET /v1/instances` until it no longer upgrades. It prints one line per instance upgraded and
-/// stops, exit 1, at the first rollback or refusal.
+/// stops, exit 1, at the first rollback or refusal. Before any, it reads `GET /v1/version` and
+/// refuses, naming the daemon's version, when the release's runtime needs a protocol the running
+/// conductord does not speak ([`daemon_lacks`]).
 ///
 /// # Errors
 ///
 /// No `--tag`; both or neither of `--instance` and `--all`; the config does not load; the daemon does not
-/// answer; an upgrade is rolled back or refused.
+/// answer; the daemon lacks a protocol the release's runtime needs; an upgrade is rolled back or
+/// refused.
 pub fn instance_upgrade(
     config_flag: Option<&Path>,
     args: &InstanceUpgradeArgs,
@@ -776,6 +806,15 @@ pub fn instance_upgrade(
         .home()
         .ok()
         .and_then(|home| super::api::kept_token(&home.join(super::DIR)));
+    // story:upgrade-checks-daemon-protocols: a runtime that needs a protocol the running
+    // conductord does not speak would come up and answer, and then fail every start.
+    let said = request(None, port, "GET", super::api::VERSION, None)
+        .ok()
+        .filter(|(status, _)| *status == 200)
+        .map(|(_, body)| body);
+    if let Some(lacks) = daemon_lacks(&version, said.as_ref()) {
+        bail!("{WHAT}: refused: {lacks}");
+    }
     for name in names {
         let (status, body) = request(
             token.as_deref(),
@@ -816,6 +855,56 @@ pub fn instance_upgrade(
         println!("{name}: upgraded to {version}");
     }
     Ok(ExitCode::SUCCESS)
+}
+
+/// Why the daemon whose `GET /v1/version` answered `said` (none when it did not answer it) is
+/// no daemon for a runtime of release `version`: the protocols that runtime needs
+/// ([`crate::instance::RUNTIME_NEEDS`]) the daemon does not speak, with the daemon's version;
+/// none when it speaks them all (`story:upgrade-checks-daemon-protocols`). A daemon that names
+/// no `protocols` (1.16.0 and older) speaks those of the releases up to its own version; one
+/// whose version does not read speaks none that is asked of it. A `version` that does not read
+/// needs every protocol.
+#[must_use]
+pub fn daemon_lacks(version: &str, said: Option<&Value>) -> Option<String> {
+    let row = said.and_then(|said| said.get(0));
+    let daemon = row
+        .and_then(|row| row["version"].as_str())
+        .unwrap_or("unknown");
+    let since = |release: &str, of: &str| match (
+        crate::upgrade::parse_version(release),
+        crate::upgrade::parse_version(of),
+    ) {
+        (Some(release), Some(of)) => release <= of,
+        (_, None) => true,
+        (None, Some(_)) => false,
+    };
+    let spoken: Vec<String> = match row.and_then(|row| row["protocols"].as_array()) {
+        Some(protocols) => protocols
+            .iter()
+            .filter_map(Value::as_str)
+            .map(str::to_owned)
+            .collect(),
+        None if crate::upgrade::parse_version(daemon).is_some() => crate::instance::RUNTIME_NEEDS
+            .iter()
+            .filter(|(_, release)| since(release, daemon))
+            .map(|(protocol, _)| (*protocol).to_owned())
+            .collect(),
+        None => Vec::new(),
+    };
+    let missing: Vec<&str> = crate::instance::RUNTIME_NEEDS
+        .iter()
+        .filter(|(_, release)| since(release, version))
+        .map(|(protocol, _)| *protocol)
+        .filter(|protocol| !spoken.iter().any(|spoken| spoken == protocol))
+        .collect();
+    (!missing.is_empty()).then(|| {
+        format!(
+            "the runtime of {version} needs {} of conductord, and the running conductord \
+             ({daemon}) does not speak it: upgrade conductord to {version} or later first, then \
+             its instances",
+            missing.join(", ")
+        )
+    })
 }
 
 /// `name`'s row of the instances `rows` reads (`GET /v1/instances`) once its upgrade to `version`

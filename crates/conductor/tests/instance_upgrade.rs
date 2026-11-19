@@ -675,6 +675,15 @@ fn the_rows_show_the_upgrade_by_the_time_the_daemon_answers_it() {
 /// reads after its upgrade (rows the daemon's loop has not published anew yet), `Upgrading` on
 /// the next, then on the version `comes_up` gives it.
 fn fake_daemon(comes_up: fn(&str) -> &'static str, stale: usize) -> (u16, Arc<Mutex<Vec<String>>>) {
+    fake_daemon_on(None, comes_up, stale)
+}
+
+/// [`fake_daemon`], answering `GET /v1/version` with `version` when it is given.
+fn fake_daemon_on(
+    version: Option<Value>,
+    comes_up: fn(&str) -> &'static str,
+    stale: usize,
+) -> (u16, Arc<Mutex<Vec<String>>>) {
     let listener = TcpListener::bind(("127.0.0.1", 0)).expect("bind");
     let port = listener.local_addr().expect("address").port();
     let posted = Arc::new(Mutex::new(Vec::<String>::new()));
@@ -705,33 +714,36 @@ fn fake_daemon(comes_up: fn(&str) -> &'static str, stale: usize) -> (u16, Arc<Mu
                 .nth(1)
                 .unwrap_or_default()
                 .to_owned();
-            let (status, answer) = if line.starts_with("POST ") {
-                let name = path.split('/').nth(3).unwrap_or_default().to_owned();
-                seen.lock().expect("posted").push(name.clone());
-                (
-                    "202 Accepted",
-                    json!({"name": name, "state": "Upgrading", "binary_version": "1.1.0"}),
-                )
-            } else {
-                let posted = seen.lock().expect("posted").clone();
-                let rows: Vec<Value> = ["alpha", "beta", "gamma"]
-                    .iter()
-                    .map(|name| {
-                        let read = posted.iter().any(|done| done == name).then(|| {
-                            let read = reads.entry((*name).to_owned()).or_default();
-                            *read += 1;
-                            *read
-                        });
-                        let (state, version) = match read {
-                            Some(read) if read > stale + 1 => ("Running", comes_up(name)),
-                            Some(read) if read == stale + 1 => ("Upgrading", "1.1.0"),
-                            _ => ("Running", "1.0.0"),
-                        };
-                        json!({"name": name, "state": state, "binary_version": version})
-                    })
-                    .collect();
-                ("200 OK", Value::Array(rows))
-            };
+            let (status, answer) =
+                if let Some(version) = version.as_ref().filter(|_| path == "/v1/version") {
+                    ("200 OK", version.clone())
+                } else if line.starts_with("POST ") {
+                    let name = path.split('/').nth(3).unwrap_or_default().to_owned();
+                    seen.lock().expect("posted").push(name.clone());
+                    (
+                        "202 Accepted",
+                        json!({"name": name, "state": "Upgrading", "binary_version": "1.1.0"}),
+                    )
+                } else {
+                    let posted = seen.lock().expect("posted").clone();
+                    let rows: Vec<Value> = ["alpha", "beta", "gamma"]
+                        .iter()
+                        .map(|name| {
+                            let read = posted.iter().any(|done| done == name).then(|| {
+                                let read = reads.entry((*name).to_owned()).or_default();
+                                *read += 1;
+                                *read
+                            });
+                            let (state, version) = match read {
+                                Some(read) if read > stale + 1 => ("Running", comes_up(name)),
+                                Some(read) if read == stale + 1 => ("Upgrading", "1.1.0"),
+                                _ => ("Running", "1.0.0"),
+                            };
+                            json!({"name": name, "state": state, "binary_version": version})
+                        })
+                        .collect();
+                    ("200 OK", Value::Array(rows))
+                };
             let answer = answer.to_string();
             let mut stream = stream;
             let _ = write!(
@@ -819,6 +831,93 @@ fn instance_upgrade_does_not_take_rows_from_before_the_upgrade_for_a_rollback() 
     assert!(output.status.success(), "{stdout}\n{stderr}");
     assert_eq!(*posted.lock().expect("posted"), ["alpha"]);
     assert!(stdout.contains("alpha: upgraded to 1.1.0"), "{stdout}");
+}
+
+/// `story:upgrade-checks-daemon-protocols` (issue #223): a 1.16.0 runtime opens its token pool
+/// calls with `CONDUCTOR-POOL/1`, which conductord 1.15.0 closes unanswered, so every spawn
+/// failed after an upgrade that came up. The upgrade is refused before anything is asked of
+/// the daemon, naming its version and the protocol it lacks.
+#[test]
+fn instance_upgrade_refuses_a_release_whose_runtime_needs_a_protocol_the_daemon_lacks() {
+    let case = Case::new("lacks");
+    let (port, posted) = fake_daemon_on(
+        Some(json!([{"version": "1.15.0", "config": "conductor.config/2"}])),
+        |_| "1.16.0",
+        0,
+    );
+    case.config(&format!("{{port: {port}}}"), &["alpha", "beta"]);
+    let output = common::conductor(case.dir.join("home"))
+        .args(["--config"])
+        .arg(case.file())
+        .args(["instance", "upgrade", "--all", "--tag", "v1.16.0"])
+        .output()
+        .expect("run conductor");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert_eq!(output.status.code(), Some(1), "{stderr}");
+    assert!(
+        posted.lock().expect("posted").is_empty(),
+        "nothing upgraded"
+    );
+    assert!(stderr.contains("refused"), "{stderr}");
+    assert!(stderr.contains("CONDUCTOR-POOL/1"), "{stderr}");
+    assert!(
+        stderr.contains("(1.15.0)"),
+        "names the daemon's version: {stderr}"
+    );
+}
+
+/// A daemon that names the protocols it speaks is taken at its word: one that names the pool's
+/// takes the upgrade, one that names only the dial-in's is refused whatever its version.
+#[test]
+fn instance_upgrade_reads_the_protocols_the_daemon_names() {
+    let speaks = json!([{
+        "version": "1.17.0",
+        "config": "conductor.config/2",
+        "protocols": ["CONDUCTOR-DIAL/1", "CONDUCTOR-POOL/1"],
+    }]);
+    assert_eq!(upgrade::daemon_lacks("1.16.0", Some(&speaks)), None);
+    let dial_only = json!([{
+        "version": "1.17.0",
+        "config": "conductor.config/2",
+        "protocols": ["CONDUCTOR-DIAL/1"],
+    }]);
+    let lacks = upgrade::daemon_lacks("1.16.0", Some(&dial_only)).expect("refused");
+    assert!(
+        lacks.contains("CONDUCTOR-POOL/1") && lacks.contains("1.17.0"),
+        "{lacks}"
+    );
+    // conductord 1.16.0 names none and speaks the pool's: its version says so.
+    let older = json!([{"version": "1.16.0", "config": "conductor.config/2"}]);
+    assert_eq!(upgrade::daemon_lacks("1.16.0", Some(&older)), None);
+    // A release before the pool needs none of it.
+    let oldest = json!([{"version": "1.15.0", "config": "conductor.config/2"}]);
+    assert_eq!(upgrade::daemon_lacks("1.15.0", Some(&oldest)), None);
+    // A daemon that does not say its version is no daemon for a release that needs the pool.
+    assert!(upgrade::daemon_lacks("1.16.0", None).is_some());
+
+    let case = Case::new("speaks");
+    let (port, posted) = fake_daemon_on(Some(speaks), |_| "1.16.0", 0);
+    case.config(&format!("{{port: {port}}}"), &["alpha"]);
+    let output = common::conductor(case.dir.join("home"))
+        .args(["--config"])
+        .arg(case.file())
+        .args([
+            "instance",
+            "upgrade",
+            "--instance",
+            "alpha",
+            "--tag",
+            "v1.16.0",
+        ])
+        .output()
+        .expect("run conductor");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        output.status.success(),
+        "{stdout}\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(*posted.lock().expect("posted"), ["alpha"]);
 }
 
 /// The second adversary pass on `story:box-crash-loop-reads-failed`: the `Unreachable` a start

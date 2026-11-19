@@ -242,7 +242,9 @@ fn admit(mut stream: TcpStream, api: &Api) -> Result<(), Closed> {
             {
                 eprintln!("conductord: {instance}: a token pool call failed: {error}");
             }
-        } else if let Err(error) = crate::token::serve_no_pool(&mut stream) {
+        } else if let Err(error) =
+            crate::token::serve_no_pool(&mut stream, &instance, &crate::token::runtime_tag(&token))
+        {
             // A conductord that serves no config file holds no pool: the call is answered
             // empty, so a start leases nothing and a stop releases nothing, rather than closed
             // unanswered, which a runtime takes for a refusal.

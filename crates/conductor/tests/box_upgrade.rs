@@ -361,3 +361,73 @@ fn a_boxed_runtime_that_does_not_run_is_an_instance_state_conflict_and_nothing_r
     drop(log);
     untouched(&daemon);
 }
+
+/// The probe a runtime in a box sends conductord's pool at its start, as conductord answers it
+/// for the start the token of `alpha`'s runtime names.
+fn probe(case: &Case, daemon: &Daemon<NoUnits>) -> Value {
+    let token = daemon.started()["alpha"]
+        .token
+        .clone()
+        .expect("the start's token");
+    let store = format!("sqlite:{}", case.dir.join("store/shared.sqlite").display());
+    let file = case.dir.join("conductor.yaml");
+    conductor_cli::token::pool_call(
+        &conductor_cli::token::Daemon {
+            file: &file,
+            store: &store,
+            operators: &[],
+        },
+        "alpha",
+        &conductor_cli::token::runtime_tag(&token),
+        br#"{"call": "probe", "agent": "alpha-runtime"}"#,
+    )
+}
+
+/// `story:upgrade-checks-daemon-protocols` (issue #223): a runtime in a box whose session runs
+/// may still fail every spawn, when conductord does not answer its token pool calls. An upgrade
+/// to a release that probes the pool is answered only once the new start's probe reached it.
+#[test]
+fn an_upgraded_boxed_runtime_answers_only_once_its_start_reached_the_token_pool() {
+    let case = Case::new("probe");
+    let fake = Fake::default();
+    let mut daemon = case.daemon(&fake);
+    let now = SystemTime::now();
+    daemon
+        .upgrade("alpha", "v1.17.0", &operator(), now)
+        .expect("the upgrade");
+
+    let done = daemon.settle(now).expect("settle");
+    assert!(
+        done.is_empty(),
+        "its session runs, its pool not reached: {done:?}"
+    );
+    assert_eq!(alpha(&daemon)["state"], "Upgrading");
+
+    let answer = probe(&case, &daemon);
+    assert_eq!(answer["probed"], true, "{answer}");
+    let done = daemon.settle(now).expect("settle");
+    assert_eq!(done.len(), 1, "{done:?}");
+    assert_eq!(done[0].result, ReconcileResult::Succeeded, "{done:?}");
+    assert_eq!(alpha(&daemon)["state"], "Running");
+}
+
+/// A boxed runtime upgraded to a release that probes, whose start never reaches the pool, is
+/// rolled back at `daemon.upgrade_timeout`, as one that does not answer.
+#[test]
+fn an_upgraded_boxed_runtime_that_never_reaches_the_token_pool_is_rolled_back() {
+    let case = Case::new("no-probe");
+    let fake = Fake::default();
+    let mut daemon = case.daemon(&fake);
+    let now = SystemTime::now();
+    daemon
+        .upgrade("alpha", "v1.17.0", &operator(), now)
+        .expect("the upgrade");
+    let later = now + std::time::Duration::from_secs(daemon.upgrade_timeout() + 1);
+    let done = daemon.settle(later).expect("settle");
+    assert_eq!(done.len(), 1, "{done:?}");
+    assert_eq!(
+        (done[0].reason, done[0].result),
+        (ReconcileReason::Cadence, ReconcileResult::RolledBack)
+    );
+    assert_eq!(daemon.started()["alpha"].version, "1.0.0");
+}

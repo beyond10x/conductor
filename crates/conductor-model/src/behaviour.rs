@@ -1,5 +1,5 @@
 // generated from conductor v1
-// contract digest 64aee187d1d520e67700aff5512c55340b1b4251c879b9eddfac8a9586b70786
+// contract digest 09ce6a0f967656f0e4cb37bb36b072885c768a381ad29a24be8a4051c53bd8ea
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! What the specification fully determines, generated: the behaviour of every command the plan
@@ -6450,6 +6450,7 @@ where
             .map(|held| crate::store::Version {
                 version: held.data.version,
                 config: held.data.config,
+                protocols: held.data.protocols,
             })
             .collect())
     }

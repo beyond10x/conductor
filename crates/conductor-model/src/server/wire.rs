@@ -1,5 +1,5 @@
 // generated from conductor v1
-// contract digest 64aee187d1d520e67700aff5512c55340b1b4251c879b9eddfac8a9586b70786
+// contract digest 09ce6a0f967656f0e4cb37bb36b072885c768a381ad29a24be8a4051c53bd8ea
 // do not edit: regenerate with `ess synthesize --layout crate`
 //! Every generated declaration, as JSON, in the renderings the published wire contracts fix.
 //!
@@ -21250,6 +21250,15 @@ pub fn encode_view_conductor_store_version(value: &crate::store::Version, out: &
     encode_conductor_store_binary_version(&value.version, out);
     json::member(out, "config");
     json::push_text(out, &value.config);
+    json::member(out, "protocols");
+    out.push('[');
+    for (index0, item0) in value.protocols.iter().enumerate() {
+        if index0 > 0 {
+            out.push(',');
+        }
+        json::push_text(out, &*item0);
+    }
+    out.push(']');
     out.push('}');
 }
 
