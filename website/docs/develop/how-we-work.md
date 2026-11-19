@@ -48,9 +48,8 @@ The maintainer is the role that develops conductor
 ([design section 12](https://github.com/beyond10x/conductor/blob/main/docs/design/conductor.md#12-developing-conductor-conductor-dev)),
 with the profile `conductor role show --role maintainer` prints. The config writes the role as
 `maintainer`, and its old name `conductor-dev` is read for this release with a note. The session
-is named after the role as the file writes it: `<session_prefix>-maintainer`, or
-`<session_prefix>-conductor-dev`, both accepted for this release. `task maintainer:start` starts
-it.
+is the host's: it is named after the role as the file writes it, `maintainer` or `conductor-dev`,
+with no instance prefix. `task maintainer:start` starts it.
 
 The maintainer reads `conductor status`, the `dispatches/` and `decisions/` logs and
 `conductor metric kpi-readings`. A reversed decision, an escalation that was class C or a failed

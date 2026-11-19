@@ -12,7 +12,7 @@ source: docs/design/conductor.md sections 2, 3, 11 and 12; docs/design/architect
 |---|---|---|---|
 | operator | the person running the instance | direction, architecture, new or retired repositories, credentials and spending, public-facing risk | routine approvals |
 | conductor | `conductor run`, one process per instance and no session ([the host](./the-host.md#the-loop)) | the cross-repository plan, decisions within its grant, dispatch, the loop's records, the operator brief | edit outside its records, or anything that defines or runs conductor |
-| maintainer (conductor-dev) | one session, `<session_prefix>-conductor-dev`, in the conductor repository | conductor's code, specification, plan, design, profiles and tasks; the instance's `rules.md`; installing the binary | dispatch to controllers, or write conductor's records |
+| maintainer (conductor-dev) | one session of the host, `conductor-dev` (no instance prefix), in the conductor repository | conductor's code, specification, plan, design, profiles and tasks; the instance's `rules.md`; installing the binary | dispatch to controllers, or write conductor's records |
 | controller | one session per repository, `<session_prefix>-<repo>`, in its checkout | its repository's plan, waves, reviews, releases and workers | message anyone but conductor, or edit outside its repository |
 | worker | a sub-agent of a controller | one unit of work | act outside the unit |
 | supervisor | one session per host, `supervisor` | every instance running and shipping; defects found and sent to the maintainer | act as an instance's conductor or a controller |

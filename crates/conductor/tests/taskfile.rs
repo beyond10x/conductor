@@ -672,11 +672,12 @@ fn named_config(case: &Case, prefix: Option<&str>) -> PathBuf {
     file
 }
 
-/// `dev:start` passes `-n <prefix>-conductor-dev` with a prefix, and `-n conductor-dev` without
-/// one: the name it reads from the role's `session_name` in `conductor config show`.
+/// `dev:start` passes `-n conductor-dev` with a prefix and without one: the name it reads from
+/// the role's `session_name` in `conductor config show`, the host's role carrying no instance
+/// prefix (`story:host-role-session-unprefixed`).
 #[test]
 fn the_start_tasks_name_the_session_from_config_show() {
-    for (prefix, dev) in [(Some("a"), "a-conductor-dev"), (None, "conductor-dev")] {
+    for (prefix, dev) in [(Some("a"), "conductor-dev"), (None, "conductor-dev")] {
         let Some(case) = Case::new(&format!("named-start-{}", prefix.unwrap_or("none"))) else {
             return;
         };
@@ -806,9 +807,9 @@ fn the_maintainer_tasks_read_the_host_s_roles_from_config_show() {
     let calls = case.calls();
     assert!(
         calls.last().expect("a start").1.starts_with(&format!(
-            "--bg -n a-conductor-dev --append-system-prompt-file {} --model opus ",
+            "--bg -n conductor-dev --append-system-prompt-file {} --model opus ",
             case.dir
-                .join("home/.b10x/conductor/alpha/state/sessions/a-conductor-dev.profile.md")
+                .join("home/.b10x/conductor/alpha/state/sessions/conductor-dev.profile.md")
                 .display()
         )),
         "{calls:?}"
@@ -828,19 +829,16 @@ fn the_maintainer_tasks_read_the_host_s_roles_from_config_show() {
         assert_eq!(cwd, &root(), "{task}: {args}");
         assert!(
             args.starts_with(&format!(
-                "--bg -n a-conductor-dev --append-system-prompt-file {} --model opus ",
+                "--bg -n conductor-dev --append-system-prompt-file {} --model opus ",
                 case.dir
-                    .join("home/.b10x/conductor/alpha/state/sessions/a-conductor-dev.profile.md")
+                    .join("home/.b10x/conductor/alpha/state/sessions/conductor-dev.profile.md")
                     .display()
             )),
             "{task}: {args}"
         );
     }
 
-    sessions_claude(
-        &case,
-        &[("a-conductor-dev", "s-old"), ("maintainer", "s-m")],
-    );
+    sessions_claude(&case, &[("conductor-dev", "s-old"), ("maintainer", "s-m")]);
     for task in ["maintainer:attach", "dev:attach"] {
         let _ = fs::remove_file(case.dir.join("claude/log"));
         let output = case.task(task, Some(&config));
@@ -1039,14 +1037,14 @@ fn the_attach_tasks_and_sessions_find_the_active_instance_s_sessions() {
     );
     for (task, instance, cwd, attached) in [
         ("conductor:attach", "alpha", case.records(), "attach s-a"),
-        ("dev:attach", "alpha", root(), "attach s-ad"),
+        ("dev:attach", "alpha", root(), "attach s-xd"),
         (
             "conductor:attach",
             "beta",
             case.dir.join("records-b"),
             "attach s-b",
         ),
-        ("dev:attach", "beta", root(), "attach s-bd"),
+        ("dev:attach", "beta", root(), "attach s-xd"),
     ] {
         let _ = fs::remove_file(case.dir.join("claude/log"));
         let output = instance_task(&case, task, &config, instance);
@@ -1072,7 +1070,7 @@ fn the_attach_tasks_and_sessions_find_the_active_instance_s_sessions() {
         .collect();
     assert_eq!(
         names,
-        ["a-conductor", "a-conductor-dev"],
+        ["a-conductor", "conductor-dev"],
         "{}",
         shown(&output)
     );
@@ -1081,7 +1079,7 @@ fn the_attach_tasks_and_sessions_find_the_active_instance_s_sessions() {
     let _ = fs::remove_file(case.dir.join("claude/log"));
     for (task, name) in [
         ("conductor:attach", "a-conductor"),
-        ("dev:attach", "a-conductor-dev"),
+        ("dev:attach", "conductor-dev"),
     ] {
         let output = instance_task(&case, task, &config, "alpha");
         assert_ne!(output.status.code(), Some(0), "{task}: {}", shown(&output));
@@ -1110,16 +1108,16 @@ fn a_name_more_than_one_live_session_holds_is_refused() {
         &[
             ("a-conductor", "s-1"),
             ("a-conductor", "s-2"),
-            ("a-conductor-dev", "s-3"),
-            ("a-conductor-dev", "s-4"),
+            ("conductor-dev", "s-3"),
+            ("conductor-dev", "s-4"),
         ],
     );
     let before = live_sessions(&case);
     for (task, name, kind) in [
         ("conductor:attach", "a-conductor", "live background session"),
-        ("dev:attach", "a-conductor-dev", "live background session"),
+        ("dev:attach", "conductor-dev", "live background session"),
         ("sessions", "a-conductor", "live session"),
-        ("sessions", "a-conductor-dev", "live session"),
+        ("sessions", "conductor-dev", "live session"),
     ] {
         let output = instance_task(&case, task, &config, "alpha");
         assert_ne!(output.status.code(), Some(0), "{task}: {}", shown(&output));

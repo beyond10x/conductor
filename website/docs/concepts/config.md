@@ -109,9 +109,10 @@ conductord refuses a `/1` file on one line naming `conductor config migrate`. Fo
 
 ## Session names
 
-Session names are one namespace for the machine: `<session_prefix>-conductor`,
-`<session_prefix>-conductor-dev`, and `<session_prefix>-<repo>` for a controller, a nested
-`<group>/<repo>` written `<group>-<repo>`. A role's `session_name` is derived, and the file may
+Session names are one namespace for the machine: `<session_prefix>-conductor`, and
+`<session_prefix>-<repo>` for a controller, a nested
+`<group>/<repo>` written `<group>-<repo>`; the maintainer (`conductor-dev`), the host's role, is
+named after the role with no prefix. A role's `session_name` is derived, and the file may
 write only that value. `config validate` refuses two instances with one prefix, a prefix that starts with
 another followed by `-`, and a prefix followed by `-` that begins a bare name another instance
 keeps, such as `conductor-dev`. For one release an instance without a prefix keeps the bare names.
