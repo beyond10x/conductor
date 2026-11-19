@@ -42,6 +42,10 @@
 //! `… missing (limit and escalation notices go to the journal only)` ([`notifier_line`]).
 //! Neither fails doctor (`story:doctor-usage-probe-notifier`).
 //!
+//! With the config's rows, one line per instance whose `thresholds.disk_low` lies above half the
+//! filesystem at its `disk_path` ([`disk_low_lines`], `story:disk-low-fits-disk`); reported, not a
+//! failure.
+//!
 //! [`check`] computes every row, [`Doctor::failures`] what is not ready and [`verdict_of`] the
 //! last line, so `conductor setup` prints the same rows and adds its own failures to the same
 //! verdict (`story:setup-command`).
@@ -2504,7 +2508,51 @@ pub fn config_lines(flag: Option<&Path>) -> Vec<(String, Option<String>)> {
     lines.extend(forge_lines(flag));
     lines.extend(pod_lines(flag));
     lines.extend(collect::checkouts::doctor_lines(flag));
+    lines.extend(disk_low_lines(flag));
     lines
+}
+
+/// One line per instance of the config file, on no remote daemon, whose `thresholds.disk_low`
+/// lies above half the size of the filesystem at its `thresholds.disk_path`
+/// (`story:disk-low-fits-disk`): free disk is not back over such a line while the host works, so
+/// the watch reports `disk low` on every pass. `disk <instance>: thresholds.disk_low <n>G lies
+/// above half of the <m>G filesystem at <path>; ...`. Reported, not a failure: `disk_low` is a
+/// report line, and the floor reclaim aims at is `disk_admit` plus its margin. A config that does
+/// not load, or a `disk_path` that cannot be read, names none.
+fn disk_low_lines(flag: Option<&Path>) -> Vec<(String, Option<String>)> {
+    let Ok(environment) = config::Environment::from_process() else {
+        return Vec::new();
+    };
+    let Ok(loaded) = config::load(flag, &environment) else {
+        return Vec::new();
+    };
+    loaded
+        .config
+        .instances
+        .iter()
+        .filter(|instance| instance.remote.is_none())
+        .filter_map(|instance| {
+            let thresholds = &instance.thresholds;
+            let low = u64::try_from(thresholds.disk_low.0).unwrap_or(0);
+            let total = crate::disk::space(Path::new(&thresholds.disk_path))
+                .ok()?
+                .total;
+            (low.saturating_mul(1 << 30) > total / 2).then(|| {
+                (
+                    format!(
+                        "disk {}: thresholds.disk_low {low}G lies above half of the {}G \
+                         filesystem at {}; free disk is not back over it while the host works: \
+                         set thresholds.disk_low and thresholds.disk_clear lower (the reclaim \
+                         floor is thresholds.disk_admit plus 5G)",
+                        instance.name.0,
+                        total >> 30,
+                        thresholds.disk_path
+                    ),
+                    None,
+                )
+            })
+        })
+        .collect()
 }
 
 /// Each right a daemon that runs its instances as pods needs in their namespace, as a verb and a

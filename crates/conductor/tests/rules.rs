@@ -372,6 +372,74 @@ fn a_role_s_new_name_reads_the_section_its_old_name_heads_with_a_note() {
     assert_eq!(case.ok(&["--section", "director"]), conductor);
 }
 
+/// A `rules.md` whose items are unnumbered `- ` bullets, some over several lines, with a section
+/// that holds none (`story:rules-show-unnumbered-items`).
+const BULLETS: &str = "\
+# Rules
+
+The rules of this organization, each with its source.
+
+- A bullet above every section is no item.
+
+## Director
+
+- Delivery (the operator, 2026-11-19): every change ends on the remote:
+  a pull request, checks green, and a release cut.
+- **Autonomy first.** Units merge by the controller.
+
+## Lead
+
+## Maintainer
+
+- Work follows each repository's AGENTS.md.
+";
+
+/// `story:rules-show-unnumbered-items` (issue #221): the bullets under a heading are its items
+/// whether or not they are numbered, in text, `--brief` and `--format json`; a refused heading is
+/// never named among the sections the file has.
+#[test]
+fn a_section_of_unnumbered_bullets_prints_its_items() {
+    let case = Case::new("bullets");
+    fs::write(case.records().join("rules.md"), BULLETS).expect("write rules.md");
+    let delivery = "- Delivery (the operator, 2026-11-19): every change ends on the remote:\n  \
+                    a pull request, checks green, and a release cut.\n";
+    let autonomy = "- **Autonomy first.** Units merge by the controller.\n";
+    assert_eq!(
+        case.ok(&["--section", "Director"]),
+        joined(&[delivery, autonomy])
+    );
+    assert_eq!(
+        case.ok(&["--section", "director", "--brief"]),
+        "- Delivery (the operator, 2026-11-19): every change ends on the remote: a pull \
+         request, checks green, and a release cut\n\
+         - Autonomy first\n"
+    );
+    let rows: Value =
+        serde_json::from_str(&case.ok(&["--section", "Maintainer", "--format", "json"]))
+            .expect("--format json prints JSON");
+    assert_eq!(
+        rows,
+        json!([{
+            "item": null,
+            "title": "Work follows each repository's AGENTS.md",
+            "section": "Maintainer",
+            "source": null,
+            "text": "- Work follows each repository's AGENTS.md.\n",
+        }])
+    );
+    assert_eq!(
+        case.ok(&["--brief"]).lines().count(),
+        3,
+        "every item under a section, none above them"
+    );
+    let error = case.refused(&["--section", "Lead"]);
+    assert!(
+        error.contains("RuleSectionNotFound")
+            && error.trim_end().ends_with("sections: Director, Maintainer"),
+        "the refusal names the sections with items, not the one it refuses: {error}"
+    );
+}
+
 /// Runs `git <args>` in the case's records directory, with the case's home and a fixed author,
 /// and asserts it succeeded.
 fn records_git(case: &Case, args: &[&str]) {

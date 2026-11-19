@@ -41,7 +41,9 @@
 //! its target; and its `Tuning` section, the lines of the tuner run after `status`
 //! ([`crate::tune::daily`], `story:tuner`). Then the records directory, the brief with it, is
 //! committed and pushed through the bot route for that day ([`super::commit_records`]), its
-//! `records-committed` or `records-commit-refused` line carrying the tick's id.
+//! `records-committed` or `records-commit-refused` line carrying the tick's id; a refusal is said
+//! on standard error too, the loop's log, with the step and what it printed
+//! ([`super::Committed::refusal`], `story:daily-tick-logged`).
 
 use std::path::Path;
 use std::time::Duration;
@@ -488,7 +490,13 @@ pub fn daily_tick(
         tick.state,
     )
     .with_forge_access(tick.instance().forge_access);
-    if let Some(mut line) = commit_records(records, &route, day).line()? {
+    let committed = commit_records(records, &route, day);
+    // The refusal and what refused it, `records check`'s findings among them, in the loop's log
+    // too (`story:daily-tick-logged`).
+    if let Some(said) = committed.refusal(day) {
+        super::say(true, &said);
+    }
+    if let Some(mut line) = committed.line()? {
         line.tick_id = Some(tick.id.clone());
         tick.write(&line)?;
     }

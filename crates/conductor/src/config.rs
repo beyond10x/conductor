@@ -2140,8 +2140,13 @@ fn named(prefix: Option<&SessionPrefix>, word: &str) -> SessionName {
 
 /// The `session_name` of the role `role` under `prefix`: [`named`] after the role as the file
 /// writes it, an old name included (`story:role-name-aliases`), and none for the lead role
-/// (`controller`), whose sessions are named per repository.
+/// (`controller`), whose sessions are named per repository. The maintainer is the host's role,
+/// its session named after the role with no instance prefix, as a role of `globals.roles` is
+/// (`story:host-role-session-unprefixed`).
 fn role_session_name(prefix: Option<&SessionPrefix>, role: &str) -> Option<SessionName> {
+    if is_role(role, BuiltInRole::Maintainer) {
+        return Some(named(None, role));
+    }
     (!is_role(role, BuiltInRole::Lead)).then(|| named(prefix, role))
 }
 
@@ -4208,8 +4213,13 @@ impl Reader<'_> {
             .enumerate()
             .map(|(index, mut role)| {
                 let derived = role_session_name(prefix, &role.role);
+                // A maintainer's name of the release before, `<session_prefix>-<role>`, reads as
+                // the derived one (`story:host-role-session-unprefixed`).
+                let before =
+                    is_role(&role.role, BuiltInRole::Maintainer).then(|| named(prefix, &role.role));
                 if let Some(written) = role.session_name.take()
                     && Some(&written) != derived.as_ref()
+                    && Some(&written) != before.as_ref()
                 {
                     let why = match &derived {
                         Some(derived) => format!(

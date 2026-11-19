@@ -336,6 +336,12 @@ impl Case {
 
     /// A child run of the daily tick for `day`; its summary.
     fn child(&self, day: &str) -> Value {
+        self.child_said(day).0
+    }
+
+    /// A child run of the daily tick for `day`; its summary and its standard error, what the
+    /// loop's log holds of it.
+    fn child_said(&self, day: &str) -> (Value, String) {
         let program = PathBuf::from(common::conductor(self.home()).get_program());
         let output = Command::new(std::env::current_exe().expect("this test binary"))
             .args([
@@ -363,7 +369,10 @@ impl Case {
             .rev()
             .find_map(|line| serde_json::from_str::<Value>(line).ok());
         match (output.status.success(), summary) {
-            (true, Some(summary)) => summary,
+            (true, Some(summary)) => (
+                summary,
+                String::from_utf8_lossy(&output.stderr).into_owned(),
+            ),
             _ => panic!("the child run failed: {}", describe(&output)),
         }
     }
@@ -578,6 +587,64 @@ fn a_failing_records_check_refuses_the_commit_with_its_output() {
         said.contains("UnknownDecision") && said.contains("DEC-20260101-99"),
         "the check's output is in the line: {said}"
     );
+}
+
+/// `story:daily-tick-logged` (issue #212): the daily tick whose records commit `records check`
+/// refuses says so in the loop's log, standard error, with the step and the check's findings.
+#[test]
+fn a_daily_tick_s_refused_commit_logs_the_check_s_findings() {
+    let case = Case::new("daily-check-fails", true);
+    let day = "2026-10-16";
+    case.lines_of(day);
+    case.append(
+        "dispatches",
+        &json!({"at": format!("{day}T11:00:00Z"), "event": "done", "repo": "alpha",
+                "id": "dispatch-1", "evidence": "see DEC-20260101-99"}),
+    );
+    let (tick, said) = case.child_said(day);
+    assert_eq!(tick["actions"], json!(["records-commit-refused"]), "{tick}");
+    let logged: Vec<&str> = said
+        .lines()
+        .filter(|line| {
+            line.starts_with(&format!(
+                "conductor run: daily tick {day}: records commit refused at records check: "
+            ))
+        })
+        .collect();
+    assert_eq!(logged.len(), 1, "{said}");
+    assert!(
+        logged[0].contains("UnknownDecision") && logged[0].contains("DEC-20260101-99"),
+        "the check's findings are in the log: {said}"
+    );
+}
+
+/// `story:daily-tick-logged` (issue #212): a daily tick whose last one ended before the day it
+/// covers is logged with the days that had none and why.
+#[test]
+fn a_skipped_daily_tick_is_logged_with_its_cause() {
+    let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("run-records-daily-missed");
+    let _ = fs::remove_dir_all(&dir);
+    fs::create_dir_all(&dir).expect("create the run directory");
+    assert_eq!(
+        run::daily_missed(&dir, "2026-11-18", "08:07"),
+        None,
+        "no tick yet"
+    );
+    write(&dir.join("daily.last"), "2026-11-18\n");
+    assert_eq!(
+        run::daily_missed(&dir, "2026-11-18", "08:07"),
+        None,
+        "yesterday's ran"
+    );
+    write(&dir.join("daily.last"), "2026-11-16\n");
+    let line = run::daily_missed(&dir, "2026-11-18", "08:07").expect("days were missed");
+    assert!(
+        line.starts_with(
+            "conductor run: daily tick 2026-11-18: the last daily tick ended on 2026-11-16;"
+        ) && line.contains("did not reach cadence.daily 08:07 UTC"),
+        "{line}"
+    );
+    let _ = fs::remove_dir_all(&dir);
 }
 
 /// A records directory that is not the top of a git repository of its own is refused, and

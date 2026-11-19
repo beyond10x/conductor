@@ -1,5 +1,5 @@
 // generated from conductor v1
-// contract digest 64aee187d1d520e67700aff5512c55340b1b4251c879b9eddfac8a9586b70786
+// contract digest 313c6b4253204a9b24a5386b2fe4fe95c48ab64746e054846e7542b76e3596e3
 // do not edit: regenerate with `ess synthesize --layout crate`
 //! Every generated declaration, as JSON, in the renderings the published wire contracts fix.
 //!
@@ -6158,8 +6158,10 @@ pub fn decode_conductor_direction_rules_refused(value: &json::Value, at: &str) -
 /// Writes `conductor.direction.RulesRow` as JSON.
 pub fn encode_conductor_direction_rules_row(value: &crate::direction::RulesRow, out: &mut String) {
     out.push('{');
-    json::member(out, "item");
-    json::push_integer(out, value.item);
+    if let Some(held0) = &value.item {
+        json::member(out, "item");
+        json::push_integer(out, *held0);
+    }
     json::member(out, "title");
     json::push_text(out, &value.title);
     json::member(out, "section");
@@ -6181,10 +6183,12 @@ pub fn encode_conductor_direction_rules_row(value: &crate::direction::RulesRow, 
 pub fn decode_conductor_direction_rules_row(value: &json::Value, at: &str) -> Result<crate::direction::RulesRow, json::DecodeError> {
     json::closed_at(value, at, &["item", "title", "section", "source", "text"])?;
     Ok(crate::direction::RulesRow {
-        item: {
-            let at0 = json::nested(at, "item");
-            let member0 = json::member_at(value, at, "item")?;
-            json::integer_at(member0, &at0, "an integer")?
+        item: match value.member("item") {
+            None | Some(json::Value::Null) => None,
+            Some(member0) => {
+                let at0 = json::nested(at, "item");
+                Some(json::integer_at(member0, &at0, "an integer")?)
+            }
         },
         title: {
             let at1 = json::nested(at, "title");

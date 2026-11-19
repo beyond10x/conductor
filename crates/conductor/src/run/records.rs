@@ -130,6 +130,19 @@ pub enum Committed {
 }
 
 impl Committed {
+    /// The line the loop logs for a refusal of the daily tick for `day`: the step that refused
+    /// and what it printed, `records check`'s findings among them (`story:daily-tick-logged`);
+    /// none when nothing refused.
+    #[must_use]
+    pub fn refusal(&self, day: &str) -> Option<String> {
+        match self {
+            Self::Refused { reason, line, .. } => Some(format!(
+                "conductor run: daily tick {day}: records commit refused at {reason}: {line}"
+            )),
+            _ => None,
+        }
+    }
+
     /// The dispatch log line it is recorded as, with no `tick_id`; none for [`Committed::Nothing`].
     ///
     /// # Errors
