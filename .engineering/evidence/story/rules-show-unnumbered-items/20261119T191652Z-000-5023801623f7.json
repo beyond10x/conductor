@@ -1,0 +1,12 @@
+{
+  "at": "2026-11-19T19:16:52Z",
+  "actor": "human:unknown",
+  "artifact": "story:rules-show-unnumbered-items",
+  "kind": "story",
+  "revision": 5,
+  "change": {
+    "change": "evidence",
+    "kind": "test_result",
+    "source": "cargo test -p conductor-cli --test rules: 12 passed at 6115cd6f"
+  }
+}
