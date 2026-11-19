@@ -1328,25 +1328,24 @@ fn a_limited_session_over_the_threshold_is_respawned_not_resumed() {
     );
 }
 
-/// `story:auto-resume`: a controller the session list shows blocked with no `pid`, whose
-/// repository has an open dispatch, is resumed from its transcript once its reset passed, on
-/// the controller role's model, and once per stop; it is not spawned afresh.
+/// `story:auto-resume`, issue #219: a controller the session list shows blocked with no `pid`,
+/// whose repository has an open dispatch and whose end showed no usage limit banner (a runtime
+/// or box restart), is no usage limit: it is never marked one, and is resumed from its
+/// transcript at once, on the controller role's model, once per stop; it is not spawned afresh.
 #[test]
-fn a_controller_blocked_with_no_pid_is_resumed_once_on_the_same_model() {
+fn a_controller_blocked_with_no_pid_and_no_limit_banner_is_resumed_at_once_not_marked_limited() {
     let case = Case::new("blocked-resume");
     case.ok(&["spawn", "--repository", "alpha"]);
     case.dispatch("alpha");
     case.live("alpha", FIRST, false);
 
-    let marked = case.tick(&[&format!("session exited (blocked): ex-alpha {FIRST_SHORT}")]);
-    assert_eq!(actions(&marked), ["usage-limit"], "{marked}");
-    let written = case.lines_of(&marked);
-    assert_eq!(written[0]["session"], "ex-alpha");
-    assert_eq!(written[0]["reason"], "blocked with no pid");
-    reset_passed(&case, "ex-alpha");
-
-    let resumed = case.tick(&[]);
+    let resumed = case.tick(&[&format!("session exited (blocked): ex-alpha {FIRST_SHORT}")]);
     assert_eq!(actions(&resumed), ["resumed"], "{resumed}");
+    assert!(
+        limited(&case).get("ex-alpha").is_none(),
+        "never marked limited: {}",
+        limited(&case)
+    );
     let resumes: Vec<String> = case
         .claude_args()
         .into_iter()
@@ -3865,6 +3864,64 @@ fn a_cycle_leaves_running_controllers_whose_sessions_live_or_wait() {
         said.contains("controllers not reconciled: the session list was not read"),
         "{said}"
     );
+}
+
+/// Issue #219: a usage limit mark the cycle recorded stopped with no reset (an older loop's, or
+/// one whose session ended in a restart) kept its repository waiting "usage limit until -" for
+/// ever. It is a stop to start again: the next cycle takes the mark out and starts the
+/// repository as any other; its `cycle` line is also written to standard error, the runtime's
+/// log.
+#[test]
+fn a_cycle_starts_a_repository_whose_stopped_limit_mark_names_no_reset() {
+    let case = Case::new("limit-no-reset");
+    case.configure("{provider: none}", "{max_working: 2}");
+    write(
+        &case.charter("gamma"),
+        "# Charter: gamma\n\nKeep main green.\n",
+    );
+    mark_active(&case, "gamma");
+    write(
+        &case.state().join("run/limited.json"),
+        &json!({"ex-gamma": {"repo": "gamma", "stopped": true}}).to_string(),
+    );
+
+    let (tick, said) = case.child_said(json!({
+        "do": "cycle",
+        "program": case.bin().join("conductor-steps"),
+    }));
+    let cycle = cycle_said(&case, &tick);
+    assert!(!cycle.contains("usage limit until"), "{cycle}");
+    assert!(cycle.contains("spawned gamma"), "{cycle}");
+    assert_eq!(case.launched(), ["ex-gamma"]);
+    assert!(
+        limited(&case).get("ex-gamma").is_none(),
+        "{}",
+        limited(&case)
+    );
+    assert!(
+        journal(&said)
+            .iter()
+            .any(|line| line.starts_with("conductor run: cycle ") && line.contains("spawned gamma")),
+        "the cycle line in the runtime's log: {said}"
+    );
+}
+
+/// Issue #219: `<state>/run/mailbox.handled` kept only the names that sort before the file a
+/// tick handled, so a message that arrived under a name sorting before older ones dropped
+/// those from the file, and the next tick, or the runtime after a restart or an upgrade, acted
+/// on them again. Every name handled stays named.
+#[test]
+fn the_mailbox_keeps_every_handled_name_when_a_file_sorting_before_them_arrives() {
+    let case = Case::new("mailbox-handled");
+    case.mail("0005", "hello\n");
+    case.mail("0009", "hello\n");
+    case.tick(&[]);
+    case.mail("0001", "hello\n");
+    case.tick(&[]);
+    let handled =
+        fs::read_to_string(case.state().join("run/mailbox.handled")).expect("the handled file");
+    let names: Vec<&str> = handled.lines().collect();
+    assert_eq!(names, ["0001.md", "0005.md", "0009.md"], "{handled}");
 }
 
 /// The daily tick computes the previous day's metrics and writes `REPORT.md` with deviations

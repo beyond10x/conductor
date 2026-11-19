@@ -5,7 +5,7 @@
 //! |---|---|---|
 //! | `context: <repo> <n>k …` at or over `thresholds.context_handover` | deliver `[HANDOVER <repo>] context <n>k` once per controller; over 1.25 times the threshold, at once or in a later tick, once `<checkout>/.git/handoff/` holds a file newer than the delivery and the session is idle, or once `thresholds.silent_session` passed since the delivery, restart the controller ([`Tick::restart_with`]) with the newest hand-over file as the charter's resume point, its line carrying the `context:` line; a later tick restarts only the controller, by its id, and the session the hand-over was asked of ([`handovers`]) | `handover-sent`, `handover`, `controller-restarted` |
 //! | `usage limit: …; <n> sessions: <names>` | mark the pool token each session holds Limited until the reset its text names ([`crate::limit::reset`]), else the token's limit window from now ([`crate::token::on_limit`]); a session is resumed at once on another token of the host's pool with headroom, else marked to the first reset of a token of that pool, or, with no pool, to its own; the first tick past that reset resumes each once (`spawn::resume`), or restarts one a hand-over was asked of as its controller's; no probe is asked (`story:limit-aware-token-reassignment`); a session resumed and stopped again is said in one journal line and backs off ([`crate::limit::backoff`]), resumed not before a reset its new text names ([`limited`]) | `usage-limit`, `resumed`, `controller-restarted` |
-//! | `session exited (blocked): <name> …` | marked as a usage limit marks it, when its repository has an open dispatch | `usage-limit`, `resumed` |
+//! | `session exited (blocked): <name> …` | resumed from its transcript at once, when its repository has an open dispatch and no usage limit marked it: an end with no limit banner is no usage limit and is never marked one (issue #219) | `resumed` |
 //! | `PR checks done: <repo>#…`, `PR merged: <repo>#…` (`story:merge-wakes-idle-controller`), `main CI after merge: <repo>#…` (`story:default-branch-pipeline-wakes-controller`), `CI red on main: <repo> / …`, `CI green again on main: <repo> / …` | deliver `[REPORT <repo> -] watch: <line>` to the running controller; a red `main` with none spawns one when the repository has a charter, within `controllers.max_working` | `relayed`, `red-ci` |
 //! | `session stalled: <name> …`, `session silent: <name> …` | first a delivered check-in; the second time, a restart | `stalled`, `controller-restarted` |
 //! | `session gone: <name> …` | a restart, when the repository has an open dispatch and no usage limit marked the session; the instance's conductor-dev started again in the checkout it worked in, when that checkout's plan holds an `active` story ([`conductor_dev`]) | `controller-restarted` |
@@ -546,7 +546,7 @@ fn usage_limit(tick: &mut Tick<'_, '_>, line: &str) -> Result<bool> {
             tick.note(&format!("mark the token of {name} limited"), &error);
             crate::token::LimitAnswer::default()
         });
-        mark(tick, name, &repo, line, None, Some(&pool))?;
+        mark(tick, name, &repo, line, Some(&pool))?;
         if pool.other {
             on_limit(tick, name, &repo);
         }
@@ -608,11 +608,12 @@ fn withdrawn(tick: &mut Tick<'_, '_>) -> Result<()> {
     Ok(())
 }
 
-/// `session exited (blocked): <name> <id>`, a session the list keeps blocked with no `pid`, as
-/// it keeps one a usage limit stopped (`story:auto-resume`): marked as a usage limit marks it,
-/// so the first tick with headroom resumes it, when its repository has an open dispatch and no
-/// usage limit marked it already.
-fn exited(tick: &mut Tick<'_, '_>, line: &str, name: &str) -> Result<bool> {
+/// `session exited (blocked): <name> <id>`, a session the list keeps blocked with no `pid`
+/// (`story:auto-resume`): one a usage limit marked is left to its mark, resumed at its reset. Any
+/// other ended with no limit banner, as a runtime or box restart ends one: it is no usage limit,
+/// is never marked one (issue #219), and is resumed from its transcript now, when its
+/// repository has an open dispatch; a limit it then meets marks it as any limit does.
+fn exited(tick: &mut Tick<'_, '_>, _line: &str, name: &str) -> Result<bool> {
     if read_json(&tick.dir, LIMITED, json!({})).get(name).is_some() {
         return Ok(false);
     }
@@ -622,12 +623,16 @@ fn exited(tick: &mut Tick<'_, '_>, line: &str, name: &str) -> Result<bool> {
     if !tick.open_dispatch(&repo)? {
         return Ok(false);
     }
-    mark(tick, name, &repo, line, Some("blocked with no pid"), None)?;
-    Ok(true)
+    let done = resume(tick, &repo, name)?;
+    if done {
+        resumed(tick, name, 0);
+    }
+    Ok(done)
 }
 
-/// Marks the session `name` of `repo` stopped by `line` and writes `usage-limit` with `cause`,
-/// and with the token `pool` limited and its reset (`story:limit-aware-token-reassignment`).
+/// Marks the session `name` of `repo` stopped by `line`, a usage limit's banner, and writes
+/// `usage-limit`, with the token `pool` limited and its reset
+/// (`story:limit-aware-token-reassignment`).
 ///
 /// The mark keeps when the session is resumed (`resets_at`): when `pool` names no token with
 /// headroom, the first reset of a token of the host's pool ([`crate::token::first_reset`]); with
@@ -643,7 +648,6 @@ fn mark(
     name: &str,
     repo: &str,
     line: &str,
-    cause: Option<&str>,
     pool: Option<&crate::token::LimitAnswer>,
 ) -> Result<()> {
     let now = OffsetDateTime::now_utc();
@@ -700,7 +704,7 @@ fn mark(
         );
         Some("second usage limit after a resume".to_owned())
     } else {
-        cause.map(str::to_owned)
+        None
     };
     tick.write(&written)?;
     Ok(())
