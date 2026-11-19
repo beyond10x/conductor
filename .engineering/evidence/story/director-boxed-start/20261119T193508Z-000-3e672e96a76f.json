@@ -1,0 +1,13 @@
+{
+  "at": "2026-11-19T19:35:08Z",
+  "actor": "human:unknown",
+  "artifact": "story:director-boxed-start",
+  "kind": "story",
+  "revision": 4,
+  "change": {
+    "change": "evidence",
+    "kind": "test_result",
+    "source": "cargo test -p conductor-cli --test box_session (local, wave 59 U3)",
+    "reference": "crates/conductor/tests/box_session.rs::on_the_host_a_boxed_instance_starts_no_session_outside_its_box"
+  }
+}

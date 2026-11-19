@@ -1,0 +1,13 @@
+{
+  "at": "2026-11-19T19:35:09Z",
+  "actor": "human:unknown",
+  "artifact": "story:supervisor-boxed-controller-start",
+  "kind": "story",
+  "revision": 4,
+  "change": {
+    "change": "evidence",
+    "kind": "test_result",
+    "source": "cargo test -p conductor-cli --test profiles (local, wave 59 U3)",
+    "reference": "crates/conductor/tests/profiles.rs::the_supervisor_starts_a_boxed_controller_through_a_cycle"
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "at": "2026-11-19T19:35:10Z",
+  "actor": "human:unknown",
+  "artifact": "story:controller-name-not-conductor",
+  "kind": "story",
+  "revision": 7,
+  "change": {
+    "change": "evidence",
+    "kind": "test_result",
+    "source": "cargo test -p conductor-cli --test box_session (local, wave 59 U3)",
+    "reference": "crates/conductor/tests/box_session.rs::the_director_s_name_is_never_a_repository_controller_s"
+  }
+}

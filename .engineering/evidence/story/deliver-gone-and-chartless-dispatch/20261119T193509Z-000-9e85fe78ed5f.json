@@ -1,0 +1,13 @@
+{
+  "at": "2026-11-19T19:35:09Z",
+  "actor": "human:unknown",
+  "artifact": "story:deliver-gone-and-chartless-dispatch",
+  "kind": "story",
+  "revision": 4,
+  "change": {
+    "change": "evidence",
+    "kind": "test_result",
+    "source": "cargo test -p conductor-cli --test box_session (local, wave 59 U3)",
+    "reference": "crates/conductor/tests/box_session.rs::a_delivery_to_a_gone_child_session_names_it_gone"
+  }
+}

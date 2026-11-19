@@ -1,0 +1,13 @@
+{
+  "at": "2026-11-19T19:35:08Z",
+  "actor": "human:unknown",
+  "artifact": "story:director-boxed-start",
+  "kind": "story",
+  "revision": 4,
+  "change": {
+    "change": "evidence",
+    "kind": "test_result",
+    "source": "cargo test -p conductor-cli --test doctor (local, wave 59 U3)",
+    "reference": "crates/conductor/tests/doctor.rs::doctor_names_a_boxed_instance_without_a_director_session"
+  }
+}
