@@ -44,7 +44,7 @@ use crate::store::Store;
 
 /// The storage ports the store implements: the generated behaviours read and write these records
 /// in the store.
-pub const STORE_BACKED: [&str; 30] = [
+pub const STORE_BACKED: [&str; 31] = [
     "conductor.config.ConfigRevision",
     "conductor.decision.Decision",
     "conductor.decision.DecisionRequest",
@@ -74,6 +74,7 @@ pub const STORE_BACKED: [&str; 30] = [
     "conductor.session.RunTick",
     "conductor.store.Migration",
     "conductor.token.PoolToken",
+    "conductor.token.TokenLease",
     "conductor.tool.ToolCall",
 ];
 
@@ -245,12 +246,13 @@ backed! { store:
     LeaseStorage: m::config::InstanceName => m::session::LeaseSnapshot;
     RunTickStorage: m::session::TickId => m::session::RunTickSnapshot;
     MigrationStorage: m::config::InstanceName => m::store::MigrationSnapshot;
+    PoolTokenStorage: m::token::TokenId => m::token::PoolTokenSnapshot;
+    TokenLeaseStorage: m::token::TokenLeaseId => m::token::TokenLeaseSnapshot;
     ToolCallStorage: m::tool::ToolCallId => m::tool::ToolCallSnapshot;
 }
 
 unlisted! {
     DailySeriesStorage: m::observation::DailySeriesId => m::observation::DailySeriesSnapshot;
-    PoolTokenStorage: m::token::TokenId => m::token::PoolTokenSnapshot;
 }
 
 backed! { memory:
@@ -309,6 +311,7 @@ context! {
     try_generate_conductor_session_delivery_id -> m::session::DeliveryId;
     try_generate_conductor_session_tick_id -> m::session::TickId;
     try_generate_conductor_token_token_id -> m::token::TokenId;
+    try_generate_conductor_token_token_lease_id -> m::token::TokenLeaseId;
     try_generate_conductor_tool_tool_call_id -> m::tool::ToolCallId;
     try_generate_string -> String;
 }
@@ -412,37 +415,6 @@ impl m::instance::obligations::InstanceByNameQuery for StorePorts {
                     standing_rules: data.standing_rules,
                     forge_access: data.forge_access,
                 }
-            })
-            .collect())
-    }
-}
-
-/// `conductor.token.Tokens` of `instance`, from the store's pool: every token, withdrawn ones
-/// included, as the view's source holds them.
-impl m::token::obligations::TokensQuery for StorePorts {
-    fn tokens(
-        &self,
-        instance: m::config::InstanceName,
-    ) -> Result<Vec<m::token::Tokens>, UnmetObligation> {
-        Ok(self
-            .store
-            .borrow()
-            .pool_tokens()
-            .into_iter()
-            .filter(|token| token.data.instance == instance)
-            .map(|token| m::token::Tokens {
-                token_id: token.data.token_id,
-                state: token.state,
-                instance: token.data.instance,
-                owner: token.data.owner,
-                seat: token.data.seat,
-                token_state: token.data.token_state,
-                limited_until: token.data.limited_until,
-                agent: token.data.agent,
-                contributed_at: token.data.contributed_at,
-                actor: token.data.actor,
-                // A token recorded before the kind existed reads as an API key.
-                kind: Some(token.data.kind.unwrap_or(m::config::ModelTokenKind::ApiKey)),
             })
             .collect())
     }

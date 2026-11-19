@@ -3,12 +3,12 @@
   "info": {
     "title": "conductord",
     "summary": "The daemon of the control host. It reconciles every instance of the config file against what runs at its placement, opens and closes each instance's box, resolves the secrets the config names, records who operates each instance and the tokens they contribute, writes the config on an accepted change, and serves the global API.\n",
-    "description": "The HTTP surface of `conductord`, one of the components of `conductor` v1.\n\nEvery path here is one semantic command, so the method is always POST and the path is the command's wire name under its domain's: a command is not a resource, and this document does not invent one. A status code is the outcome the specification declares — 202 for a branch that was taken, 422 for a refusal the input decides, 502 for a refusal decided outside the request — and the `outcome` property of every response body names the branch. This component publishes `ConfigChanged`, `InstanceAdded`, `InstanceRemoved`, `InstanceReplaced`, `InstanceAnswered`, `InstancePurged`, `InstanceReconciled`, `InstanceRestarted`, `InstanceRolledBack`, `InstanceStarted`, `InstanceStopped`, `InstanceUnreachable`, `InstanceUpgrading`, `OperatorJoined`, `OperatorLeft`, `BoxClosed`, `BoxOpened`, `BoxRefused`, `SecretPut`, `SecretsResolved`, `StoreMigrated`, `TokenContributed`, `TokenLeased`, `TokenLimited`, `TokenReleased` and `TokenWithdrawn` to consumers through the event transport; an event a branch emits that is not among them stays inside the component. The `published` property of every response body lists every event its branch emitted, in the order it emits them, published or not.\n\nThe specification declares who may invoke what (`x-ess-may-invoke` on each operation), so every command is sent as a declared actor. How a request proves which actor it is belongs to the realization, which authenticates it and hands the surface the caller; nothing in the request itself names one. The grant is checked before the command runs, and a request authenticated as no actor, or as one without the grant, is answered 403 with one standard refusal, the same for every command: `{\"refused\": \"not granted\", \"actor\": <name or null>}`. A 403 a declared branch answers carries `outcome` and the declared `error` instead, so a client tells the two apart by the members present. A command no declared actor may invoke is refused to every caller. A view an actor's grant names is read-checked the same way (`x-ess-may-read` on its operation): a request authenticated as no actor, or as one the grant does not name, is answered 403 with the same standard refusal before the view is read. A view no grant names is open, and any caller may read what it publishes.\n\nThis component declares `reached_by: network`, so its callers are not deployed with it and this contract is the surface they reach it through. That declaration is also why the views its domains declare have paths here: a GET under `views` per projection, answering every row it holds. There is no page size, no cursor, no ordering and no filter parameter, because the specification states none — a view's filter is part of the projection, not of the request. A view that declares `params:` is the exception: each is a query parameter, described on its operation, and a view that declares `paging:` takes its page and size there.\n\nAn `ess-http/1` binding declares the method and path of every operation marked `x-ess-route-source: binding`, so those are the protocol's and not derived from wire names. Each variable of such a path is a required path parameter carrying the input field or view parameter the binding maps to it, and a field carried in the path is not in the request body. Every other operation keeps the method and path described above.\n\nThe binding also declares how some of those operations are encoded and answered: a request body that is form-encoded, or input carried in the query string; the status, body and headers of an outcome; a redirect; a view that answers its one row; or a standard refusal's answer. Such an operation is described as the binding declares it, and each response of such a command lists the outcomes it answers under `x-ess-outcomes`, because a bare body carries no `outcome` naming the branch and no `published` list. A `WWW-Authenticate` challenge is a response header: the specification states what a refusal answers, not how a caller proves who it is, so no security scheme is declared.",
+    "description": "The HTTP surface of `conductord`, one of the components of `conductor` v1.\n\nEvery path here is one semantic command, so the method is always POST and the path is the command's wire name under its domain's: a command is not a resource, and this document does not invent one. A status code is the outcome the specification declares — 202 for a branch that was taken, 422 for a refusal the input decides, 502 for a refusal decided outside the request — and the `outcome` property of every response body names the branch. This component publishes `ConfigChanged`, `InstanceAdded`, `InstanceRemoved`, `InstanceReplaced`, `InstanceAnswered`, `InstancePurged`, `InstanceReconciled`, `InstanceRestarted`, `InstanceRolledBack`, `InstanceStarted`, `InstanceStopped`, `InstanceUnreachable`, `InstanceUpgrading`, `OperatorJoined`, `OperatorLeft`, `BoxClosed`, `BoxOpened`, `BoxRefused`, `SecretPut`, `SecretsResolved`, `StoreMigrated`, `TokenContributed`, `TokenLeased`, `TokenLimited`, `TokenReleased`, `TokenRestored` and `TokenWithdrawn` to consumers through the event transport; an event a branch emits that is not among them stays inside the component. The `published` property of every response body lists every event its branch emitted, in the order it emits them, published or not.\n\nThe specification declares who may invoke what (`x-ess-may-invoke` on each operation), so every command is sent as a declared actor. How a request proves which actor it is belongs to the realization, which authenticates it and hands the surface the caller; nothing in the request itself names one. The grant is checked before the command runs, and a request authenticated as no actor, or as one without the grant, is answered 403 with one standard refusal, the same for every command: `{\"refused\": \"not granted\", \"actor\": <name or null>}`. A 403 a declared branch answers carries `outcome` and the declared `error` instead, so a client tells the two apart by the members present. A command no declared actor may invoke is refused to every caller. A view an actor's grant names is read-checked the same way (`x-ess-may-read` on its operation): a request authenticated as no actor, or as one the grant does not name, is answered 403 with the same standard refusal before the view is read. A view no grant names is open, and any caller may read what it publishes.\n\nThis component declares `reached_by: network`, so its callers are not deployed with it and this contract is the surface they reach it through. That declaration is also why the views its domains declare have paths here: a GET under `views` per projection, answering every row it holds. There is no page size, no cursor, no ordering and no filter parameter, because the specification states none — a view's filter is part of the projection, not of the request. A view that declares `params:` is the exception: each is a query parameter, described on its operation, and a view that declares `paging:` takes its page and size there.\n\nAn `ess-http/1` binding declares the method and path of every operation marked `x-ess-route-source: binding`, so those are the protocol's and not derived from wire names. Each variable of such a path is a required path parameter carrying the input field or view parameter the binding maps to it, and a field carried in the path is not in the request body. Every other operation keeps the method and path described above.\n\nThe binding also declares how some of those operations are encoded and answered: a request body that is form-encoded, or input carried in the query string; the status, body and headers of an outcome; a redirect; a view that answers its one row; or a standard refusal's answer. Such an operation is described as the binding declares it, and each response of such a command lists the outcomes it answers under `x-ess-outcomes`, because a bare body carries no `outcome` naming the branch and no `published` list. A `WWW-Authenticate` challenge is a response header: the specification states what a refusal answers, not how a caller proves who it is, so no security scheme is declared.",
     "version": "v1",
     "x-ess-provenance": {
       "system": "conductor",
       "specification_version": "v1",
-      "contract_digest": "slice-sha256/2:1f654e9532e1efd9a68d36f824cedfed61338e69bec1a5a985b4f0bfc3eb3f8b"
+      "contract_digest": "slice-sha256/2:27103ad3d1fe9ddda160e382e74649bd00e0b8afbb81dbacb71b4b662ae706aa"
     },
     "x-ess-reached-by": "network"
   },
@@ -39,7 +39,7 @@
     },
     {
       "name": "token",
-      "description": "The token pool of an instance (design docs/design/architecture-next.md § 5.3, decisions 10 and 11): an engineer who joins an instance contributes their Claude token; the pool is a set of secrets, each with its owner, its seat and its state (`ok`, or `limited until <time>`); values never leave the secrets source except as a sealed slot. The `claude-code` kind leases one token per agent start, resumes an agent on another token after a usage-limit stop, and names the token's owner on every agent record. A controller started for Remote Control on a named owner's token appears in that owner's Claude app.\n"
+      "description": "The token pool of a host (design docs/design/architecture-next.md § 5.3, decisions 10 and 11; story:host-token-pool): conductord's store holds one pool per host, shared by every instance it runs. An engineer who joins contributes their Claude token to it; the pool is a set of secrets, each with its owner, its seat and its state (`ok`, or `limited until <time>`); values never leave the secrets source but for the one start that leases them. The `claude-code` kind of any instance on the host leases a token per agent start (a token serves any number of agents at once, one lease each), resumes an agent on another token after a usage-limit stop, and names the token's owner on every agent record. A controller started for Remote Control on a named owner's token appears in that owner's Claude app.\n"
     }
   ],
   "paths": {
@@ -1579,319 +1579,6 @@
         }
       }
     },
-    "/token/commands/lease-token": {
-      "post": {
-        "operationId": "conductor.token.LeaseToken",
-        "summary": "Lease a token for an agent start",
-        "tags": [
-          "token"
-        ],
-        "x-ess-may-invoke": [
-          "conductor.token.InstanceRuntime"
-        ],
-        "requestBody": {
-          "description": "The input `conductor.token.LeaseToken` declares.",
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/conductor.token.LeaseToken.Input"
-              }
-            }
-          }
-        },
-        "responses": {
-          "202": {
-            "description": "Outcome `leased`: the branch the specification declares for this input. Events this branch emits are published to consumers and listed under `published`.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/conductor.token.LeaseToken.leased.Response"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "No declared outcome: the standard refusal for an actor no grant admits: the request was authenticated as no actor, or as one `x-ess-may-invoke` does not list. It is checked before the command runs, so nothing was read, written or published, and the same request from a granted actor is decided by the command. Its body carries `refused` and `actor`, never the `outcome` and `error` a declared branch carries.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "additionalProperties": false,
-                  "properties": {
-                    "actor": {
-                      "description": "The qualified name of the actor the request was authenticated as, or null where it was authenticated as none.",
-                      "type": [
-                        "string",
-                        "null"
-                      ]
-                    },
-                    "refused": {
-                      "description": "The standard refusal for an actor no grant admits.",
-                      "enum": [
-                        "not granted"
-                      ],
-                      "type": "string"
-                    }
-                  },
-                  "required": [
-                    "refused",
-                    "actor"
-                  ],
-                  "type": "object"
-                }
-              }
-            }
-          },
-          "409": {
-            "description": "Outcome `wrong-state`: the input was acceptable and the subject is in a state this command does not act from. Resending the same request changes nothing until something else moves it.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/conductor.token.LeaseToken.wrong-state.Response"
-                }
-              }
-            }
-          },
-          "501": {
-            "description": "No declared outcome: the realization is unfinished. Either a port this command runs reported an unmet obligation, and nothing was written: `committed` is `false`. Or the command's effect was committed and delivering what this command published to a binding failed: `committed` is `true`, the effect and its events stand, and each binding whose delivery failed keeps its event and is attempted again on a later delivery, while no other binding receives it twice. Do not retry: after a failed delivery a retry performs the command a second time.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "additionalProperties": false,
-                  "properties": {
-                    "committed": {
-                      "description": "`true` when the command's effect and events were committed and delivering what it published failed; `false` when an unmet obligation stopped the command before anything was written.",
-                      "type": "boolean"
-                    },
-                    "refused": {
-                      "description": "What was left unfinished, in words.",
-                      "type": "string"
-                    }
-                  },
-                  "required": [
-                    "refused",
-                    "committed"
-                  ],
-                  "type": "object"
-                }
-              }
-            }
-          },
-          "502": {
-            "description": "Outcome `none-available`: something outside the request refused. The input was acceptable, so the caller has nothing to correct and a retry is meaningful.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/conductor.token.LeaseToken.none-available.Response"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/token/commands/mark-token-limited": {
-      "post": {
-        "operationId": "conductor.token.MarkTokenLimited",
-        "summary": "Release a token as limited",
-        "tags": [
-          "token"
-        ],
-        "x-ess-may-invoke": [
-          "conductor.token.InstanceRuntime"
-        ],
-        "requestBody": {
-          "description": "The input `conductor.token.MarkTokenLimited` declares.",
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/conductor.token.MarkTokenLimited.Input"
-              }
-            }
-          }
-        },
-        "responses": {
-          "202": {
-            "description": "Outcome `limited`: the branch the specification declares for this input. Events this branch emits are published to consumers and listed under `published`.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/conductor.token.MarkTokenLimited.limited.Response"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "No declared outcome: the standard refusal for an actor no grant admits: the request was authenticated as no actor, or as one `x-ess-may-invoke` does not list. It is checked before the command runs, so nothing was read, written or published, and the same request from a granted actor is decided by the command. Its body carries `refused` and `actor`, never the `outcome` and `error` a declared branch carries.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "additionalProperties": false,
-                  "properties": {
-                    "actor": {
-                      "description": "The qualified name of the actor the request was authenticated as, or null where it was authenticated as none.",
-                      "type": [
-                        "string",
-                        "null"
-                      ]
-                    },
-                    "refused": {
-                      "description": "The standard refusal for an actor no grant admits.",
-                      "enum": [
-                        "not granted"
-                      ],
-                      "type": "string"
-                    }
-                  },
-                  "required": [
-                    "refused",
-                    "actor"
-                  ],
-                  "type": "object"
-                }
-              }
-            }
-          },
-          "409": {
-            "description": "Outcome `wrong-state`: the input was acceptable and the subject is in a state this command does not act from. Resending the same request changes nothing until something else moves it.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/conductor.token.MarkTokenLimited.wrong-state.Response"
-                }
-              }
-            }
-          },
-          "501": {
-            "description": "No declared outcome: the realization is unfinished. Either a port this command runs reported an unmet obligation, and nothing was written: `committed` is `false`. Or the command's effect was committed and delivering what this command published to a binding failed: `committed` is `true`, the effect and its events stand, and each binding whose delivery failed keeps its event and is attempted again on a later delivery, while no other binding receives it twice. Do not retry: after a failed delivery a retry performs the command a second time.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "additionalProperties": false,
-                  "properties": {
-                    "committed": {
-                      "description": "`true` when the command's effect and events were committed and delivering what it published failed; `false` when an unmet obligation stopped the command before anything was written.",
-                      "type": "boolean"
-                    },
-                    "refused": {
-                      "description": "What was left unfinished, in words.",
-                      "type": "string"
-                    }
-                  },
-                  "required": [
-                    "refused",
-                    "committed"
-                  ],
-                  "type": "object"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/token/commands/release-token": {
-      "post": {
-        "operationId": "conductor.token.ReleaseToken",
-        "summary": "Release a leased token",
-        "tags": [
-          "token"
-        ],
-        "x-ess-may-invoke": [
-          "conductor.token.InstanceRuntime"
-        ],
-        "requestBody": {
-          "description": "The input `conductor.token.ReleaseToken` declares.",
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/conductor.token.ReleaseToken.Input"
-              }
-            }
-          }
-        },
-        "responses": {
-          "202": {
-            "description": "Outcome `released`: the branch the specification declares for this input. Events this branch emits are published to consumers and listed under `published`.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/conductor.token.ReleaseToken.released.Response"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "No declared outcome: the standard refusal for an actor no grant admits: the request was authenticated as no actor, or as one `x-ess-may-invoke` does not list. It is checked before the command runs, so nothing was read, written or published, and the same request from a granted actor is decided by the command. Its body carries `refused` and `actor`, never the `outcome` and `error` a declared branch carries.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "additionalProperties": false,
-                  "properties": {
-                    "actor": {
-                      "description": "The qualified name of the actor the request was authenticated as, or null where it was authenticated as none.",
-                      "type": [
-                        "string",
-                        "null"
-                      ]
-                    },
-                    "refused": {
-                      "description": "The standard refusal for an actor no grant admits.",
-                      "enum": [
-                        "not granted"
-                      ],
-                      "type": "string"
-                    }
-                  },
-                  "required": [
-                    "refused",
-                    "actor"
-                  ],
-                  "type": "object"
-                }
-              }
-            }
-          },
-          "409": {
-            "description": "Outcome `wrong-state`: the input was acceptable and the subject is in a state this command does not act from. Resending the same request changes nothing until something else moves it.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/conductor.token.ReleaseToken.wrong-state.Response"
-                }
-              }
-            }
-          },
-          "501": {
-            "description": "No declared outcome: the realization is unfinished. Either a port this command runs reported an unmet obligation, and nothing was written: `committed` is `false`. Or the command's effect was committed and delivering what this command published to a binding failed: `committed` is `true`, the effect and its events stand, and each binding whose delivery failed keeps its event and is attempted again on a later delivery, while no other binding receives it twice. Do not retry: after a failed delivery a retry performs the command a second time.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "additionalProperties": false,
-                  "properties": {
-                    "committed": {
-                      "description": "`true` when the command's effect and events were committed and delivering what it published failed; `false` when an unmet obligation stopped the command before anything was written.",
-                      "type": "boolean"
-                    },
-                    "refused": {
-                      "description": "What was left unfinished, in words.",
-                      "type": "string"
-                    }
-                  },
-                  "required": [
-                    "refused",
-                    "committed"
-                  ],
-                  "type": "object"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/token/commands/withdraw-token": {
       "post": {
         "operationId": "conductor.token.WithdrawToken",
@@ -2370,43 +2057,6 @@
                 "schema": {
                   "items": {
                     "$ref": "#/components/schemas/conductor.config.EffectiveSettings.Row"
-                  },
-                  "type": "array"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/v1/instances/{instance}/tokens": {
-      "get": {
-        "operationId": "conductor.token.Tokens",
-        "x-ess-route-source": "binding",
-        "summary": "Tokens of the pool",
-        "tags": [
-          "token"
-        ],
-        "x-ess-consistency": "read_your_writes",
-        "parameters": [
-          {
-            "name": "instance",
-            "in": "path",
-            "description": "Read by the view's filter as `param.instance`; carried in the path rather than the query.",
-            "required": true,
-            "schema": {
-              "$ref": "#/components/schemas/conductor.config.InstanceName"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Every row of `conductor.token.Tokens`, a projection of `conductor.token.PoolToken`, as a bare JSON array, as the `ess-http/1` binding declares (`body: array`): no object around it.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "items": {
-                    "$ref": "#/components/schemas/conductor.token.Tokens.Row"
                   },
                   "type": "array"
                 }
@@ -3336,6 +2986,516 @@
                 }
               }
             }
+          }
+        }
+      }
+    },
+    "/v1/tokens": {
+      "get": {
+        "operationId": "conductor.token.Tokens",
+        "x-ess-route-source": "binding",
+        "summary": "Tokens of the pool",
+        "tags": [
+          "token"
+        ],
+        "x-ess-consistency": "read_your_writes",
+        "responses": {
+          "200": {
+            "description": "Every row of `conductor.token.Tokens`, a projection of `conductor.token.PoolToken`, as a bare JSON array, as the `ess-http/1` binding declares (`body: array`): no object around it.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/conductor.token.Tokens.Row"
+                  },
+                  "type": "array"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/tokens/leases": {
+      "get": {
+        "operationId": "conductor.token.TokenLeases",
+        "x-ess-route-source": "binding",
+        "summary": "Leases of the pool",
+        "tags": [
+          "token"
+        ],
+        "x-ess-consistency": "read_your_writes",
+        "responses": {
+          "200": {
+            "description": "Every row of `conductor.token.TokenLeases`, a projection of `conductor.token.TokenLease`, as a bare JSON array, as the `ess-http/1` binding declares (`body: array`): no object around it.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/conductor.token.TokenLeases.Row"
+                  },
+                  "type": "array"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "operationId": "conductor.token.LeaseToken",
+        "x-ess-route-source": "binding",
+        "summary": "Lease a token for an agent start",
+        "tags": [
+          "token"
+        ],
+        "x-ess-may-invoke": [
+          "conductor.token.InstanceRuntime"
+        ],
+        "requestBody": {
+          "description": "The input `conductor.token.LeaseToken` declares.",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/conductor.token.LeaseToken.Input"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Outcome `leased`, answered 201 as the `ess-http/1` binding declares, with ESS's own body: `outcome` names the branch and `published` lists what it published.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/conductor.token.LeaseToken.leased.Response"
+                }
+              }
+            },
+            "x-ess-outcomes": [
+              "leased"
+            ]
+          },
+          "403": {
+            "description": "No declared outcome: the standard refusal for an actor no grant admits: the request was authenticated as no actor, or as one `x-ess-may-invoke` does not list. It is checked before the command runs, so nothing was read, written or published, and the same request from a granted actor is decided by the command. Its body carries `refused` and `actor`, never the `outcome` and `error` a declared branch carries.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "actor": {
+                      "description": "The qualified name of the actor the request was authenticated as, or null where it was authenticated as none.",
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "refused": {
+                      "description": "The standard refusal for an actor no grant admits.",
+                      "enum": [
+                        "not granted"
+                      ],
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "refused",
+                    "actor"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "x-ess-outcomes": []
+          },
+          "409": {
+            "description": "Outcome `none-available`, answered 409 as the `ess-http/1` binding declares, with ESS's own body: `outcome` names the branch and `published` lists what it published. Outcome `unknown-token`, answered 409 as the `ess-http/1` binding declares, with ESS's own body: `outcome` names the branch and `published` lists what it published. Outcome `token-withdrawn`, answered 409 as the `ess-http/1` binding declares, with ESS's own body: `outcome` names the branch and `published` lists what it published.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "discriminator": {
+                    "mapping": {
+                      "none-available": "#/components/schemas/conductor.token.LeaseToken.none-available.Response",
+                      "token-withdrawn": "#/components/schemas/conductor.token.LeaseToken.token-withdrawn.Response",
+                      "unknown-token": "#/components/schemas/conductor.token.LeaseToken.unknown-token.Response"
+                    },
+                    "propertyName": "outcome"
+                  },
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/conductor.token.LeaseToken.none-available.Response"
+                    },
+                    {
+                      "$ref": "#/components/schemas/conductor.token.LeaseToken.unknown-token.Response"
+                    },
+                    {
+                      "$ref": "#/components/schemas/conductor.token.LeaseToken.token-withdrawn.Response"
+                    }
+                  ]
+                }
+              }
+            },
+            "x-ess-outcomes": [
+              "none-available",
+              "unknown-token",
+              "token-withdrawn"
+            ]
+          },
+          "501": {
+            "description": "No declared outcome: the realization is unfinished. Either a port this command runs reported an unmet obligation, and nothing was written: `committed` is `false`. Or the command's effect was committed and delivering what this command published to a binding failed: `committed` is `true`, the effect and its events stand, and each binding whose delivery failed keeps its event and is attempted again on a later delivery, while no other binding receives it twice. Do not retry: after a failed delivery a retry performs the command a second time.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "committed": {
+                      "description": "`true` when the command's effect and events were committed and delivering what it published failed; `false` when an unmet obligation stopped the command before anything was written.",
+                      "type": "boolean"
+                    },
+                    "refused": {
+                      "description": "What was left unfinished, in words.",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "refused",
+                    "committed"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "x-ess-outcomes": []
+          }
+        }
+      }
+    },
+    "/v1/tokens/limit": {
+      "post": {
+        "operationId": "conductor.token.MarkTokenLimited",
+        "x-ess-route-source": "binding",
+        "summary": "Mark a token limited",
+        "tags": [
+          "token"
+        ],
+        "x-ess-may-invoke": [
+          "conductor.token.InstanceRuntime"
+        ],
+        "requestBody": {
+          "description": "The input `conductor.token.MarkTokenLimited` declares.",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/conductor.token.MarkTokenLimited.Input"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Outcome `limited`, answered 200 as the `ess-http/1` binding declares, with ESS's own body: `outcome` names the branch and `published` lists what it published.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/conductor.token.MarkTokenLimited.limited.Response"
+                }
+              }
+            },
+            "x-ess-outcomes": [
+              "limited"
+            ]
+          },
+          "403": {
+            "description": "No declared outcome: the standard refusal for an actor no grant admits: the request was authenticated as no actor, or as one `x-ess-may-invoke` does not list. It is checked before the command runs, so nothing was read, written or published, and the same request from a granted actor is decided by the command. Its body carries `refused` and `actor`, never the `outcome` and `error` a declared branch carries.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "actor": {
+                      "description": "The qualified name of the actor the request was authenticated as, or null where it was authenticated as none.",
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "refused": {
+                      "description": "The standard refusal for an actor no grant admits.",
+                      "enum": [
+                        "not granted"
+                      ],
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "refused",
+                    "actor"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "x-ess-outcomes": []
+          },
+          "409": {
+            "description": "Outcome `wrong-state`, answered 409 as the `ess-http/1` binding declares, with ESS's own body: `outcome` names the branch and `published` lists what it published.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/conductor.token.MarkTokenLimited.wrong-state.Response"
+                }
+              }
+            },
+            "x-ess-outcomes": [
+              "wrong-state"
+            ]
+          },
+          "501": {
+            "description": "No declared outcome: the realization is unfinished. Either a port this command runs reported an unmet obligation, and nothing was written: `committed` is `false`. Or the command's effect was committed and delivering what this command published to a binding failed: `committed` is `true`, the effect and its events stand, and each binding whose delivery failed keeps its event and is attempted again on a later delivery, while no other binding receives it twice. Do not retry: after a failed delivery a retry performs the command a second time.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "committed": {
+                      "description": "`true` when the command's effect and events were committed and delivering what it published failed; `false` when an unmet obligation stopped the command before anything was written.",
+                      "type": "boolean"
+                    },
+                    "refused": {
+                      "description": "What was left unfinished, in words.",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "refused",
+                    "committed"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "x-ess-outcomes": []
+          }
+        }
+      }
+    },
+    "/v1/tokens/release": {
+      "post": {
+        "operationId": "conductor.token.ReleaseToken",
+        "x-ess-route-source": "binding",
+        "summary": "Release a token's lease",
+        "tags": [
+          "token"
+        ],
+        "x-ess-may-invoke": [
+          "conductor.token.InstanceRuntime"
+        ],
+        "requestBody": {
+          "description": "The input `conductor.token.ReleaseToken` declares.",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/conductor.token.ReleaseToken.Input"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Outcome `released`, answered 200 as the `ess-http/1` binding declares, with ESS's own body: `outcome` names the branch and `published` lists what it published.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/conductor.token.ReleaseToken.released.Response"
+                }
+              }
+            },
+            "x-ess-outcomes": [
+              "released"
+            ]
+          },
+          "403": {
+            "description": "No declared outcome: the standard refusal for an actor no grant admits: the request was authenticated as no actor, or as one `x-ess-may-invoke` does not list. It is checked before the command runs, so nothing was read, written or published, and the same request from a granted actor is decided by the command. Its body carries `refused` and `actor`, never the `outcome` and `error` a declared branch carries.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "actor": {
+                      "description": "The qualified name of the actor the request was authenticated as, or null where it was authenticated as none.",
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "refused": {
+                      "description": "The standard refusal for an actor no grant admits.",
+                      "enum": [
+                        "not granted"
+                      ],
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "refused",
+                    "actor"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "x-ess-outcomes": []
+          },
+          "409": {
+            "description": "Outcome `wrong-state`, answered 409 as the `ess-http/1` binding declares, with ESS's own body: `outcome` names the branch and `published` lists what it published.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/conductor.token.ReleaseToken.wrong-state.Response"
+                }
+              }
+            },
+            "x-ess-outcomes": [
+              "wrong-state"
+            ]
+          },
+          "501": {
+            "description": "No declared outcome: the realization is unfinished. Either a port this command runs reported an unmet obligation, and nothing was written: `committed` is `false`. Or the command's effect was committed and delivering what this command published to a binding failed: `committed` is `true`, the effect and its events stand, and each binding whose delivery failed keeps its event and is attempted again on a later delivery, while no other binding receives it twice. Do not retry: after a failed delivery a retry performs the command a second time.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "committed": {
+                      "description": "`true` when the command's effect and events were committed and delivering what it published failed; `false` when an unmet obligation stopped the command before anything was written.",
+                      "type": "boolean"
+                    },
+                    "refused": {
+                      "description": "What was left unfinished, in words.",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "refused",
+                    "committed"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "x-ess-outcomes": []
+          }
+        }
+      }
+    },
+    "/v1/tokens/restore": {
+      "post": {
+        "operationId": "conductor.token.RestoreToken",
+        "x-ess-route-source": "binding",
+        "summary": "Restore a limited token",
+        "tags": [
+          "token"
+        ],
+        "x-ess-may-invoke": [
+          "conductor.token.InstanceRuntime"
+        ],
+        "requestBody": {
+          "description": "The input `conductor.token.RestoreToken` declares.",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/conductor.token.RestoreToken.Input"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Outcome `restored`, answered 200 as the `ess-http/1` binding declares, with ESS's own body: `outcome` names the branch and `published` lists what it published.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/conductor.token.RestoreToken.restored.Response"
+                }
+              }
+            },
+            "x-ess-outcomes": [
+              "restored"
+            ]
+          },
+          "403": {
+            "description": "No declared outcome: the standard refusal for an actor no grant admits: the request was authenticated as no actor, or as one `x-ess-may-invoke` does not list. It is checked before the command runs, so nothing was read, written or published, and the same request from a granted actor is decided by the command. Its body carries `refused` and `actor`, never the `outcome` and `error` a declared branch carries.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "actor": {
+                      "description": "The qualified name of the actor the request was authenticated as, or null where it was authenticated as none.",
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "refused": {
+                      "description": "The standard refusal for an actor no grant admits.",
+                      "enum": [
+                        "not granted"
+                      ],
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "refused",
+                    "actor"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "x-ess-outcomes": []
+          },
+          "409": {
+            "description": "Outcome `wrong-state`, answered 409 as the `ess-http/1` binding declares, with ESS's own body: `outcome` names the branch and `published` lists what it published.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/conductor.token.RestoreToken.wrong-state.Response"
+                }
+              }
+            },
+            "x-ess-outcomes": [
+              "wrong-state"
+            ]
+          },
+          "501": {
+            "description": "No declared outcome: the realization is unfinished. Either a port this command runs reported an unmet obligation, and nothing was written: `committed` is `false`. Or the command's effect was committed and delivering what this command published to a binding failed: `committed` is `true`, the effect and its events stand, and each binding whose delivery failed keeps its event and is attempted again on a later delivery, while no other binding receives it twice. Do not retry: after a failed delivery a retry performs the command a second time.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "committed": {
+                      "description": "`true` when the command's effect and events were committed and delivering what it published failed; `false` when an unmet obligation stopped the command before anything was written.",
+                      "type": "boolean"
+                    },
+                    "refused": {
+                      "description": "What was left unfinished, in words.",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "refused",
+                    "committed"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "x-ess-outcomes": []
           }
         }
       }
@@ -8804,9 +8964,6 @@
           "actor": {
             "$ref": "#/components/schemas/conductor.operator.Actor"
           },
-          "instance": {
-            "$ref": "#/components/schemas/conductor.config.InstanceName"
-          },
           "owner": {
             "$ref": "#/components/schemas/conductor.operator.OperatorName"
           },
@@ -8826,7 +8983,6 @@
         },
         "required": [
           "actor",
-          "instance",
           "owner",
           "seat",
           "secret",
@@ -8867,7 +9023,7 @@
       },
       "conductor.token.ContributeToken.contributed.Response": {
         "additionalProperties": false,
-        "description": "The token is in the pool, Available and Ok, with its owner, seat and kind. Taken when no other outcome's condition matched. A `conductor.token.PoolToken` now exists, in `Available`. Its identity is published as `token_id` on `conductor.token.TokenContributed`. Emits `TokenContributed`, published to consumers and listed under `published`.",
+        "description": "The token is in the host's pool, Available and Ok, with its owner, seat and kind. Taken when no other outcome's condition matched. A `conductor.token.PoolToken` now exists, in `Available`. Its identity is published as `token_id` on `conductor.token.TokenContributed`. Emits `TokenContributed`, published to consumers and listed under `published`.",
         "properties": {
           "outcome": {
             "const": "contributed",
@@ -8906,6 +9062,22 @@
         ],
         "type": "object"
       },
+      "conductor.token.LeaseStateConflict.Error": {
+        "title": "LeaseStateConflict payload",
+        "description": "The lease was released already, so there is nothing to release; nothing changed.\n",
+        "x-ess-name": "conductor.token.LeaseStateConflict",
+        "x-ess-kind": "error-payload",
+        "type": "object",
+        "properties": {
+          "lease_id": {
+            "$ref": "#/components/schemas/conductor.token.TokenLeaseId"
+          }
+        },
+        "required": [
+          "lease_id"
+        ],
+        "additionalProperties": false
+      },
       "conductor.token.LeaseToken.Input": {
         "title": "Lease a token for an agent start input",
         "x-ess-name": "conductor.token.LeaseToken",
@@ -8921,11 +9093,17 @@
           "token_id": {
             "$ref": "#/components/schemas/conductor.token.TokenId"
           },
+          "owner": {
+            "$ref": "#/components/schemas/conductor.operator.OperatorName"
+          },
           "agent": {
             "$ref": "#/components/schemas/conductor.agent.AgentName"
           },
           "preferred_owner": {
             "$ref": "#/components/schemas/conductor.operator.OperatorName"
+          },
+          "runtime": {
+            "type": "string"
           },
           "leased_at": {
             "type": "string",
@@ -8936,6 +9114,7 @@
           "actor",
           "instance",
           "token_id",
+          "owner",
           "agent",
           "leased_at"
         ],
@@ -8943,7 +9122,7 @@
       },
       "conductor.token.LeaseToken.leased.Response": {
         "additionalProperties": false,
-        "description": "The agent runs on the token; the event names the token's owner and seat, so the agent's record names them. Taken when no other outcome's condition matched. A `conductor.token.PoolToken` has moved to `Leased`, along `lease`. The instance is the one `token_id` names. Emits `TokenLeased`, published to consumers and listed under `published`.",
+        "description": "The agent runs on the token under a lease of its own; the event names the token's owner, so the agent's record names them. Taken when no other outcome's condition matched. A `conductor.token.TokenLease` now exists, in `Held`. Its identity is published as `lease_id` on `conductor.token.TokenLeased`. Emits `TokenLeased`, published to consumers and listed under `published`.",
         "properties": {
           "outcome": {
             "const": "leased",
@@ -8984,11 +9163,11 @@
       },
       "conductor.token.LeaseToken.none-available.Response": {
         "additionalProperties": false,
-        "description": "The pool holds no Available token, so the agent does not start on one; nothing changed. Decided outside the request: the runtime's pick found no Available token in the instance's pool.",
+        "description": "The host's pool holds no token with headroom, so the agent does not start on one; nothing changed. Decided outside the request: the runtime's pick found no token with headroom in the host's pool.",
         "properties": {
           "error": {
             "const": "conductor.token.NoTokenAvailable",
-            "description": "No token of the instance's pool is Available (every one is leased, limited or withdrawn), so no agent can start on one; nothing changed.\n",
+            "description": "No token of the host's pool has headroom (every one is limited or withdrawn, or the owner the start asked for has none), so the agent of the instance does not start on one; nothing changed.\n",
             "type": "string"
           },
           "outcome": {
@@ -9012,17 +9191,17 @@
         ],
         "type": "object"
       },
-      "conductor.token.LeaseToken.wrong-state.Response": {
+      "conductor.token.LeaseToken.token-withdrawn.Response": {
         "additionalProperties": false,
-        "description": "The token named is neither Available nor Limited (it is leased or withdrawn); nothing changed. Taken when the subject is in a state none of this command's declared moves start from. Which states those are is the lifecycle's answer, not this command's. For an instance no record carries, `payload` is absent, because an instance that does not exist has nothing for the error to describe.",
+        "description": "The token named is withdrawn; nothing changed. Taken when the `conductor.token.PoolToken` that `input.token_id` names exists and its stored fields satisfy `state in [Withdrawn]`.",
         "properties": {
           "error": {
             "const": "conductor.token.TokenStateConflict",
-            "description": "The token is not in a state the command acts from (a lease of a token that is not Available, a release or a limit of one that is not Leased, a withdrawal of one already withdrawn); nothing changed.\n",
+            "description": "The token is not in a state the command acts from (a lease of a token that is withdrawn or not in the pool, a limit of one that is withdrawn, a restore of one that is not Limited, a withdrawal of one already withdrawn); nothing changed.\n",
             "type": "string"
           },
           "outcome": {
-            "const": "wrong-state",
+            "const": "token-withdrawn",
             "description": "Which declared outcome the command took."
           },
           "payload": {
@@ -9037,12 +9216,43 @@
         "required": [
           "outcome",
           "published",
-          "error"
+          "error",
+          "payload"
+        ],
+        "type": "object"
+      },
+      "conductor.token.LeaseToken.unknown-token.Response": {
+        "additionalProperties": false,
+        "description": "The token named is not in the pool; nothing changed. Taken when no `conductor.token.PoolToken` carries the identity `input.token_id` names.",
+        "properties": {
+          "error": {
+            "const": "conductor.token.TokenStateConflict",
+            "description": "The token is not in a state the command acts from (a lease of a token that is withdrawn or not in the pool, a limit of one that is withdrawn, a restore of one that is not Limited, a withdrawal of one already withdrawn); nothing changed.\n",
+            "type": "string"
+          },
+          "outcome": {
+            "const": "unknown-token",
+            "description": "Which declared outcome the command took."
+          },
+          "payload": {
+            "$ref": "#/components/schemas/conductor.token.TokenStateConflict.Error"
+          },
+          "published": {
+            "description": "Every event this branch published, in publication order: its qualified name and its payload.",
+            "maxItems": 0,
+            "type": "array"
+          }
+        },
+        "required": [
+          "outcome",
+          "published",
+          "error",
+          "payload"
         ],
         "type": "object"
       },
       "conductor.token.MarkTokenLimited.Input": {
-        "title": "Release a token as limited input",
+        "title": "Mark a token limited input",
         "x-ess-name": "conductor.token.MarkTokenLimited",
         "x-ess-kind": "command-input",
         "type": "object",
@@ -9052,6 +9262,9 @@
           },
           "token_id": {
             "$ref": "#/components/schemas/conductor.token.TokenId"
+          },
+          "agent": {
+            "$ref": "#/components/schemas/conductor.agent.AgentName"
           },
           "limited_until": {
             "type": "string",
@@ -9072,7 +9285,7 @@
       },
       "conductor.token.MarkTokenLimited.limited.Response": {
         "additionalProperties": false,
-        "description": "The token is Limited until the time given and holds no agent; the agent it held is named to be resumed on another. Taken when no other outcome's condition matched. A `conductor.token.PoolToken` has moved to `Limited`, along `limit`. The instance is the one `token_id` names. Emits `TokenLimited`, published to consumers and listed under `published`.",
+        "description": "The token is Limited until the time given; the agent that hit the limit is named to be resumed on another. Taken when no other outcome's condition matched. A `conductor.token.PoolToken` has moved to `Limited`, along `limit`. The instance is the one `token_id` names. Emits `TokenLimited`, published to consumers and listed under `published`.",
         "properties": {
           "outcome": {
             "const": "limited",
@@ -9113,11 +9326,11 @@
       },
       "conductor.token.MarkTokenLimited.wrong-state.Response": {
         "additionalProperties": false,
-        "description": "The token is not Leased, so no agent on it hit a limit; nothing changed. Taken when the subject is in a state none of this command's declared moves start from. Which states those are is the lifecycle's answer, not this command's. For an instance no record carries, `payload` is absent, because an instance that does not exist has nothing for the error to describe.",
+        "description": "The token is withdrawn, so no agent on it hit a limit; nothing changed. Taken when the subject is in a state none of this command's declared moves start from. Which states those are is the lifecycle's answer, not this command's. For an instance no record carries, `payload` is absent, because an instance that does not exist has nothing for the error to describe.",
         "properties": {
           "error": {
             "const": "conductor.token.TokenStateConflict",
-            "description": "The token is not in a state the command acts from (a lease of a token that is not Available, a release or a limit of one that is not Leased, a withdrawal of one already withdrawn); nothing changed.\n",
+            "description": "The token is not in a state the command acts from (a lease of a token that is withdrawn or not in the pool, a limit of one that is withdrawn, a restore of one that is not Limited, a withdrawal of one already withdrawn); nothing changed.\n",
             "type": "string"
           },
           "outcome": {
@@ -9142,7 +9355,7 @@
       },
       "conductor.token.NoTokenAvailable.Error": {
         "title": "NoTokenAvailable payload",
-        "description": "No token of the instance's pool is Available (every one is leased, limited or withdrawn), so no agent can start on one; nothing changed.\n",
+        "description": "No token of the host's pool has headroom (every one is limited or withdrawn, or the owner the start asked for has none), so the agent of the instance does not start on one; nothing changed.\n",
         "x-ess-name": "conductor.token.NoTokenAvailable",
         "x-ess-kind": "error-payload",
         "type": "object",
@@ -9179,13 +9392,12 @@
         "type": "string",
         "enum": [
           "Available",
-          "Leased",
           "Limited",
           "Withdrawn"
         ]
       },
       "conductor.token.ReleaseToken.Input": {
-        "title": "Release a leased token input",
+        "title": "Release a token's lease input",
         "x-ess-name": "conductor.token.ReleaseToken",
         "x-ess-kind": "command-input",
         "type": "object",
@@ -9193,8 +9405,8 @@
           "actor": {
             "$ref": "#/components/schemas/conductor.operator.Actor"
           },
-          "token_id": {
-            "$ref": "#/components/schemas/conductor.token.TokenId"
+          "lease_id": {
+            "$ref": "#/components/schemas/conductor.token.TokenLeaseId"
           },
           "released_at": {
             "type": "string",
@@ -9203,14 +9415,14 @@
         },
         "required": [
           "actor",
-          "token_id",
+          "lease_id",
           "released_at"
         ],
         "additionalProperties": false
       },
       "conductor.token.ReleaseToken.released.Response": {
         "additionalProperties": false,
-        "description": "The token is Available again and holds no agent. Taken when no other outcome's condition matched. A `conductor.token.PoolToken` has moved to `Available`, along `release`. The instance is the one `token_id` names. Emits `TokenReleased`, published to consumers and listed under `published`.",
+        "description": "The lease is released; its token serves its other leases and new ones as before. Taken when no other outcome's condition matched. A `conductor.token.TokenLease` has moved to `Released`, along `release`. The instance is the one `lease_id` names. Emits `TokenReleased`, published to consumers and listed under `published`.",
         "properties": {
           "outcome": {
             "const": "released",
@@ -9251,11 +9463,105 @@
       },
       "conductor.token.ReleaseToken.wrong-state.Response": {
         "additionalProperties": false,
-        "description": "The token is not Leased, so there is nothing to release; nothing changed. Taken when the subject is in a state none of this command's declared moves start from. Which states those are is the lifecycle's answer, not this command's. For an instance no record carries, `payload` is absent, because an instance that does not exist has nothing for the error to describe.",
+        "description": "The lease was released already, so there is nothing to release; nothing changed. Taken when the subject is in a state none of this command's declared moves start from. Which states those are is the lifecycle's answer, not this command's. For an instance no record carries, `payload` is absent, because an instance that does not exist has nothing for the error to describe.",
+        "properties": {
+          "error": {
+            "const": "conductor.token.LeaseStateConflict",
+            "description": "The lease was released already, so there is nothing to release; nothing changed.\n",
+            "type": "string"
+          },
+          "outcome": {
+            "const": "wrong-state",
+            "description": "Which declared outcome the command took."
+          },
+          "payload": {
+            "$ref": "#/components/schemas/conductor.token.LeaseStateConflict.Error"
+          },
+          "published": {
+            "description": "Every event this branch published, in publication order: its qualified name and its payload.",
+            "maxItems": 0,
+            "type": "array"
+          }
+        },
+        "required": [
+          "outcome",
+          "published",
+          "error"
+        ],
+        "type": "object"
+      },
+      "conductor.token.RestoreToken.Input": {
+        "title": "Restore a limited token input",
+        "x-ess-name": "conductor.token.RestoreToken",
+        "x-ess-kind": "command-input",
+        "type": "object",
+        "properties": {
+          "actor": {
+            "$ref": "#/components/schemas/conductor.operator.Actor"
+          },
+          "token_id": {
+            "$ref": "#/components/schemas/conductor.token.TokenId"
+          },
+          "restored_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "actor",
+          "token_id",
+          "restored_at"
+        ],
+        "additionalProperties": false
+      },
+      "conductor.token.RestoreToken.restored.Response": {
+        "additionalProperties": false,
+        "description": "The token is Available and Ok again. Taken when no other outcome's condition matched. A `conductor.token.PoolToken` has moved to `Available`, along `restore`. The instance is the one `token_id` names. Emits `TokenRestored`, published to consumers and listed under `published`.",
+        "properties": {
+          "outcome": {
+            "const": "restored",
+            "description": "Which declared outcome the command took."
+          },
+          "published": {
+            "description": "Every event this branch published, in publication order: its qualified name and its payload.",
+            "items": false,
+            "maxItems": 1,
+            "minItems": 1,
+            "prefixItems": [
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "event": {
+                    "const": "conductor.token.TokenRestored",
+                    "type": "string"
+                  },
+                  "payload": {
+                    "$ref": "#/components/schemas/conductor.token.TokenRestored.Event"
+                  }
+                },
+                "required": [
+                  "event",
+                  "payload"
+                ],
+                "type": "object"
+              }
+            ],
+            "type": "array"
+          }
+        },
+        "required": [
+          "outcome",
+          "published"
+        ],
+        "type": "object"
+      },
+      "conductor.token.RestoreToken.wrong-state.Response": {
+        "additionalProperties": false,
+        "description": "The token is not Limited; nothing changed. Taken when the subject is in a state none of this command's declared moves start from. Which states those are is the lifecycle's answer, not this command's. For an instance no record carries, `payload` is absent, because an instance that does not exist has nothing for the error to describe.",
         "properties": {
           "error": {
             "const": "conductor.token.TokenStateConflict",
-            "description": "The token is not in a state the command acts from (a lease of a token that is not Available, a release or a limit of one that is not Leased, a withdrawal of one already withdrawn); nothing changed.\n",
+            "description": "The token is not in a state the command acts from (a lease of a token that is withdrawn or not in the pool, a limit of one that is withdrawn, a restore of one that is not Limited, a withdrawal of one already withdrawn); nothing changed.\n",
             "type": "string"
           },
           "outcome": {
@@ -9296,9 +9602,6 @@
           "token_id": {
             "$ref": "#/components/schemas/conductor.token.TokenId"
           },
-          "instance": {
-            "$ref": "#/components/schemas/conductor.config.InstanceName"
-          },
           "owner": {
             "$ref": "#/components/schemas/conductor.operator.OperatorName"
           },
@@ -9319,7 +9622,6 @@
         "required": [
           "actor",
           "token_id",
-          "instance",
           "owner",
           "seat",
           "secret",
@@ -9336,6 +9638,24 @@
         "format": "uuid",
         "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
       },
+      "conductor.token.TokenLease.State": {
+        "title": "State",
+        "x-ess-name": "conductor.token.TokenLease.State",
+        "x-ess-kind": "enum",
+        "type": "string",
+        "enum": [
+          "Held",
+          "Released"
+        ]
+      },
+      "conductor.token.TokenLeaseId": {
+        "title": "TokenLeaseId",
+        "x-ess-name": "conductor.token.TokenLeaseId",
+        "x-ess-kind": "newtype",
+        "type": "string",
+        "format": "uuid",
+        "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+      },
       "conductor.token.TokenLeased.Event": {
         "title": "TokenLeased payload",
         "x-ess-name": "conductor.token.TokenLeased",
@@ -9345,6 +9665,9 @@
           "actor": {
             "$ref": "#/components/schemas/conductor.operator.Actor"
           },
+          "lease_id": {
+            "$ref": "#/components/schemas/conductor.token.TokenLeaseId"
+          },
           "token_id": {
             "$ref": "#/components/schemas/conductor.token.TokenId"
           },
@@ -9353,9 +9676,6 @@
           },
           "owner": {
             "$ref": "#/components/schemas/conductor.operator.OperatorName"
-          },
-          "seat": {
-            "$ref": "#/components/schemas/conductor.token.Seat"
           },
           "agent": {
             "$ref": "#/components/schemas/conductor.agent.AgentName"
@@ -9370,11 +9690,55 @@
         },
         "required": [
           "actor",
+          "lease_id",
           "token_id",
           "instance",
           "owner",
-          "seat",
           "agent",
+          "leased_at"
+        ],
+        "additionalProperties": false
+      },
+      "conductor.token.TokenLeases.Row": {
+        "title": "Leases of the pool row",
+        "x-ess-name": "conductor.token.TokenLeases",
+        "x-ess-kind": "view-row",
+        "type": "object",
+        "properties": {
+          "lease_id": {
+            "$ref": "#/components/schemas/conductor.token.TokenLeaseId"
+          },
+          "state": {
+            "$ref": "#/components/schemas/conductor.token.TokenLease.State"
+          },
+          "token_id": {
+            "$ref": "#/components/schemas/conductor.token.TokenId"
+          },
+          "agent": {
+            "$ref": "#/components/schemas/conductor.agent.AgentName"
+          },
+          "instance": {
+            "$ref": "#/components/schemas/conductor.config.InstanceName"
+          },
+          "owner": {
+            "$ref": "#/components/schemas/conductor.operator.OperatorName"
+          },
+          "leased_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "released_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "lease_id",
+          "state",
+          "token_id",
+          "agent",
+          "instance",
+          "owner",
           "leased_at"
         ],
         "additionalProperties": false
@@ -9424,6 +9788,9 @@
           "actor": {
             "$ref": "#/components/schemas/conductor.operator.Actor"
           },
+          "lease_id": {
+            "$ref": "#/components/schemas/conductor.token.TokenLeaseId"
+          },
           "token_id": {
             "$ref": "#/components/schemas/conductor.token.TokenId"
           },
@@ -9437,8 +9804,34 @@
         },
         "required": [
           "actor",
+          "lease_id",
           "token_id",
+          "agent",
           "released_at"
+        ],
+        "additionalProperties": false
+      },
+      "conductor.token.TokenRestored.Event": {
+        "title": "TokenRestored payload",
+        "x-ess-name": "conductor.token.TokenRestored",
+        "x-ess-kind": "event-payload",
+        "type": "object",
+        "properties": {
+          "actor": {
+            "$ref": "#/components/schemas/conductor.operator.Actor"
+          },
+          "token_id": {
+            "$ref": "#/components/schemas/conductor.token.TokenId"
+          },
+          "restored_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "actor",
+          "token_id",
+          "restored_at"
         ],
         "additionalProperties": false
       },
@@ -9454,7 +9847,7 @@
       },
       "conductor.token.TokenStateConflict.Error": {
         "title": "TokenStateConflict payload",
-        "description": "The token is not in a state the command acts from (a lease of a token that is not Available, a release or a limit of one that is not Leased, a withdrawal of one already withdrawn); nothing changed.\n",
+        "description": "The token is not in a state the command acts from (a lease of a token that is withdrawn or not in the pool, a limit of one that is withdrawn, a restore of one that is not Limited, a withdrawal of one already withdrawn); nothing changed.\n",
         "x-ess-name": "conductor.token.TokenStateConflict",
         "x-ess-kind": "error-payload",
         "type": "object",
@@ -9508,9 +9901,6 @@
           "state": {
             "$ref": "#/components/schemas/conductor.token.PoolToken.State"
           },
-          "instance": {
-            "$ref": "#/components/schemas/conductor.config.InstanceName"
-          },
           "owner": {
             "$ref": "#/components/schemas/conductor.operator.OperatorName"
           },
@@ -9523,9 +9913,6 @@
           "limited_until": {
             "type": "string",
             "format": "date-time"
-          },
-          "agent": {
-            "$ref": "#/components/schemas/conductor.agent.AgentName"
           },
           "contributed_at": {
             "type": "string",
@@ -9541,7 +9928,6 @@
         "required": [
           "token_id",
           "state",
-          "instance",
           "owner",
           "seat",
           "token_state",
@@ -9636,7 +10022,7 @@
       },
       "conductor.token.WithdrawToken.withdrawn.Response": {
         "additionalProperties": false,
-        "description": "The token is out of the pool; the agent that held it, if any, is named so it is resumed on another token. Taken when no other outcome's condition matched. A `conductor.token.PoolToken` has moved to `Withdrawn`, along `withdraw`. The instance is the one `token_id` names. Emits `TokenWithdrawn`, published to consumers and listed under `published`.",
+        "description": "The token is out of the pool; the agents on its leases are resumed on another token. Taken when no other outcome's condition matched. A `conductor.token.PoolToken` has moved to `Withdrawn`, along `withdraw`. The instance is the one `token_id` names. Emits `TokenWithdrawn`, published to consumers and listed under `published`.",
         "properties": {
           "outcome": {
             "const": "withdrawn",
@@ -9681,7 +10067,7 @@
         "properties": {
           "error": {
             "const": "conductor.token.TokenStateConflict",
-            "description": "The token is not in a state the command acts from (a lease of a token that is not Available, a release or a limit of one that is not Leased, a withdrawal of one already withdrawn); nothing changed.\n",
+            "description": "The token is not in a state the command acts from (a lease of a token that is withdrawn or not in the pool, a limit of one that is withdrawn, a restore of one that is not Limited, a withdrawal of one already withdrawn); nothing changed.\n",
             "type": "string"
           },
           "outcome": {
@@ -11121,18 +11507,6 @@
         "token_id": {
           "$ref": "#/x-ess-entities/conductor.token.TokenId"
         },
-        "instance": {
-          "$ref": "#/x-ess-entities/conductor.config.InstanceName",
-          "x-ess-relation": {
-            "name": "tokens",
-            "kind": "owns",
-            "source": "conductor.token.TokenPool",
-            "target": "conductor.token.PoolToken",
-            "cardinality": "many",
-            "via": "instance",
-            "$ref": "#/x-ess-entities/conductor.token.TokenPool"
-          }
-        },
         "owner": {
           "$ref": "#/x-ess-entities/conductor.operator.OperatorName"
         },
@@ -11158,18 +11532,6 @@
           "type": "string",
           "format": "date-time"
         },
-        "agent": {
-          "$ref": "#/x-ess-entities/conductor.agent.AgentName",
-          "x-ess-relation": {
-            "name": "agent",
-            "kind": "references",
-            "source": "conductor.token.PoolToken",
-            "target": "conductor.agent.Agent",
-            "cardinality": "one",
-            "via": "agent",
-            "$ref": "#/x-ess-entities/conductor.agent.Agent"
-          }
-        },
         "contributed_at": {
           "type": "string",
           "format": "date-time"
@@ -11186,7 +11548,6 @@
       },
       "required": [
         "token_id",
-        "instance",
         "owner",
         "seat",
         "secret",
@@ -11204,7 +11565,6 @@
       "type": "string",
       "enum": [
         "Available",
-        "Leased",
         "Limited",
         "Withdrawn"
       ]
@@ -11223,42 +11583,104 @@
       "format": "uuid",
       "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
     },
-    "conductor.token.TokenPool": {
-      "title": "TokenPool",
-      "x-ess-name": "conductor.token.TokenPool",
+    "conductor.token.TokenLease": {
+      "title": "TokenLease",
+      "x-ess-name": "conductor.token.TokenLease",
       "x-ess-kind": "entity",
       "type": "object",
       "properties": {
+        "lease_id": {
+          "$ref": "#/x-ess-entities/conductor.token.TokenLeaseId"
+        },
+        "token_id": {
+          "$ref": "#/x-ess-entities/conductor.token.TokenId",
+          "x-ess-relation": {
+            "name": "leases",
+            "kind": "owns",
+            "source": "conductor.token.PoolToken",
+            "target": "conductor.token.TokenLease",
+            "cardinality": "many",
+            "via": "token_id",
+            "$ref": "#/x-ess-entities/conductor.token.PoolToken"
+          }
+        },
+        "agent": {
+          "$ref": "#/x-ess-entities/conductor.agent.AgentName",
+          "x-ess-relation": {
+            "name": "agent",
+            "kind": "references",
+            "source": "conductor.token.TokenLease",
+            "target": "conductor.agent.Agent",
+            "cardinality": "one",
+            "via": "agent",
+            "$ref": "#/x-ess-entities/conductor.agent.Agent"
+          }
+        },
         "instance": {
           "$ref": "#/x-ess-entities/conductor.config.InstanceName",
           "x-ess-relation": {
             "name": "instance",
             "kind": "references",
-            "source": "conductor.token.TokenPool",
+            "source": "conductor.token.TokenLease",
             "target": "conductor.instance.Instance",
             "cardinality": "one",
             "via": "instance",
             "$ref": "#/x-ess-entities/conductor.instance.Instance"
           }
         },
+        "owner": {
+          "$ref": "#/x-ess-entities/conductor.operator.OperatorName"
+        },
+        "preferred_owner": {
+          "$ref": "#/x-ess-entities/conductor.operator.OperatorName"
+        },
+        "leased_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "released_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "actor": {
+          "$ref": "#/x-ess-entities/conductor.operator.Actor"
+        },
+        "runtime": {
+          "type": "string"
+        },
         "state": {
-          "$ref": "#/x-ess-entities/conductor.token.TokenPool.State"
+          "$ref": "#/x-ess-entities/conductor.token.TokenLease.State"
         }
       },
       "required": [
+        "lease_id",
+        "token_id",
+        "agent",
         "instance",
+        "owner",
+        "leased_at",
+        "actor",
         "state"
       ],
       "additionalProperties": false
     },
-    "conductor.token.TokenPool.State": {
+    "conductor.token.TokenLease.State": {
       "title": "State",
-      "x-ess-name": "conductor.token.TokenPool.State",
+      "x-ess-name": "conductor.token.TokenLease.State",
       "x-ess-kind": "enum",
       "type": "string",
       "enum": [
-        "Open"
+        "Held",
+        "Released"
       ]
+    },
+    "conductor.token.TokenLeaseId": {
+      "title": "TokenLeaseId",
+      "x-ess-name": "conductor.token.TokenLeaseId",
+      "x-ess-kind": "newtype",
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
     },
     "conductor.token.TokenState": {
       "title": "TokenState",

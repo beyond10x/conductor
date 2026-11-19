@@ -13,7 +13,6 @@ timeline:
     actor: conductor.token.Operator
     input:
       actor: {kind: Human, operator: alice}
-      instance: example-org
       owner: alice
       seat: alice@example-org.example
       secret: example-org-claude-alice
@@ -35,7 +34,6 @@ timeline:
 
 assert:
   - view: conductor.token.Tokens
-    params: {instance: example-org}
     contains:
       token_id: {$instance: token}
       state: Available

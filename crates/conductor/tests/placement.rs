@@ -1546,6 +1546,35 @@ fn a_box_request_carries_its_requirement_and_its_named_writable_roots() {
     );
 }
 
+/// `story:box-memory-default`: with `limits.memory_max` unset, a box's memory is derived from
+/// `controllers.max_working`, 2 GiB per controller and 8 GiB for the runtime and one build; one
+/// the instance writes is kept as written.
+#[test]
+fn an_unset_memory_max_is_derived_from_max_working() {
+    let case = Case::new("box-memory");
+    let asked = |max_working: i64, memory_max: Option<i64>| {
+        let mut instance = linux_instance(&case);
+        instance.controllers.max_working = max_working;
+        instance.limits.memory_max = memory_max.map(conductor_model::config::Gibibytes);
+        placement::request(
+            &instance,
+            &case.file(),
+            Path::new("/opt/conductor/bin/conductor"),
+            Vec::new(),
+        )
+        .limits
+        .memory_max
+        .map(|size| size.0)
+    };
+    assert_eq!(
+        asked(8, None),
+        Some(24),
+        "8 controllers ask for 24 GiB, not 8"
+    );
+    assert_eq!(asked(2, None), Some(12), "2 controllers ask for 12 GiB");
+    assert_eq!(asked(8, Some(10)), Some(10), "a written cap is kept");
+}
+
 #[test]
 fn a_writable_root_name_is_in_substrates_root_name_set() {
     for (instance, name) in [

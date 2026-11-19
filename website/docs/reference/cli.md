@@ -196,8 +196,8 @@ Every command takes these, before or after its name.
 | [`conductor instance relay`](#conductor-instance-relay) | Bridge one instance API exchange from standard input to the instance's api.sock (CONDUCTOR_API_SOCKET, else &lt;state>/api.sock) and its answer to standard output; conductord runs it as a substrate pipe session in a box on a remote substrate daemon |
 | [`conductor instance serve`](#conductor-instance-serve) | Serve the instance API, the routes of the dashboard under /v1/, on the instance's &lt;state>/api.sock until stopped, and run the instance's loop beside it under the lock conductor run takes (&lt;state>/run/lock), so a conductor run started by hand is refused; while a conductor run holds the lock the runtime yields and takes the loop once it is let go; CONDUCTOR_RUNTIME_LOOP=off serves the API alone; a write takes the token the daemon minted for the instance, in CONDUCTOR_API_TOKEN |
 | [`conductor instance upgrade`](#conductor-instance-upgrade) | Ask the daemon to upgrade an instance to a released binary (POST /v1/instances/\{name}/upgrade) - it fetches the release, installs its binary, runs its conductor doctor, restarts the runtime on it and rolls back to the previous binary unless it answers within daemon.upgrade_timeout; --all goes through every instance of the config file one at a time and stops at the first rollback |
-| [`conductor join`](#conductor-join) | Join an instance of the daemon --daemon names as one of its operators (JoinInstance, with the grants daemon.operators gives you) and contribute your Claude token, read from standard input, to the instance's pool (ContributeToken): the value goes into the daemon's secrets source, the pool records its owner, seat (--seat, your operator name by default), kind (--kind, SubscriptionToken by default, or ApiKey) and state, never the value; under the files source the value is a file of daemon.secrets.dir, owner-only, which leave removes |
-| [`conductor leave`](#conductor-leave) | Leave an instance of the daemon --daemon names (LeaveInstance) and withdraw every token you contributed to its pool (WithdrawToken); each agent on one is resumed on another token by the instance's loop |
+| [`conductor join`](#conductor-join) | Contribute your Claude token, read from standard input, to the host's token pool of the daemon --daemon names (ContributeToken), which every instance on that host leases from: the value goes into the daemon's secrets source, the pool records its owner, seat (--seat, your operator name by default), kind (--kind, SubscriptionToken by default, or ApiKey) and state, never the value, and the answer names the instances it serves; with --instance, also join that instance as one of its operators (JoinInstance, with the grants daemon.operators gives you); under the files source the value is a file of daemon.secrets.dir, owner-only, which leave removes |
+| [`conductor leave`](#conductor-leave) | Withdraw every token you contributed to the host's token pool of the daemon --daemon names (WithdrawToken); each agent on one is resumed on another token by its instance's loop; with --instance, also leave that instance (LeaveInstance) |
 | [`conductor login`](#conductor-login) | Log in to the daemon --daemon or CONDUCTOR_DAEMON names through its Identity service, in a browser, and keep the Identity session in this client's keychain; each command against that daemon then presents a bearer minted from it |
 | [`conductor need`](#conductor-need) |  |
 | [`conductor need new`](#conductor-need-new) | Print the next NEED id no earlier NEED used, N-&lt;yyyymmdd>-&lt;nn>, and keep it in the state directory; skip an id the records' hand-overs, decisions and dispatches already cite |
@@ -216,7 +216,7 @@ Every command takes these, before or after its name.
 | [`conductor store`](#conductor-store) |  |
 | [`conductor store migrate`](#conductor-store-migrate) | Read the eventlog tree under the state directory once into the store's database, record the migration there, and print the counts read; refuse a tree read before (AlreadyMigrated) or none there (SourceMissing) |
 | [`conductor token`](#conductor-token) |  |
-| [`conductor token reveal`](#conductor-token-reveal) | Print the value of a leased token of the instance's pool from the daemon's secrets source, or with --model-token the model_token of an instance whose placement opens no box, for the claude-code kind's harness, whose settings name this command as their apiKeyHelper; refuse a token that is not leased; nothing else prints a value |
+| [`conductor token reveal`](#conductor-token-reveal) | Print the model_token of an instance whose placement opens no box (--model-token), for the claude-code kind's harness, whose settings name this command as their apiKeyHelper; a token of the host's pool is never printed, it reaches the harness once, in its environment at its start |
 | [`conductor trust`](#conductor-trust) | Mark every git checkout under the instance's checkouts root, and its records directory, as trusted Claude Code workspaces in ~/.claude.json |
 | [`conductor tui`](#conductor-tui) | Open the terminal UI over the daemon's global API - the instances (state, open decisions, KPI flags), the sessions of the selected one (role, state, context, current work) and its settings, read-only; Enter attaches to the selected session, w watches it, l follows its terminal log, ctrl-] then d returns; the global --daemon names the daemon (default CONDUCTOR_DAEMON, else 127.0.0.1:daemon.port) |
 | [`conductor upgrade`](#conductor-upgrade) | Check for a newer release of the repository conductor was built from; without --check, download its archive for this target and SHA256SUMS, verify the sum, run the new binary's --version and replace this binary, keeping conductor.previous; --release installs a named release |
@@ -2605,7 +2605,7 @@ Usage: conductor instance upgrade [OPTIONS]
 
 ## `conductor join`
 
-Join an instance of the daemon --daemon names as one of its operators (JoinInstance, with the grants daemon.operators gives you) and contribute your Claude token, read from standard input, to the instance's pool (ContributeToken): the value goes into the daemon's secrets source, the pool records its owner, seat (--seat, your operator name by default), kind (--kind, SubscriptionToken by default, or ApiKey) and state, never the value; under the files source the value is a file of daemon.secrets.dir, owner-only, which leave removes
+Contribute your Claude token, read from standard input, to the host's token pool of the daemon --daemon names (ContributeToken), which every instance on that host leases from: the value goes into the daemon's secrets source, the pool records its owner, seat (--seat, your operator name by default), kind (--kind, SubscriptionToken by default, or ApiKey) and state, never the value, and the answer names the instances it serves; with --instance, also join that instance as one of its operators (JoinInstance, with the grants daemon.operators gives you); under the files source the value is a file of daemon.secrets.dir, owner-only, which leave removes
 
 ```text
 Usage: conductor join [OPTIONS]
@@ -2613,13 +2613,13 @@ Usage: conductor join [OPTIONS]
 
 | Argument | Required | Default | Meaning |
 |---|---|---|---|
-| `--instance <NAME>` | no | none | The instance joined |
+| `--instance <NAME>` | no | none | The instance to join as one of its operators as well; absent, the token joins the host's pool alone |
 | `--seat <SEAT>` | no | none | The Claude login the token draws on; absent, your operator name |
-| `--kind <KIND>` | no | none | The token's kind: `SubscriptionToken`, the long-lived token of a subscription login (`claude setup-token`), which the harness reads from `CLAUDE_CODE_OAUTH_TOKEN`; or `ApiKey`, an API key, which it asks its `apiKeyHelper` for. Absent, `SubscriptionToken` One of `ApiKey`, `SubscriptionToken`. |
+| `--kind <KIND>` | no | none | The token's kind: `SubscriptionToken`, the long-lived token of a subscription login (`claude setup-token`), which the harness reads from `CLAUDE_CODE_OAUTH_TOKEN`; or `ApiKey`, an API key, which it reads from `ANTHROPIC_API_KEY`. Absent, `SubscriptionToken` One of `ApiKey`, `SubscriptionToken`. |
 
 ## `conductor leave`
 
-Leave an instance of the daemon --daemon names (LeaveInstance) and withdraw every token you contributed to its pool (WithdrawToken); each agent on one is resumed on another token by the instance's loop
+Withdraw every token you contributed to the host's token pool of the daemon --daemon names (WithdrawToken); each agent on one is resumed on another token by its instance's loop; with --instance, also leave that instance (LeaveInstance)
 
 ```text
 Usage: conductor leave [OPTIONS]
@@ -2627,7 +2627,7 @@ Usage: conductor leave [OPTIONS]
 
 | Argument | Required | Default | Meaning |
 |---|---|---|---|
-| `--instance <NAME>` | no | none | The instance left |
+| `--instance <NAME>` | no | none | The instance to leave as one of its operators as well |
 
 ## `conductor login`
 
@@ -2810,16 +2810,15 @@ Usage: conductor token [OPTIONS] <COMMAND>
 
 ## `conductor token reveal`
 
-Print the value of a leased token of the instance's pool from the daemon's secrets source, or with --model-token the model_token of an instance whose placement opens no box, for the claude-code kind's harness, whose settings name this command as their apiKeyHelper; refuse a token that is not leased; nothing else prints a value
+Print the model_token of an instance whose placement opens no box (--model-token), for the claude-code kind's harness, whose settings name this command as their apiKeyHelper; a token of the host's pool is never printed, it reaches the harness once, in its environment at its start
 
 ```text
-Usage: conductor token reveal [OPTIONS]
+Usage: conductor token reveal [OPTIONS] --model-token <INSTANCE>
 ```
 
 | Argument | Required | Default | Meaning |
 |---|---|---|---|
-| `--token <ID>` | no | none | The leased token's id |
-| `--model-token <INSTANCE>` | no | none | The instance whose model_token to print instead, for an agent at a placement with no box |
+| `--model-token <INSTANCE>` | yes | none | The instance whose model_token to print, for an agent at a placement with no box |
 
 ## `conductor trust`
 

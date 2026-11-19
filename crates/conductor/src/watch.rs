@@ -26,6 +26,7 @@
 //! | silent controllers | the modification times of the transcript of each such session that is a controller, and of its sub-agents' transcripts | `session silent: <name> <id> <minutes>m` |
 //! | stalled sessions | the dispatch log's `sent` and report lines of each such session that is a live controller, and the newest commit of its checkout and managed trees (`git log -1`) | `session stalled: <name> <id> <minutes>m` |
 //! | merged requests | each link to a pull or merge request recorded on an open (`Sent`, `Started` or `Blocked`) dispatch of a repository with a running controller, in the store under the state directory, read on its forge: `gh api repos/<owner>/<repo>/pulls/<n>` for a `github.com` link when the instance has a `github` source, `glab api --hostname <host> projects/<path>/merge_requests/<iid>` for a link on the host of a `gitlab` source ([`Watch::with_gitlab`]) | `PR merged: <repo>#<n> (merge <sha>) <url>` (`story:merge-wakes-idle-controller`) |
+//! | merge pipelines, with each `main` CI read | each merge kept from a `PR merged` line (`merged.pending`) whose link an open dispatch of a repository with a running controller still holds, Active or not: for a `gitlab` link the pipelines of the request's target branch (`glab api --hostname <host> projects/<path>/pipelines?ref=<branch>`), for a `github.com` link the runs of the merge commit (`gh run list -R <owner>/<repo> --commit <sha>`) | `main CI after merge: <repo>#<n> (merge <sha>) green\|red (pipeline <id>)`, a red one of GitHub followed by `: <workflow>, …` (`story:default-branch-pipeline-wakes-controller`) |
 //! | queued builds | the open grants of the host ledger in the host directory ([`Watch::with_host`]) | `build queued: <grant> <repository\|session> <minutes>m` |
 //! | `main` CI, on the first pass and then every [`Options::ci_every`] | the newest completed `main` run per workflow of each repository the newest complete snapshot holds Active ([`crate::repository::activity`]); for a project of a `gitlab` source, the newest pipeline of its default branch that decided something, the workflow `pipeline` (`story:watch-gitlab-ci`) | `CI red on main: <repo> / <workflow> (run <id>)`, `CI green again on main: <repo> / <workflow>` |
 //! | review, with each `main` CI read | the pull requests that wait for review in the newest complete snapshot, counted per repository as the board counts them ([`crate::status::waiting_in`]), against `controllers.max_open_reviews` ([`Settings::max_open_reviews`], `0` no limit) | `review full: <repo> <k>/<n>` once when a repository reaches its limit, `review open: <repo>` once when it falls under it (`story:review-limit`) |
@@ -92,7 +93,19 @@
 //!   head, when it records none). A link printed is not read again, and is forgotten once no open
 //!   dispatch holds it (`merged.reported`). A link of neither form, or of a repository with no
 //!   running controller, is not read; a request that does not answer is a source of its own,
-//!   `merged <url>`.
+//!   `merged <url>`. The merge is kept with its link, repository, number, target branch and
+//!   merge instant (`merged.pending`, tab-separated per line) for the merge-pipelines probe.
+//! - **after merge** once per kept merge, in the first `main` CI read that finds its pipeline
+//!   decided (`story:default-branch-pipeline-wakes-controller`). On GitLab its pipeline is the
+//!   newest of the target branch whose sha is the merge commit, else the newest of that branch
+//!   created at or after the merge: green when `success`, red when `failed`, and undecided
+//!   otherwise, `<id>` the pipeline's. On GitHub it is every run of the merge commit on the
+//!   target branch, decided once there is one and all completed and one is green or red: red
+//!   when a run concluded one of [`RED`], naming each such workflow and `<id>` the first one's
+//!   run, else green, `<id>` the newest run. The merge is forgotten once printed, and without a
+//!   line once no open dispatch holds its link; one whose repository has no running controller
+//!   is kept and not read. A read that does not answer is a source of its own, `after merge
+//!   <url>`.
 //! - **queued** when a grant of the instance has waited `Requested` in the host ledger for longer
 //!   than the instance's `build_queued`, by the repository it names, else its session; once per
 //!   grant (`build-queued.reported`, `<grant>\t<repository|session>` per line).
@@ -128,7 +141,7 @@
 //! with [`Options::follow`] it prints and goes on, for the harness `Monitor` tool. Its state is
 //! kept under `<state>/watch/`: `sessions.json` (the kept list and the instant it was taken),
 //! `exited.seen`, `conductors.reported` (the ids last reported, on one line), `silent.reported`,
-//! `stalled.reported`, `merged.reported`, `build-queued.reported`, `banner.resumed`, `banner.reported`,
+//! `stalled.reported`, `merged.reported`, `merged.pending`, `build-queued.reported`, `banner.resumed`, `banner.reported`,
 //! `review.full` (the repositories last reported full, one per line), `gates-hooks.snapshot`
 //! (the id of the snapshot the Gates hooks probe read last), `escalated.seen` (each escalated
 //! request printed, when, whether its 30-minute unanswered line was, and whether its line at the
@@ -243,6 +256,27 @@ const PR_CHECKS_PRINTED: &str = "pr-checks.printed";
 /// The links of pull and merge requests printed merged, one per line
 /// (`story:merge-wakes-idle-controller`).
 const MERGED_REPORTED: &str = "merged.reported";
+
+/// The merges printed whose default-branch pipeline is not yet decided, one per line:
+/// `<link>\t<repo>\t<number>\t<sha>\t<branch>\t<merged at>`, the last two empty when the
+/// forge named none (`story:default-branch-pipeline-wakes-controller`).
+const MERGED_PENDING: &str = "merged.pending";
+
+/// How the runs of one merge commit on GitHub are read: `{owner}`, `{repository}` and `{sha}`
+/// are filled in.
+const MERGE_RUNS: [&str; 11] = [
+    "gh",
+    "run",
+    "list",
+    "-R",
+    "{owner}/{repository}",
+    "--commit",
+    "{sha}",
+    "--limit",
+    "100",
+    "--json",
+    "databaseId,workflowName,status,conclusion,createdAt,headBranch",
+];
 
 /// How one pull request of a `github.com` link is read: `{owner}`, `{repository}` and `{number}`
 /// are filled in.
@@ -1027,6 +1061,9 @@ struct Run {
     #[serde(default)]
     conclusion: Option<String>,
     created_at: String,
+    /// The branch or tag the run is of; read by the merge-pipelines probe only.
+    #[serde(default)]
+    head_branch: Option<String>,
 }
 
 impl Watch {
@@ -1180,6 +1217,7 @@ impl Watch {
         self.banners(&mut lines, notes)?;
         if ci {
             self.ci(&mut lines, notes)?;
+            self.after_merge(&mut lines, notes)?;
             self.reviews(&mut lines)?;
             self.gates_hooks(&mut lines)?;
             self.workspace_stale(&mut lines)?;
@@ -2165,30 +2203,9 @@ impl Watch {
         if self.anonymous {
             return Ok(());
         }
-        let Some(state) = &self.sources.store else {
+        let Some((running, open)) = self.open_links() else {
             return Ok(());
         };
-        let Ok(store) = crate::store::open_reader(state) else {
-            return Ok(());
-        };
-        let running: BTreeSet<String> = ControllerStorage::list(&store)
-            .into_iter()
-            .filter(|held| held.state == ControllerState::Running)
-            .map(|held| held.data.repository.0)
-            .collect();
-        let mut open: BTreeMap<String, String> = BTreeMap::new();
-        for held in DispatchStorage::list(&store) {
-            if matches!(
-                held.state,
-                DispatchState::Sent | DispatchState::Started | DispatchState::Blocked
-            ) {
-                for link in held.data.links {
-                    open.entry(link)
-                        .or_insert_with(|| held.data.repository.0.clone());
-                }
-            }
-        }
-        drop(store);
         let file = self.state(MERGED_REPORTED);
         let before = read_optional(&file)?.unwrap_or_default();
         let mut reported: BTreeSet<String> = before
@@ -2209,24 +2226,135 @@ impl Watch {
         let read = each(&asked, WIDTH, |(link, _, request)| {
             Ok(request.merged(forges, bound, link))
         })?;
+        let mut kept = Vec::new();
         for ((link, repository, request), answer) in asked.iter().zip(read) {
             let source = format!("merged {link}");
             match answer {
                 Ok(merged) => {
                     self.answered(&source);
-                    if let Some(sha) = merged {
+                    if let Some(merge) = merged {
                         lines.push(format!(
-                            "PR merged: {repository}#{} (merge {sha}) {link}",
-                            request.number()
+                            "PR merged: {repository}#{} (merge {}) {link}",
+                            request.number(),
+                            merge.sha
                         ));
                         reported.insert((*link).clone());
+                        kept.push(Pending {
+                            link: (*link).clone(),
+                            repository: (*repository).clone(),
+                            number: request.number(),
+                            merge,
+                        });
                     }
                 }
                 Err(error) => self.failed(&source, &error, notes),
             }
         }
+        if !kept.is_empty() {
+            let file = self.state(MERGED_PENDING);
+            let mut pending = read_optional(&file)?.unwrap_or_default();
+            for merge in kept {
+                pending.push_str(&merge.line());
+                pending.push('\n');
+            }
+            replace(&file, &pending)?;
+        }
         let text: String = reported.iter().map(|link| format!("{link}\n")).collect();
         if text != before {
+            replace(&file, &text)?;
+        }
+        Ok(())
+    }
+
+    /// The repositories with a running controller, and each link recorded on an open (`Sent`,
+    /// `Started` or `Blocked`) dispatch with the dispatch's repository, from the store under the
+    /// state directory; none without a store that opens.
+    fn open_links(&self) -> Option<(BTreeSet<String>, BTreeMap<String, String>)> {
+        let state = self.sources.store.as_ref()?;
+        let store = crate::store::open_reader(state).ok()?;
+        let running: BTreeSet<String> = ControllerStorage::list(&store)
+            .into_iter()
+            .filter(|held| held.state == ControllerState::Running)
+            .map(|held| held.data.repository.0)
+            .collect();
+        let mut open: BTreeMap<String, String> = BTreeMap::new();
+        for held in DispatchStorage::list(&store) {
+            if matches!(
+                held.state,
+                DispatchState::Sent | DispatchState::Started | DispatchState::Blocked
+            ) {
+                for link in held.data.links {
+                    open.entry(link)
+                        .or_insert_with(|| held.data.repository.0.clone());
+                }
+            }
+        }
+        Some((running, open))
+    }
+
+    /// Each merge kept in `merged.pending` whose default-branch pipeline decided since the last
+    /// read, once: `main CI after merge: <repo>#<n> (merge <sha>) green|red (pipeline <id>)`
+    /// (`story:default-branch-pipeline-wakes-controller`). Read with each `main` CI read, of any
+    /// repository, Active or not; a merge whose link no open dispatch holds is forgotten, and one
+    /// whose repository has no running controller is kept unread. Without a store, or with
+    /// `forge_access: anonymous`, nothing is read.
+    fn after_merge(&mut self, lines: &mut Vec<String>, notes: &mut dyn Write) -> Result<()> {
+        if self.anonymous {
+            return Ok(());
+        }
+        let file = self.state(MERGED_PENDING);
+        let Some(before) = read_optional(&file)? else {
+            return Ok(());
+        };
+        let Some((running, open)) = self.open_links() else {
+            return Ok(());
+        };
+        let pending: Vec<Pending> = before
+            .lines()
+            .filter_map(Pending::parse)
+            .filter(|merge| open.contains_key(&merge.link))
+            .collect();
+        let github = self.gitlab.is_empty() || !self.sources.organization.is_empty();
+        let asked: Vec<(usize, Request)> = pending
+            .iter()
+            .enumerate()
+            .filter(|(_, merge)| running.contains(&merge.repository))
+            .filter_map(|(at, merge)| {
+                Request::of(&merge.link, &self.gitlab, github).map(|request| (at, request))
+            })
+            .collect();
+        let forges = &self.gitlab;
+        let bound = self.sources.bound;
+        let read = each(&asked, WIDTH, |(at, request)| {
+            Ok(request.pipeline(forges, bound, &pending[*at]))
+        })?;
+        let mut decided = BTreeSet::new();
+        for ((at, _), answer) in asked.iter().zip(read) {
+            let merge = &pending[*at];
+            let source = format!("after merge {}", merge.link);
+            match answer {
+                Ok(None) => self.answered(&source),
+                Ok(Some(verdict)) => {
+                    self.answered(&source);
+                    lines.push(format!(
+                        "main CI after merge: {}#{} (merge {}) {verdict}",
+                        merge.repository, merge.number, merge.merge.sha
+                    ));
+                    decided.insert(*at);
+                }
+                Err(error) => self.failed(&source, &error, notes),
+            }
+        }
+        let text: String = pending
+            .iter()
+            .enumerate()
+            .filter(|(at, _)| !decided.contains(at))
+            .map(|(_, merge)| format!("{}\n", merge.line()))
+            .collect();
+        if text.is_empty() {
+            fs::remove_file(&file)
+                .with_context(|| format!("remove the watch's {}", file.display()))?;
+        } else if text != before {
             replace(&file, &text)?;
         }
         Ok(())
@@ -2949,6 +3077,92 @@ struct PullState {
     merged: bool,
     #[serde(default)]
     merge_commit_sha: Option<String>,
+    #[serde(default)]
+    merged_at: Option<String>,
+    #[serde(default)]
+    base: Option<PullBase>,
+}
+
+/// The branch a pull request merges into.
+#[derive(Deserialize)]
+struct PullBase {
+    #[serde(rename = "ref")]
+    branch: String,
+}
+
+/// A request's merge, as the merged-requests probe read it
+/// (`story:default-branch-pipeline-wakes-controller`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct Merge {
+    /// The merge commit, on one line.
+    sha: String,
+    /// The branch it merged into, when the forge named it.
+    branch: Option<String>,
+    /// When it merged (RFC 3339), when the forge named it.
+    at: Option<String>,
+}
+
+/// A merge printed whose default-branch pipeline is not yet decided, one line of
+/// `merged.pending`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct Pending {
+    link: String,
+    repository: String,
+    number: u64,
+    merge: Merge,
+}
+
+impl Pending {
+    /// Its line, tab-separated, without the line break.
+    fn line(&self) -> String {
+        format!(
+            "{}\t{}\t{}\t{}\t{}\t{}",
+            self.link,
+            self.repository,
+            self.number,
+            self.merge.sha,
+            self.merge.branch.as_deref().unwrap_or_default(),
+            self.merge.at.as_deref().unwrap_or_default()
+        )
+    }
+
+    /// The merge a line of `merged.pending` keeps; none for a line of another form.
+    fn parse(line: &str) -> Option<Self> {
+        let mut fields = line.split('\t');
+        let (link, repository, number, sha) = (
+            fields.next()?,
+            fields.next()?,
+            fields.next()?,
+            fields.next()?,
+        );
+        let known = |field: Option<&str>| field.filter(|text| !text.is_empty()).map(str::to_owned);
+        let branch = known(fields.next());
+        let at = known(fields.next());
+        if link.is_empty() || repository.is_empty() || sha.is_empty() {
+            return None;
+        }
+        Some(Self {
+            link: link.to_owned(),
+            repository: repository.to_owned(),
+            number: number.parse().ok()?,
+            merge: Merge {
+                sha: sha.to_owned(),
+                branch,
+                at,
+            },
+        })
+    }
+}
+
+/// One pipeline of a branch, as GitLab's `pipelines` answers it, in the part the
+/// merge-pipelines probe reads.
+#[derive(Deserialize)]
+struct BranchPipeline {
+    id: i64,
+    #[serde(default)]
+    sha: String,
+    status: String,
+    created_at: String,
 }
 
 /// One merge request, as `projects/<project>/merge_requests/<iid>` answers it, in the part the
@@ -2962,6 +3176,10 @@ struct MergeRequestState {
     squash_commit_sha: Option<String>,
     #[serde(default)]
     sha: Option<String>,
+    #[serde(default)]
+    target_branch: Option<String>,
+    #[serde(default)]
+    merged_at: Option<String>,
 }
 
 impl Request {
@@ -3008,8 +3226,8 @@ impl Request {
         }
     }
 
-    /// Its merge commit once it merged, none while it has not; `link` names it in an error.
-    fn merged(&self, forges: &[Forge], bound: Duration, link: &str) -> Result<Option<String>> {
+    /// Its merge once it merged, none while it has not; `link` names it in an error.
+    fn merged(&self, forges: &[Forge], bound: Duration, link: &str) -> Result<Option<Merge>> {
         let what = format!("the request {link} not read");
         match self {
             Self::GitHub {
@@ -3039,9 +3257,11 @@ impl Request {
                 }
                 let pull: PullState = serde_json::from_slice(&output.stdout)
                     .with_context(|| format!("{what}: `{shown}` printed no pull request"))?;
-                Ok(pull
-                    .merged
-                    .then(|| one_line(&pull.merge_commit_sha.unwrap_or_default())))
+                Ok(pull.merged.then(|| Merge {
+                    sha: one_line(&pull.merge_commit_sha.unwrap_or_default()),
+                    branch: pull.base.map(|base| one_line(&base.branch)),
+                    at: pull.merged_at.map(|at| one_line(&at)),
+                }))
             }
             Self::GitLab {
                 forge,
@@ -3055,17 +3275,134 @@ impl Request {
                         project.replace('/', "%2F")
                     ),
                 )?;
-                Ok((request.state == "merged").then(|| {
-                    one_line(
+                Ok((request.state == "merged").then(|| Merge {
+                    sha: one_line(
                         &request
                             .merge_commit_sha
                             .or(request.squash_commit_sha)
                             .or(request.sha)
                             .unwrap_or_default(),
-                    )
+                    ),
+                    branch: request.target_branch.map(|branch| one_line(&branch)),
+                    at: request.merged_at.map(|at| one_line(&at)),
                 }))
             }
         }
+    }
+
+    /// How the default-branch pipeline of `pending`'s merge decided, `green (pipeline <id>)` or
+    /// `red (pipeline <id>)` (on GitHub followed by `: <workflow>, …`); none while it has not
+    /// (`story:default-branch-pipeline-wakes-controller`).
+    fn pipeline(
+        &self,
+        forges: &[Forge],
+        bound: Duration,
+        pending: &Pending,
+    ) -> Result<Option<String>> {
+        let what = format!("the pipeline after the merge {} not read", pending.link);
+        let merge = &pending.merge;
+        match self {
+            Self::GitHub {
+                owner, repository, ..
+            } => {
+                let fill = [
+                    ("owner", owner.as_str()),
+                    ("repository", repository.as_str()),
+                    ("sha", merge.sha.as_str()),
+                ];
+                let command = filled(&MERGE_RUNS.map(str::to_owned), &fill);
+                let shown = command.join(" ");
+                let (program, arguments) = command
+                    .split_first()
+                    .with_context(|| format!("{what}: no command"))?;
+                let output = collect::run(crate::instance::command(program).args(arguments), bound)
+                    .with_context(|| format!("{what}: `{shown}`"))?;
+                if !output.status.success() {
+                    let stderr: String = one_line(&String::from_utf8_lossy(&output.stderr))
+                        .chars()
+                        .take(EXCERPT)
+                        .collect();
+                    bail!("{what}: `{shown}` failed: {stderr}");
+                }
+                let runs: Vec<Run> = serde_json::from_slice(&output.stdout)
+                    .with_context(|| format!("{what}: `{shown}` printed no run list"))?;
+                Ok(runs_verdict(&runs, merge.branch.as_deref()))
+            }
+            Self::GitLab { forge, project, .. } => {
+                let mut path = format!("projects/{}/pipelines?", project.replace('/', "%2F"));
+                if let Some(branch) = &merge.branch {
+                    path.push_str(&format!("ref={}&", gitlab::encoded(branch)));
+                }
+                path.push_str("per_page=20");
+                let pipelines: Vec<BranchPipeline> = forges[*forge].get(&what, &path)?;
+                Ok(pipeline_verdict(&pipelines, merge))
+            }
+        }
+    }
+}
+
+/// [`Request::pipeline`] over the runs of a merge commit on GitHub, those of `branch` alone when
+/// it is known: decided once there is one, all completed, and one green or red.
+fn runs_verdict(runs: &[Run], branch: Option<&str>) -> Option<String> {
+    let runs: Vec<&Run> = runs
+        .iter()
+        .filter(|run| branch.is_none_or(|branch| run.head_branch.as_deref() == Some(branch)))
+        .collect();
+    if runs.is_empty()
+        || runs
+            .iter()
+            .any(|run| run.status.as_deref() != Some("completed"))
+    {
+        return None;
+    }
+    let conclusion = |run: &&&Run| run.conclusion.clone().unwrap_or_default();
+    let mut failed: Vec<&&Run> = runs.iter().filter(|run| red(&conclusion(run))).collect();
+    if !failed.is_empty() {
+        failed.sort_by_key(|run| run.database_id);
+        let mut names: Vec<String> = Vec::new();
+        for run in &failed {
+            let name = one_line(&run.workflow_name);
+            if !names.contains(&name) {
+                names.push(name);
+            }
+        }
+        return Some(format!(
+            "red (pipeline {}): {}",
+            failed[0].database_id,
+            names.join(", ")
+        ));
+    }
+    if !runs.iter().any(|run| conclusion(&run) == GREEN) {
+        return None;
+    }
+    let newest = runs.iter().map(|run| run.database_id).max()?;
+    Some(format!("green (pipeline {newest})"))
+}
+
+/// [`Request::pipeline`] over a branch's pipelines on GitLab: the newest whose sha is the merge
+/// commit, else the newest created at or after the merge; green when `success`, red when
+/// `failed`, undecided otherwise.
+fn pipeline_verdict(pipelines: &[BranchPipeline], merge: &Merge) -> Option<String> {
+    let newest = |of: &dyn Fn(&BranchPipeline) -> bool| {
+        pipelines
+            .iter()
+            .filter(|pipeline| of(pipeline))
+            .reduce(|known, pipeline| {
+                if later(&known.created_at, &pipeline.created_at) {
+                    known
+                } else {
+                    pipeline
+                }
+            })
+    };
+    let pipeline = newest(&|pipeline| pipeline.sha == merge.sha).or_else(|| {
+        let at = merge.at.as_deref()?;
+        newest(&|pipeline| !later(at, &pipeline.created_at))
+    })?;
+    match gitlab::conclusion(&pipeline.status) {
+        Some(RunConclusion::Success) => Some(format!("green (pipeline {})", pipeline.id)),
+        Some(RunConclusion::Failure) => Some(format!("red (pipeline {})", pipeline.id)),
+        _ => None,
     }
 }
 

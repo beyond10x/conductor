@@ -130,6 +130,8 @@ daemon:
         value: conductor
   control_token: secret:example-control-token
   dial_port: 7301
+  subscription_token_sessions: 2
+  api_key_sessions: 8
 globals:
   roles:
     - role: supervisor

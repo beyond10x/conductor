@@ -1,19 +1,23 @@
-//! `story:token-pool` (design architecture-next § 5.3, § 17): an engineer joins an instance and
-//! contributes their Claude token to its pool; the `claude-code` kind leases from the pool.
+//! `story:token-pool`, `story:host-token-pool` (design architecture-next § 5.3, § 17): an engineer
+//! joins and contributes their Claude token to the host's pool, which conductord holds; the
+//! `claude-code` kind of every instance on the host leases from it.
 //!
-//! - `conductor join --daemon <url> --instance <i>` against a running `conductor daemon serve`
-//!   records the caller as an operator of the instance with the grants `daemon.operators` gives
-//!   them and puts their token, read from standard input, into the pool: `GET
-//!   /v1/instances/{name}/tokens` lists its owner, seat and state, never the value nor the
-//!   secret's name; `conductor leave` withdraws it.
-//! - `conductor session start` leases a token: the session's settings name `conductor token
-//!   reveal --token <id>` as their `apiKeyHelper`, which prints the value, and nothing else
-//!   carries it; after a usage limit marks the token Limited, the next start runs on another
-//!   token. No line of the daemon's output, of the harness's arguments or of any file under the
-//!   instance's state and records carries the value.
-//! - The pool's rules on the library: the least-leased Available token, a named owner's own
-//!   token only (`NoTokenAvailable` otherwise), a Limited token taken again on headroom with a
-//!   pool of one, only the owner withdraws.
+//! - `conductor join --daemon <url> [--instance <i>]` against a running `conductor daemon serve`
+//!   puts the caller's token, read from standard input, into the host's pool, and with
+//!   `--instance` records the caller as an operator of that instance: `GET /v1/tokens` lists its
+//!   owner, seat and state, never the value nor the secret's name; `conductor leave` withdraws it.
+//! - `conductor session start` of any instance on the host leases a token, one lease per session:
+//!   the value reaches the harness in its process's environment (`CLAUDE_CODE_OAUTH_TOKEN` or
+//!   `ANTHROPIC_API_KEY`), its settings name no `apiKeyHelper`, and nothing else carries it; after
+//!   a usage limit marks the token Limited, the next start runs on another token. No line of the
+//!   daemon's output, of the harness's arguments or of any file under the instance's state and
+//!   records carries the value.
+//! - A runtime in a box, with no daemon database, leases, releases and marks limited through
+//!   conductord over its dial-in connection, as the instance conductord admitted it as.
+//! - The pool's rules on the library: the token with the fewest live leases, a cap per kind, a
+//!   named owner's own token only (`NoTokenAvailable` otherwise), a Limited token taken again on
+//!   headroom with a pool of one, only the owner withdraws, a lease never outlives a withdrawal,
+//!   the leases of a runtime start that ended are reaped, a limit is clamped to a week.
 //! - `roles[].token_owner` is a controller's key only.
 //!
 //! Every case runs on the fake keychain `common::conductor` names under the case's home.
@@ -28,19 +32,23 @@ use std::net::{TcpListener, TcpStream};
 use std::os::unix::fs::PermissionsExt as _;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
+use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
 use conductor_cli::config;
+use conductor_cli::confine::Launch;
+use conductor_cli::daemon::api::{Api, Route};
 use conductor_cli::token;
 use conductor_model::agent::AgentName;
-use conductor_model::behaviour::{OperatorStorage, PoolTokenStorage};
-use conductor_model::config::InstanceName;
+use conductor_model::behaviour::{OperatorStorage, PoolTokenStorage, TokenLeaseStorage};
+use conductor_model::config::{InstanceName, Limits, ModelTokenKind, Network, SessionName};
 use conductor_model::operator::{Actor, ActorKind, OperatorName, OperatorState};
 use conductor_model::primitives::{Timestamp, Uuid};
 use conductor_model::secret::SecretName;
+use conductor_model::session::SessionRequest;
 use conductor_model::token::{
-    PoolTokenData, PoolTokenSnapshot, PoolTokenState, Seat, TokenId, TokenState,
+    PoolTokenData, PoolTokenSnapshot, PoolTokenState, Seat, TokenId, TokenLeaseState, TokenState,
     WithdrawTokenOutcome,
 };
 use fake_provider::{Child, calls};
@@ -274,11 +282,12 @@ impl Case {
     }
 
     fn store(&self) -> conductor_cli::store::Store {
-        conductor_cli::store::open_url(
-            &format!("sqlite:{}", self.store_file().display()),
-            conductor_cli::daemon::TENANT,
-        )
-        .expect("open the shared store")
+        conductor_cli::store::open_url(&self.store_url(), conductor_cli::daemon::TENANT)
+            .expect("open the shared store")
+    }
+
+    fn store_url(&self) -> String {
+        format!("sqlite:{}", self.store_file().display())
     }
 
     /// Every file under `dir`, read as text where it is one.
@@ -474,9 +483,29 @@ fn helper_of(settings: &Path) -> String {
         .to_owned()
 }
 
+/// The value the harness double's last launch had in [`API_KEY`], `None` where it was not set.
+fn api_key_of(case: &Case) -> Option<String> {
+    let set = fs::read_to_string(case.dir.join("harness/apikey-set")).expect("the double ran");
+    (set == "set").then(|| {
+        fs::read_to_string(case.dir.join("harness/apikey")).expect("the double kept the value")
+    })
+}
+
+/// The leases of the host's pool, as `GET /v1/tokens/leases` lists them.
+fn leases(case: &Case) -> Vec<Value> {
+    let (status, rows) = case.get("/v1/tokens/leases");
+    assert_eq!(status, 200, "GET leases: {rows}; {}", case.daemon_log());
+    rows.as_array().cloned().unwrap_or_default()
+}
+
+/// Two API keys joined; a start leases one and its harness gets the value as `ANTHROPIC_API_KEY`,
+/// its settings naming no `apiKeyHelper`; a usage limit marks that token Limited and releases the
+/// lease, and the agent's next start runs on the other token; leave withdraws both and names the
+/// agent on one for its loop.
 #[test]
 fn a_start_leases_a_token_and_a_limit_resumes_the_next_start_on_another() {
     let mut case = Case::new("lease-resume", ROLES);
+    harness_double(&case);
     case.serve();
     for (seat, value) in [
         ("first@example-org.example", VALUE),
@@ -492,65 +521,34 @@ fn a_start_leases_a_token_and_a_limit_resumes_the_next_start_on_another() {
         );
     }
 
-    let started = start(&case, "director");
+    let started = start_built(&case, "director");
     assert_eq!(started.status.code(), Some(0), "{}", said(&started));
-    let rows = case.tokens();
-    let leased: Vec<&Value> = rows.iter().filter(|row| row["state"] == "Leased").collect();
-    assert_eq!(leased.len(), 1, "{rows:?}");
-    assert_eq!(leased[0]["agent"], "alpha-director", "{rows:?}");
-    let first = leased[0]["token_id"].as_str().expect("an id").to_owned();
+    let held: Vec<Value> = leases(&case)
+        .into_iter()
+        .filter(|row| row["state"] == "Held")
+        .collect();
+    assert_eq!(held.len(), 1, "{held:?}");
+    assert_eq!(held[0]["agent"], "alpha-director", "{held:?}");
+    assert_eq!(held[0]["instance"], "alpha", "{held:?}");
+    let first = held[0]["token_id"].as_str().expect("an id").to_owned();
+    let given = api_key_of(&case).expect("the harness got an API key");
+    assert!(given == VALUE || given == SECOND, "another value: {given}");
+    assert_eq!(oauth_of(&case), None);
+    let text = fs::read_to_string(settings_of(&case)).expect("the settings copy");
+    assert!(!text.contains(token::HELPER_KEY), "{text}");
 
-    let settings = started_settings(&case);
-    let helper = helper_of(&settings);
-    assert!(
-        helper.contains(&format!("token reveal --token '{first}'")),
-        "{helper}"
-    );
-    assert!(
-        !helper.contains(VALUE) && !helper.contains(SECOND),
-        "{helper}"
-    );
-
-    // The harness asks the helper for its credential: the leased token's value, and only that.
-    // The helper names the binary that started the session, here this test binary's child run;
-    // it is asked of the built binary.
-    let (program, rest) = helper
-        .strip_prefix('\'')
-        .and_then(|rest| rest.split_once("' "))
-        .unwrap_or_else(|| panic!("the helper starts with no quoted program: {helper}"));
-    assert!(!program.is_empty(), "{helper}");
-    let binary = common::conductor(case.home()).get_program().to_owned();
-    let asked = format!("'{}' {rest}", binary.to_string_lossy());
-    let revealed = Command::new("sh")
-        .arg("-c")
-        .arg(&asked)
-        .env_clear()
-        .env("HOME", case.home())
-        .env("USER", "operator")
-        .env(
-            conductor_cli::secret::TEST_KEYCHAIN_VARIABLE,
-            case.home().join(".test-keychain.ron"),
-        )
-        .output()
-        .expect("run the helper");
-    assert_eq!(revealed.status.code(), Some(0), "{}", said(&revealed));
-    let value = String::from_utf8_lossy(&revealed.stdout);
-    assert!(
-        value.trim() == VALUE || value.trim() == SECOND,
-        "{}",
-        said(&revealed)
-    );
-
-    // A usage limit marks the token Limited; the agent's next start runs on the other token.
+    // A usage limit marks the token Limited and releases the lease; the agent's next start runs
+    // on the other token.
     let marked = token::limit(
-        case.store(),
+        &case.store_url(),
+        &InstanceName("alpha".to_owned()),
         &AgentName("alpha-director".to_owned()),
         conductor_cli::actor::daemon(),
         None,
     )
     .expect("mark the token limited");
-    assert!(marked.is_some(), "the agent held no token");
-    let resumed = start(&case, "director");
+    assert!(marked.is_some(), "the agent held no lease");
+    let resumed = start_built(&case, "director");
     assert_eq!(resumed.status.code(), Some(0), "{}", said(&resumed));
     let rows = case.tokens();
     let limited = rows
@@ -559,22 +557,20 @@ fn a_start_leases_a_token_and_a_limit_resumes_the_next_start_on_another() {
         .expect("the first token");
     assert_eq!(limited["state"], "Limited", "{rows:?}");
     assert_eq!(limited["token_state"], "Limited", "{rows:?}");
-    let now_on = rows
-        .iter()
-        .find(|row| row["state"] == "Leased")
-        .unwrap_or_else(|| panic!("no token is leased: {rows:?}"));
-    assert_ne!(now_on["token_id"], first.as_str(), "{rows:?}");
-    let helper = helper_of(&started_settings(&case));
-    assert!(
-        helper.contains(now_on["token_id"].as_str().expect("an id")),
-        "{helper}"
-    );
+    let now_on: Vec<Value> = leases(&case)
+        .into_iter()
+        .filter(|row| row["state"] == "Held")
+        .collect();
+    assert_eq!(now_on.len(), 1, "{now_on:?}");
+    assert_ne!(now_on[0]["token_id"], first.as_str(), "{now_on:?}");
+    let again = api_key_of(&case).expect("the harness got an API key");
+    assert_ne!(again, given, "the resumed start runs on the other token");
 
-    // The owner leaves: both tokens are withdrawn, and the agent on one is named for the loop to
-    // resume on another token.
+    // The owner leaves: both tokens are withdrawn, the lease on one released, and the agent on
+    // it named for the loop to resume on another token.
     let left = case
         .conductor()
-        .args(["leave", "--daemon", &case.url(), "--instance", "alpha"])
+        .args(["leave", "--daemon", &case.url()])
         .output()
         .expect("run conductor leave");
     assert_eq!(
@@ -590,10 +586,21 @@ fn a_start_leases_a_token_and_a_limit_resumes_the_next_start_on_another() {
         said(&left)
     );
     assert!(case.tokens().iter().all(|row| row["state"] == "Withdrawn"));
+    assert!(leases(&case).iter().all(|row| row["state"] == "Released"));
     let named = fs::read_to_string(case.dir.join("state/run").join(token::WITHDRAWN_FILE))
         .expect("the agents to resume are named");
     assert!(named.contains("alpha-director"), "{named}");
 
+    for (what, text) in [
+        ("the first start's output", said(&started)),
+        ("the second start's output", said(&resumed)),
+        ("the harness's arguments", argv_of(&case)),
+    ] {
+        assert!(
+            !text.contains(VALUE) && !text.contains(SECOND),
+            "{what}: {text}"
+        );
+    }
     case.assert_nowhere(VALUE);
     case.assert_nowhere(SECOND);
 }
@@ -715,6 +722,9 @@ const CHANGED: &str = "marker-subscription-0002";
 /// The variable the harness reads a subscription token from.
 const OAUTH: &str = "CLAUDE_CODE_OAUTH_TOKEN";
 
+/// The variable the harness reads an API key from.
+const API_KEY: &str = "ANTHROPIC_API_KEY";
+
 /// Makes `case`'s `claude` a harness double that keeps, for its last launch, each argument on a
 /// line of `harness/argv`, the value of [`OAUTH`] in its environment in `harness/oauth`, and
 /// `set` in `harness/oauth-set` where the variable is set at all. `claude agents` lists no
@@ -773,6 +783,7 @@ fn settings_of(case: &Case) -> PathBuf {
 fn start_built(case: &Case, role: &str) -> Output {
     case.conductor()
         .env_remove(OAUTH)
+        .env_remove(API_KEY)
         .args(["session", "start", "--role", role])
         .output()
         .expect("run session start")
@@ -1036,9 +1047,9 @@ fn with_files_source(case: &Case, secrets: &Path) {
     fs::write(case.file(), text).expect("write the config file");
 }
 
-/// The files under `secrets` the pool's tokens of the instance `alpha` are kept in.
+/// The files under `secrets` the host pool's tokens are kept in.
 fn token_files(secrets: &Path) -> Vec<PathBuf> {
-    fs::read_dir(secrets.join("claude-token/alpha"))
+    fs::read_dir(secrets.join("claude-token"))
         .map(|entries| entries.flatten().map(|entry| entry.path()).collect())
         .unwrap_or_default()
 }
@@ -1170,40 +1181,178 @@ fn token_owner_is_a_controller_s_key_only() {
 }
 
 // -------------------------------------------------------------------------------------------
-// The pool's rules on the library.
+// The host's pool (story:host-token-pool).
 // -------------------------------------------------------------------------------------------
 
-fn snapshot(id: &str, owner: &str) -> PoolTokenSnapshot {
-    PoolTokenSnapshot {
-        state: PoolTokenState::Available,
-        data: PoolTokenData {
-            token_id: TokenId(Uuid(id.to_owned())),
-            instance: InstanceName("alpha".to_owned()),
-            owner: OperatorName(owner.to_owned()),
-            seat: Seat(format!("{owner}@example-org.example")),
-            secret: SecretName(format!("claude-token/alpha/{id}")),
-            token_state: TokenState::Ok,
-            limited_until: None,
-            agent: None,
-            contributed_at: Timestamp("2026-11-08T09:00:00Z".to_owned()),
-            actor: conductor_cli::actor::operator(owner),
-            kind: None,
-        },
+/// Two instances, `alpha` and `beta`, with a director each and no `model_token`.
+const TWO: &str = "version: conductor.config/2\n\
+     daemon: {port: PORT, store: \"sqlite:STORE\", secrets: {source: keychain}}\n\
+     instances:\n";
+
+impl Case {
+    /// [`Case::new`] with a second instance `beta` beside `alpha`, its own directories, a
+    /// director, and neither naming a `model_token`.
+    fn two(name: &str) -> Self {
+        let case = Self::new(name, ROLES);
+        let mut text = TWO
+            .replace("PORT", &case.port.to_string())
+            .replace("STORE", &case.store_file().display().to_string());
+        for (instance, sub) in [("alpha", ""), ("beta", "beta-")] {
+            text.push_str(&format!(
+                "\x20 - name: {instance}\n\
+                 \x20   placement: box-a\n\
+                 \x20   session_prefix: {instance}\n\
+                 \x20   sources: [{{github: example-org}}]\n\
+                 \x20   checkouts: {{root: {root}, trees: {trees}}}\n\
+                 \x20   records: {records}\n\
+                 \x20   state: {state}\n\
+                 \x20   cache: {cache}\n\
+                 \x20   roles:\n{ROLES}",
+                root = case.dir.join(format!("home/{sub}example-org")).display(),
+                trees = case.dir.join(format!("{sub}trees")).display(),
+                records = case.dir.join(format!("{sub}records")).display(),
+                state = case.dir.join(format!("{sub}state")).display(),
+                cache = case.dir.join(format!("{sub}cache")).display(),
+            ));
+        }
+        for sub in ["beta-records", "beta-state"] {
+            fs::create_dir_all(case.dir.join(sub)).expect("create a case directory");
+        }
+        fs::write(case.file(), text).expect("write the config file");
+        case
     }
 }
 
-fn library_store(name: &str) -> conductor_cli::store::Store {
+/// `conductor join` with no `--instance`: the token joins the host's pool, the answer names the
+/// instances it serves, and no operator record is written; an agent of each of two instances
+/// whose config names no `model_token` starts on it, one lease each, and the config file is byte
+/// for byte what it was. Fails on a pool of one instance: `join` asked for `--instance`, a token
+/// named its instance, and a Leased token was never leased again.
+#[test]
+fn a_token_joined_to_the_host_is_leased_by_two_instances_whose_config_names_none() {
+    let mut case = Case::two("host-two-instances");
+    harness_double(&case);
+    let before = fs::read(case.file()).expect("the config file");
+    case.serve();
+
+    let mut child = case
+        .conductor()
+        .args([
+            "join",
+            "--daemon",
+            &case.url(),
+            "--seat",
+            "operator@example-org.example",
+        ])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("run conductor join");
+    child
+        .stdin
+        .take()
+        .expect("stdin")
+        .write_all(format!("{MARKER}\n").as_bytes())
+        .expect("write the token");
+    let joined = child.wait_with_output().expect("wait for join");
+    assert_eq!(
+        joined.status.code(),
+        Some(0),
+        "{}\n{}",
+        said(&joined),
+        case.daemon_log()
+    );
+    let shown = String::from_utf8_lossy(&joined.stdout).into_owned();
+    assert!(
+        shown.contains("alpha") && shown.contains("beta"),
+        "join names the instances it serves: {shown}"
+    );
+    assert!(
+        OperatorStorage::list(&case.store()).is_empty(),
+        "a join with no instance records no operator"
+    );
+    let (status, rows) = case.get("/v1/tokens");
+    assert_eq!(status, 200, "{rows}");
+    assert_eq!(rows.as_array().map(Vec::len), Some(1), "{rows}");
+
+    for instance in ["alpha", "beta"] {
+        let started = case
+            .conductor()
+            .env_remove(OAUTH)
+            .env_remove(API_KEY)
+            .env(config::INSTANCE_VARIABLE, instance)
+            .args(["session", "start", "--role", "director"])
+            .output()
+            .expect("run session start");
+        assert_eq!(
+            started.status.code(),
+            Some(0),
+            "{instance}: {}",
+            said(&started)
+        );
+        assert_eq!(oauth_of(&case).as_deref(), Some(MARKER), "{instance}");
+        assert!(!said(&started).contains(MARKER), "{}", said(&started));
+    }
+    let held: Vec<Value> = leases(&case)
+        .into_iter()
+        .filter(|row| row["state"] == "Held")
+        .collect();
+    assert_eq!(held.len(), 2, "{held:?}");
+    assert_eq!(held[0]["token_id"], held[1]["token_id"], "{held:?}");
+    let mut instances: Vec<&str> = held
+        .iter()
+        .filter_map(|row| row["instance"].as_str())
+        .collect();
+    instances.sort_unstable();
+    assert_eq!(instances, ["alpha", "beta"]);
+    assert_eq!(
+        fs::read(case.file()).expect("the config file"),
+        before,
+        "the config file changed"
+    );
+    case.assert_nowhere(MARKER);
+}
+
+/// The pool's library on its own store: `name`'s directory, emptied; answers the store's URL.
+fn library_url(name: &str) -> String {
     active::isolate();
     let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR"))
         .join("token-pool-library")
         .join(name);
     let _ = fs::remove_dir_all(&dir);
     fs::create_dir_all(&dir).expect("create the case's directory");
-    conductor_cli::store::open_url(
-        &format!("sqlite:{}", dir.join("shared.sqlite").display()),
-        conductor_cli::daemon::TENANT,
-    )
-    .expect("open the store")
+    format!("sqlite:{}", dir.join("shared.sqlite").display())
+}
+
+fn open(url: &str) -> conductor_cli::store::Store {
+    conductor_cli::store::open_url(url, conductor_cli::daemon::TENANT).expect("open the store")
+}
+
+fn snapshot(id: &str, owner: &str, kind: Option<ModelTokenKind>) -> PoolTokenSnapshot {
+    PoolTokenSnapshot {
+        state: PoolTokenState::Available,
+        data: PoolTokenData {
+            token_id: TokenId(Uuid(id.to_owned())),
+            owner: OperatorName(owner.to_owned()),
+            seat: Seat(format!("{owner}@example-org.example")),
+            secret: SecretName(format!("claude-token/{id}")),
+            token_state: TokenState::Ok,
+            limited_until: None,
+            contributed_at: Timestamp("2026-11-08T09:00:00Z".to_owned()),
+            actor: conductor_cli::actor::operator(owner),
+            kind,
+        },
+    }
+}
+
+/// A store at `url` holding `tokens`.
+fn with_tokens(url: &str, tokens: &[(&str, &str, Option<ModelTokenKind>)]) {
+    let mut store = open(url);
+    for (id, owner, kind) in tokens {
+        PoolTokenStorage::put(&mut store, snapshot(id, owner, *kind));
+    }
+    store.check().expect("the tokens are stored");
 }
 
 fn runtime() -> Actor {
@@ -1214,151 +1363,664 @@ fn runtime() -> Actor {
     }
 }
 
-#[test]
-fn a_named_owner_with_no_available_token_is_refused_and_takes_no_other() {
-    let mut store = library_store("named-owner");
-    PoolTokenStorage::put(&mut store, snapshot("0001", "alice"));
-    PoolTokenStorage::put(&mut store, snapshot("0002", "bob"));
-    let instance = InstanceName("alpha".to_owned());
-    let alice = OperatorName("alice".to_owned());
-    let first = token::lease(
-        store,
-        &instance,
-        &AgentName("alpha-controller".to_owned()),
-        Some(&alice),
-        runtime(),
-        false,
-    )
-    .expect("lease")
-    .expect("alice's token");
-    assert_eq!(first.owner, alice);
-    let store = library_store_reopen("named-owner");
-    let refused = token::lease(
-        store,
-        &instance,
-        &AgentName("alpha-worker".to_owned()),
-        Some(&alice),
-        runtime(),
-        false,
-    )
-    .expect("lease");
-    assert!(refused.is_err(), "a named owner took another owner's token");
+fn alpha() -> InstanceName {
+    InstanceName("alpha".to_owned())
 }
 
-fn library_store_reopen(name: &str) -> conductor_cli::store::Store {
-    let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR"))
-        .join("token-pool-library")
-        .join(name);
-    conductor_cli::store::open_url(
-        &format!("sqlite:{}", dir.join("shared.sqlite").display()),
-        conductor_cli::daemon::TENANT,
+/// The start of `agent` of `instance`, for no owner, with no headroom.
+fn start_of(instance: &str, agent: &str) -> token::Start {
+    token::Start {
+        instance: InstanceName(instance.to_owned()),
+        agent: AgentName(agent.to_owned()),
+        owner: None,
+        actor: runtime(),
+        headroom: false,
+        runtime: None,
+    }
+}
+
+fn lease(url: &str, start: &token::Start) -> token::Lease {
+    token::lease(url, token::Caps::default(), start)
+        .expect("lease")
+        .unwrap_or_else(|error| panic!("no token for {}: {error:?}", start.agent.0))
+}
+
+/// The held leases of the store at `url`, by token id.
+fn held_of(url: &str, token_id: &str) -> Vec<conductor_model::token::TokenLeaseSnapshot> {
+    TokenLeaseStorage::list(&open(url))
+        .into_iter()
+        .filter(|lease| lease.state == TokenLeaseState::Held && lease.data.token_id.0.0 == token_id)
+        .collect()
+}
+
+/// The class C decision of story:host-token-pool: one token serves several sessions at once, a
+/// lease each. Fails on a pool whose lease was the token's own state, where a second start found
+/// the token Leased and was refused NoTokenAvailable.
+#[test]
+fn one_token_serves_several_sessions_at_once() {
+    let url = library_url("several");
+    with_tokens(
+        &url,
+        &[("0001", "alice", Some(ModelTokenKind::SubscriptionToken))],
+    );
+    for agent in ["alpha-controller", "alpha-implementer", "alpha-director"] {
+        let leased = lease(&url, &start_of("alpha", agent));
+        assert_eq!(leased.token_id.0.0, "0001");
+    }
+    let held = held_of(&url, "0001");
+    assert_eq!(held.len(), 3, "{held:?}");
+    assert_eq!(
+        PoolTokenStorage::get(&open(&url), &TokenId(Uuid("0001".to_owned())))
+            .expect("the token")
+            .state,
+        PoolTokenState::Available
+    );
+}
+
+/// Decision (operator, 2026-11-18): a `subscription_token` serves at most its cap of sessions, 4
+/// by default; the fifth start on a pool of one such token is refused NoTokenAvailable, as with an
+/// empty pool. An `api_key` has no cap by default and takes a fifth.
+#[test]
+fn a_subscription_token_serves_at_most_its_cap_of_sessions() {
+    let url = library_url("cap-subscription");
+    with_tokens(
+        &url,
+        &[("0001", "alice", Some(ModelTokenKind::SubscriptionToken))],
+    );
+    for n in 1..=4 {
+        lease(&url, &start_of("alpha", &format!("alpha-agent-{n}")));
+    }
+    let fifth = token::lease(
+        &url,
+        token::Caps::default(),
+        &start_of("alpha", "alpha-agent-5"),
     )
-    .expect("open the store")
+    .expect("lease");
+    assert!(
+        fifth.is_err(),
+        "a fifth session ran on a subscription token"
+    );
+    assert_eq!(held_of(&url, "0001").len(), 4);
+
+    let url = library_url("cap-api-key");
+    with_tokens(&url, &[("0002", "alice", Some(ModelTokenKind::ApiKey))]);
+    for n in 1..=5 {
+        lease(&url, &start_of("alpha", &format!("alpha-agent-{n}")));
+    }
+    assert_eq!(held_of(&url, "0002").len(), 5);
+}
+
+/// Releasing one of two leases of a token leaves the token in use by the other: its state does
+/// not move, the other lease is held, and the pick counts one live lease, not a lifetime's.
+#[test]
+fn releasing_one_of_two_leases_leaves_the_token_in_use() {
+    let url = library_url("release-one");
+    with_tokens(
+        &url,
+        &[
+            ("0001", "alice", Some(ModelTokenKind::ApiKey)),
+            ("0002", "bob", Some(ModelTokenKind::ApiKey)),
+        ],
+    );
+    let first = lease(&url, &start_of("alpha", "alpha-one"));
+    assert_eq!(first.token_id.0.0, "0001", "ties break by id");
+    let second = lease(&url, &start_of("alpha", "alpha-two"));
+    assert_eq!(
+        second.token_id.0.0, "0002",
+        "the token with fewer live leases"
+    );
+    let third = lease(&url, &start_of("alpha", "alpha-three"));
+    assert_eq!(third.token_id.0.0, "0001");
+    token::release(
+        &url,
+        &alpha(),
+        &AgentName("alpha-one".to_owned()),
+        runtime(),
+    )
+    .expect("release")
+    .expect("alpha-one held a lease");
+    let held = held_of(&url, "0001");
+    assert_eq!(held.len(), 1, "{held:?}");
+    assert_eq!(held[0].data.agent.0, "alpha-three");
+    assert_eq!(
+        PoolTokenStorage::get(&open(&url), &TokenId(Uuid("0001".to_owned())))
+            .expect("the token")
+            .state,
+        PoolTokenState::Available
+    );
+    let rows = token::rows(&open(&url));
+    assert_eq!(rows[0].leases, 1, "{rows:?}");
+    assert_eq!(rows[1].leases, 1, "{rows:?}");
+    // One live lease each: the next goes to the lower id again, though 0001 was leased twice.
+    let fourth = lease(&url, &start_of("alpha", "alpha-four"));
+    assert_eq!(fourth.token_id.0.0, "0001");
+}
+
+/// A lease racing a leave: whichever wrote last sees the other, so no lease stays held on a
+/// withdrawn token.
+#[test]
+fn a_lease_racing_a_leave_never_runs_on_a_withdrawn_token() {
+    for round in 0..5 {
+        let url = library_url(&format!("race-{round}"));
+        with_tokens(&url, &[("0001", "alice", Some(ModelTokenKind::ApiKey))]);
+        let leasing = {
+            let url = url.clone();
+            thread::spawn(move || {
+                let mut answered = Vec::new();
+                for n in 0..12 {
+                    let start = start_of("alpha", &format!("alpha-agent-{n}"));
+                    if let Ok(Ok(lease)) = token::lease(&url, token::Caps::default(), &start) {
+                        answered.push(lease.lease_id);
+                    }
+                }
+                answered
+            })
+        };
+        thread::sleep(Duration::from_millis(5 * round));
+        let id = TokenId(Uuid("0001".to_owned()));
+        let deadline = Instant::now() + Duration::from_secs(30);
+        loop {
+            match token::withdraw(&url, &id, conductor_cli::actor::operator("alice")) {
+                Ok(_) => break,
+                Err(error) => {
+                    assert!(
+                        Instant::now() < deadline,
+                        "the withdrawal never wrote: {error:#}"
+                    );
+                    thread::sleep(Duration::from_millis(5));
+                }
+            }
+        }
+        leasing.join().expect("the leasing thread");
+        let store = open(&url);
+        assert_eq!(
+            PoolTokenStorage::get(&store, &id).expect("the token").state,
+            PoolTokenState::Withdrawn
+        );
+        let held = held_of(&url, "0001");
+        assert!(
+            held.is_empty(),
+            "round {round}: held on a withdrawn token: {held:?}"
+        );
+    }
+}
+
+/// Each lease names the runtime start that took it; once the instance runs on another start,
+/// the leases of the one that ended are released. A lease of another instance, and one that names
+/// no start, are kept.
+#[test]
+fn leases_of_a_runtime_that_ended_are_reaped() {
+    let url = library_url("reap");
+    with_tokens(&url, &[("0001", "alice", Some(ModelTokenKind::ApiKey))]);
+    let ended = token::runtime_tag("a-start-that-ended");
+    let current = token::runtime_tag("the-start-now");
+    for (instance, agent, tag) in [
+        ("alpha", "alpha-old", Some(ended.clone())),
+        ("alpha", "alpha-new", Some(current.clone())),
+        ("alpha", "alpha-by-hand", None),
+        ("beta", "beta-old", Some(ended.clone())),
+    ] {
+        let mut start = start_of(instance, agent);
+        start.runtime = tag;
+        lease(&url, &start);
+    }
+    let reaped = token::reap(&url, &alpha(), Some(&current)).expect("reap");
+    assert_eq!(reaped, [AgentName("alpha-old".to_owned())]);
+    let mut kept: Vec<String> = held_of(&url, "0001")
+        .into_iter()
+        .map(|lease| lease.data.agent.0)
+        .collect();
+    kept.sort();
+    assert_eq!(kept, ["alpha-by-hand", "alpha-new", "beta-old"]);
+}
+
+/// A usage limit's end is clamped to a week and an hour from now, and a limit is taken only for
+/// the token the agent of that instance holds: an agent that holds no lease limits nothing.
+#[test]
+fn a_limit_further_than_a_week_ahead_is_clamped() {
+    let url = library_url("clamp");
+    with_tokens(&url, &[("0001", "alice", Some(ModelTokenKind::ApiKey))]);
+    let agent = AgentName("alpha-controller".to_owned());
+    lease(&url, &start_of("alpha", &agent.0));
+    assert!(
+        token::limit(
+            &url,
+            &InstanceName("beta".to_owned()),
+            &agent,
+            runtime(),
+            None
+        )
+        .expect("limit")
+        .is_none(),
+        "another instance's agent limited the token"
+    );
+    let far = time::OffsetDateTime::now_utc() + time::Duration::days(30);
+    token::limit(&url, &alpha(), &agent, runtime(), Some(far))
+        .expect("limit")
+        .expect("the agent held a lease");
+    let found =
+        PoolTokenStorage::get(&open(&url), &TokenId(Uuid("0001".to_owned()))).expect("the token");
+    assert_eq!(found.state, PoolTokenState::Limited);
+    let until = time::OffsetDateTime::parse(
+        &found.data.limited_until.expect("an end").0,
+        &time::format_description::well_known::Rfc3339,
+    )
+    .expect("an RFC 3339 end");
+    assert!(
+        until <= time::OffsetDateTime::now_utc() + token::LIMIT_CEILING,
+        "the limit holds until {until}"
+    );
+    assert!(
+        held_of(&url, "0001").is_empty(),
+        "the limit released the lease"
+    );
+}
+
+#[test]
+fn a_named_owner_with_no_available_token_is_refused_and_takes_no_other() {
+    let url = library_url("named-owner");
+    with_tokens(&url, &[("0001", "alice", None), ("0002", "bob", None)]);
+    let alice = OperatorName("alice".to_owned());
+    let mut start = start_of("alpha", "alpha-controller");
+    start.owner = Some(alice.clone());
+    let first = lease(&url, &start);
+    assert_eq!(first.owner, alice);
+    token::limit(&url, &alpha(), &start.agent, runtime(), None)
+        .expect("limit")
+        .expect("held");
+    start.agent = AgentName("alpha-worker".to_owned());
+    let refused = token::lease(&url, token::Caps::default(), &start).expect("lease");
+    assert!(refused.is_err(), "a named owner took another owner's token");
 }
 
 #[test]
 fn with_one_token_a_limited_token_is_leased_again_on_headroom() {
-    let mut store = library_store("pool-of-one");
-    PoolTokenStorage::put(&mut store, snapshot("0001", "alice"));
-    let instance = InstanceName("alpha".to_owned());
-    let agent = AgentName("alpha-controller".to_owned());
-    token::lease(store, &instance, &agent, None, runtime(), false)
-        .expect("lease")
-        .expect("the one token");
-    token::limit(library_store_reopen("pool-of-one"), &agent, runtime(), None)
+    let url = library_url("pool-of-one");
+    with_tokens(&url, &[("0001", "alice", None)]);
+    let mut start = start_of("alpha", "alpha-controller");
+    lease(&url, &start);
+    token::limit(&url, &alpha(), &start.agent, runtime(), None)
         .expect("limit")
         .expect("the agent held it");
-    let without = token::lease(
-        library_store_reopen("pool-of-one"),
-        &instance,
-        &agent,
-        None,
-        runtime(),
-        false,
-    )
-    .expect("lease");
+    let without = token::lease(&url, token::Caps::default(), &start).expect("lease");
     assert!(
         without.is_err(),
         "a Limited token was leased before its time"
     );
-    let again = token::lease(
-        library_store_reopen("pool-of-one"),
-        &instance,
-        &agent,
-        None,
-        runtime(),
-        true,
-    )
-    .expect("lease")
-    .expect("the one token again, on headroom");
+    start.headroom = true;
+    let again = lease(&url, &start);
     assert_eq!(again.token_id.0.0, "0001");
-    let found = PoolTokenStorage::get(&library_store_reopen("pool-of-one"), &again.token_id)
-        .expect("the token");
-    assert_eq!(found.state, PoolTokenState::Leased);
+    let found = PoolTokenStorage::get(&open(&url), &again.token_id).expect("the token");
+    assert_eq!(found.state, PoolTokenState::Available);
     assert_eq!(found.data.token_state, TokenState::Ok);
     assert_eq!(found.data.limited_until, None);
 }
 
 #[test]
-fn the_least_leased_token_has_the_most_headroom() {
-    let mut store = library_store("headroom");
-    PoolTokenStorage::put(&mut store, snapshot("0001", "alice"));
-    PoolTokenStorage::put(&mut store, snapshot("0002", "bob"));
-    let instance = InstanceName("alpha".to_owned());
-    let agent = AgentName("alpha-controller".to_owned());
-    let first = token::lease(store, &instance, &agent, None, runtime(), false)
-        .expect("lease")
-        .expect("a token");
-    assert_eq!(first.token_id.0.0, "0001", "ties break by id");
-    token::release(library_store_reopen("headroom"), &agent, runtime()).expect("release");
-    let second = token::lease(
-        library_store_reopen("headroom"),
-        &instance,
-        &agent,
-        None,
-        runtime(),
-        false,
-    )
-    .expect("lease")
-    .expect("a token");
-    assert_eq!(
-        second.token_id.0.0, "0002",
-        "the least-leased token goes first"
-    );
-}
-
-#[test]
 fn only_the_owner_withdraws_a_token_and_the_agent_on_it_is_named() {
-    let mut store = library_store("withdraw");
-    PoolTokenStorage::put(&mut store, snapshot("0001", "alice"));
-    let instance = InstanceName("alpha".to_owned());
-    let agent = AgentName("alpha-controller".to_owned());
-    token::lease(store, &instance, &agent, None, runtime(), false)
-        .expect("lease")
-        .expect("a token");
+    let url = library_url("withdraw");
+    with_tokens(&url, &[("0001", "alice", None)]);
+    lease(&url, &start_of("alpha", "alpha-controller"));
     let id = TokenId(Uuid("0001".to_owned()));
-    let (outcome, _) = token::withdraw(
-        library_store_reopen("withdraw"),
-        &id,
-        conductor_cli::actor::operator("bob"),
-    )
-    .expect("withdraw");
+    let (outcome, _) =
+        token::withdraw(&url, &id, conductor_cli::actor::operator("bob")).expect("withdraw");
     assert!(
         matches!(outcome, WithdrawTokenOutcome::NotOwner { .. }),
         "another operator withdrew alice's token"
     );
-    let (outcome, held) = token::withdraw(
-        library_store_reopen("withdraw"),
-        &id,
-        conductor_cli::actor::operator("alice"),
-    )
-    .expect("withdraw");
+    let (outcome, held) =
+        token::withdraw(&url, &id, conductor_cli::actor::operator("alice")).expect("withdraw");
     assert!(matches!(outcome, WithdrawTokenOutcome::Withdrawn { .. }));
-    assert_eq!(held, Some(agent));
+    assert_eq!(held, [(alpha(), AgentName("alpha-controller".to_owned()))]);
+    assert!(
+        held_of(&url, "0001").is_empty(),
+        "the withdrawal released the lease"
+    );
     assert_eq!(
-        PoolTokenStorage::get(&library_store_reopen("withdraw"), &id)
+        PoolTokenStorage::get(&open(&url), &id)
             .expect("the token")
             .state,
         PoolTokenState::Withdrawn
     );
+}
+
+// -------------------------------------------------------------------------------------------
+// A runtime in a box: the pool through conductord's dial-in listener.
+// -------------------------------------------------------------------------------------------
+
+/// The token the daemon minted for the start of `alpha`'s runtime, which its dialed connections
+/// open with.
+const ALPHA_START: &str = "alpha-start-token-5f1c";
+
+/// The token the daemon minted for the start of `beta`'s runtime.
+const BETA_START: &str = "beta-start-token-9a2e";
+
+/// A conductord of `case` for the pool: its API with the case's config file and store, `alpha`
+/// and `beta` routed by dial-in on [`ALPHA_START`] and [`BETA_START`], and its dial-in listener;
+/// answers the listener's address and what it said.
+fn dial_conductord(case: &Case) -> (String, Arc<Mutex<Vec<String>>>) {
+    let api = Arc::new(
+        Api::new("daemon-token".to_owned(), "operator".to_owned(), None).with_config(
+            case.file(),
+            case.home(),
+            case.store_url(),
+        ),
+    );
+    api.publish(
+        vec![
+            serde_json::json!({"name": "alpha", "state": "Running"}),
+            serde_json::json!({"name": "beta", "state": "Running"}),
+        ],
+        [
+            (
+                "alpha".to_owned(),
+                Route::dialed("alpha", ALPHA_START.to_owned()),
+            ),
+            (
+                "beta".to_owned(),
+                Route::dialed("beta", BETA_START.to_owned()),
+            ),
+        ]
+        .into_iter()
+        .collect(),
+        Vec::new(),
+    );
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind the dial-in listener");
+    let address = listener.local_addr().expect("its address").to_string();
+    let said = Arc::new(Mutex::new(Vec::new()));
+    let into = Arc::clone(&said);
+    thread::spawn(move || {
+        conductor_cli::daemon::dial::serve_saying(
+            &listener,
+            &api,
+            Arc::new(move |line: &str| into.lock().expect("said").push(line.to_owned())),
+        );
+    });
+    (address, said)
+}
+
+/// One pool call on a new connection to `address`, opened as `instance` with `token`; the answer,
+/// or `None` where the connection was closed unanswered.
+fn pool_call(address: &str, instance: &str, token: &str, request: &Value) -> Option<Value> {
+    let mut stream = TcpStream::connect(address).expect("connect");
+    stream
+        .set_read_timeout(Some(Duration::from_secs(30)))
+        .expect("a read timeout");
+    write!(stream, "CONDUCTOR-POOL/1 {instance} {token}\n{request}\n").expect("send the call");
+    let mut answer = String::new();
+    let _ = stream.read_to_string(&mut answer);
+    serde_json::from_str(answer.trim()).ok()
+}
+
+/// The contribution of a token of `kind` worth `value` to the host's pool of `case`, as `alice`,
+/// through the library, on the case's `files` source over `secrets`.
+fn contribute(case: &Case, secrets: &Path, value: &str, kind: ModelTokenKind) -> String {
+    let source = conductor_model::config::SecretsSource {
+        source: conductor_model::secret::Source::Files,
+        namespace: None,
+        url: None,
+        dir: Some(secrets.display().to_string()),
+    };
+    let opened = conductor_cli::secret::open(&source).expect("the files source");
+    let outcome = token::contribute(
+        case.store(),
+        &opened,
+        &token::Contribution {
+            actor: conductor_cli::actor::operator("alice"),
+            owner: OperatorName("alice".to_owned()),
+            seat: Seat("alice@example-org.example".to_owned()),
+            kind,
+        },
+        secrets_core::storage::SecretValue::new(value.as_bytes().to_vec()).expect("a value"),
+    )
+    .expect("contribute")
+    .expect("the source took the value");
+    match outcome {
+        conductor_model::token::ContributeTokenOutcome::Contributed { token_contributed } => {
+            token_contributed.token_id.0.0
+        }
+        other => panic!("not contributed: {other:?}"),
+    }
+}
+
+/// The launch of `case`'s director of `instance`, its settings in the case's state.
+fn launch_of(case: &Case, name: &str) -> Launch {
+    let limits = || Limits {
+        memory_max: None,
+        cpu_weight: None,
+        tasks_max: None,
+    };
+    Launch {
+        request: SessionRequest {
+            role: "controller".to_owned(),
+            session_name: SessionName(name.to_owned()),
+            cwd: case.dir.join("work").display().to_string(),
+            limits: limits(),
+            writable: Vec::new(),
+            network: Network::Open,
+            forge_token_env: Vec::new(),
+        },
+        program: "claude".to_owned(),
+        args: Vec::new(),
+        env: Vec::new(),
+        session_prefix: None,
+        instance_limits: limits(),
+        state: case.dir.join("state"),
+    }
+}
+
+/// The instance `name` of `case`'s config file, and its controller role.
+fn instance_of(
+    case: &Case,
+    name: &str,
+) -> (
+    conductor_model::config::Instance,
+    conductor_model::config::Role,
+) {
+    let environment = config::Environment::from_process().expect("the environment");
+    let loaded = config::load(Some(&case.file()), &environment).expect("the config loads");
+    let instance = loaded
+        .config
+        .instances
+        .into_iter()
+        .find(|instance| instance.name.0 == name)
+        .expect("the instance");
+    let role = instance
+        .roles
+        .iter()
+        .find(|role| role.role == "controller")
+        .cloned()
+        .expect("a controller role");
+    (instance, role)
+}
+
+/// A runtime in a box has no daemon database: its config names a store that does not exist where
+/// it runs. It holds the address it dials and the token minted for its start, and a token joined
+/// after it started reaches its agent's harness through conductord, in its variable, with no
+/// restart; its release and its limit go the same way. The daemon's journal and the store carry
+/// no value. Fails before the host pool: such a runtime found no store and started every agent on
+/// the model token sealed into its box when it opened.
+#[test]
+fn a_boxed_runtime_leases_a_token_joined_after_its_box_opened() {
+    let case = Case::two("boxed-runtime");
+    let secrets = case.dir.join("secrets");
+    with_files_source(&case, &secrets);
+    let (address, said) = dial_conductord(&case);
+    // The runtime: it dials conductord and has no store of its own (`runtime_store` finds none,
+    // as the process's config names none that exists).
+    token::hold_dial(&address, "alpha", ALPHA_START);
+
+    // Joined after the runtime started.
+    let token_id = contribute(&case, &secrets, MARKER, ModelTokenKind::SubscriptionToken);
+    let (instance, role) = instance_of(&case, "alpha");
+    let mut launch = launch_of(&case, "alpha-controller");
+    let leased = token::lease_into(&instance, &role, &mut launch, false)
+        .expect("a lease through conductord")
+        .expect("the pool holds a token");
+    assert_eq!(leased.token_id.0.0, token_id);
+    assert!(
+        launch
+            .env
+            .iter()
+            .any(|(key, value)| key == OAUTH && value == MARKER),
+        "the harness's environment holds no {OAUTH}"
+    );
+    assert!(!launch.args.iter().any(|arg| arg.contains(MARKER)));
+    let held = held_of(&case.store_url(), &token_id);
+    assert_eq!(held.len(), 1, "{held:?}");
+    assert_eq!(held[0].data.instance.0, "alpha");
+    assert_eq!(
+        held[0].data.runtime.as_deref(),
+        Some(token::runtime_tag(ALPHA_START).as_str()),
+        "the lease names the runtime start that took it"
+    );
+
+    token::release_for_stop(&instance, "alpha-controller").expect("release through conductord");
+    assert!(held_of(&case.store_url(), &token_id).is_empty());
+
+    let mut launch = launch_of(&case, "alpha-controller");
+    token::lease_into(&instance, &role, &mut launch, false)
+        .expect("a lease through conductord")
+        .expect("the pool holds a token");
+    let other = token::on_limit(&instance, "alpha-controller", None).expect("limit");
+    assert!(!other, "the pool holds no other token");
+    assert_eq!(
+        PoolTokenStorage::get(&case.store(), &TokenId(Uuid(token_id.clone())))
+            .expect("the token")
+            .state,
+        PoolTokenState::Limited
+    );
+
+    let journal = said.lock().expect("said").join("\n");
+    assert!(!journal.contains(MARKER), "{journal}");
+    case.assert_nowhere(MARKER);
+}
+
+/// A runtime acts on its own instance's leases only: conductord takes the instance from the
+/// connection's admission, never from the request, so `alpha`'s runtime neither releases nor
+/// limits `beta`'s agent, and a lease it asks for names `alpha`, whatever its request says.
+#[test]
+fn a_runtime_cannot_lease_release_or_limit_for_another_instance_s_agent() {
+    let case = Case::two("other-instance");
+    let secrets = case.dir.join("secrets");
+    with_files_source(&case, &secrets);
+    let (address, _) = dial_conductord(&case);
+    let token_id = contribute(&case, &secrets, MARKER, ModelTokenKind::SubscriptionToken);
+    let beta_lease = pool_call(
+        &address,
+        "beta",
+        BETA_START,
+        &serde_json::json!({"call": "lease", "agent": "beta-director"}),
+    )
+    .expect("an answer");
+    assert!(beta_lease["lease"].is_object(), "{beta_lease}");
+
+    for call in ["release", "limit"] {
+        let answer = pool_call(
+            &address,
+            "alpha",
+            ALPHA_START,
+            &serde_json::json!({"call": call, "agent": "beta-director", "instance": "beta"}),
+        )
+        .expect("an answer");
+        assert_ne!(answer["released"], true, "{call}: {answer}");
+        assert_ne!(answer["limited"], true, "{call}: {answer}");
+    }
+    let held = held_of(&case.store_url(), &token_id);
+    assert_eq!(held.len(), 1, "{held:?}");
+    assert_eq!(held[0].data.instance.0, "beta");
+    assert_eq!(
+        PoolTokenStorage::get(&case.store(), &TokenId(Uuid(token_id.clone())))
+            .expect("the token")
+            .state,
+        PoolTokenState::Available
+    );
+
+    let answer = pool_call(
+        &address,
+        "alpha",
+        ALPHA_START,
+        &serde_json::json!({"call": "lease", "agent": "beta-director", "instance": "beta"}),
+    )
+    .expect("an answer");
+    assert!(answer["lease"].is_object(), "{answer}");
+    let instances: Vec<String> = held_of(&case.store_url(), &token_id)
+        .into_iter()
+        .map(|lease| lease.data.instance.0)
+        .collect();
+    assert!(instances.contains(&"alpha".to_owned()), "{instances:?}");
+    assert_eq!(instances.len(), 2, "{instances:?}");
+}
+
+/// A session's process holds no credential of its runtime: a pool call that does not carry the
+/// token the daemon minted for the runtime's start is closed unanswered, so it leases nothing,
+/// and no command reveals a token of the host's pool (`token reveal` takes no `--token`).
+#[test]
+fn a_session_process_cannot_lease_or_reveal_a_token_it_does_not_hold() {
+    let case = Case::two("session-process");
+    let secrets = case.dir.join("secrets");
+    with_files_source(&case, &secrets);
+    let (address, _) = dial_conductord(&case);
+    let token_id = contribute(&case, &secrets, MARKER, ModelTokenKind::ApiKey);
+    for (instance, token) in [
+        ("alpha", "a-guess"),
+        ("alpha", BETA_START),
+        ("gamma", ALPHA_START),
+    ] {
+        let answer = pool_call(
+            &address,
+            instance,
+            token,
+            &serde_json::json!({"call": "lease", "agent": "alpha-director"}),
+        );
+        assert!(answer.is_none(), "{instance} with {token}: {answer:?}");
+    }
+    assert!(held_of(&case.store_url(), &token_id).is_empty());
+
+    let revealed = case
+        .conductor()
+        .args(["token", "reveal", "--token", &token_id])
+        .output()
+        .expect("run token reveal");
+    assert_ne!(revealed.status.code(), Some(0), "{}", said(&revealed));
+    assert!(!said(&revealed).contains(MARKER), "{}", said(&revealed));
+}
+
+/// No value of the host's pool reaches a log or a record: after a join, a lease, a limit and a
+/// release, the daemon's output, the start's output (the runtime's), the store and every file of
+/// the instance's state and records carry none.
+#[test]
+fn no_value_of_the_host_pool_reaches_a_log_or_a_record() {
+    let mut case = Case::new("no-value", ROLES);
+    harness_double(&case);
+    case.serve();
+    let joined = case.join("operator@example-org.example", MARKER);
+    assert_eq!(
+        joined.status.code(),
+        Some(0),
+        "{}\n{}",
+        said(&joined),
+        case.daemon_log()
+    );
+    let started = start_built(&case, "director");
+    assert_eq!(started.status.code(), Some(0), "{}", said(&started));
+    assert_eq!(oauth_of(&case).as_deref(), Some(MARKER));
+    let agent = AgentName("alpha-director".to_owned());
+    token::release(&case.store_url(), &alpha(), &agent, runtime())
+        .expect("release")
+        .expect("the agent held a lease");
+    let resumed = start_built(&case, "director");
+    assert_eq!(resumed.status.code(), Some(0), "{}", said(&resumed));
+    token::limit(&case.store_url(), &alpha(), &agent, runtime(), None)
+        .expect("limit")
+        .expect("the agent held a lease");
+    for (what, text) in [
+        ("the join's output", said(&joined)),
+        ("the start's output", said(&started)),
+        ("the second start's output", said(&resumed)),
+        ("the harness's arguments", argv_of(&case)),
+    ] {
+        assert!(!text.contains(MARKER), "{what}: {text}");
+    }
+    case.assert_nowhere(MARKER);
 }

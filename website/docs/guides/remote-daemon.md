@@ -1,7 +1,7 @@
 ---
 title: Run the daemon on another box
 sidebar_position: 6
-description: Serve conductord on a box with no local operator behind a TLS listener, log in to it from a workstation, send the commands that take --daemon, join an instance's token pool, and place an instance on a remote substrate daemon.
+description: Serve conductord on a box with no local operator behind a TLS listener, log in to it from a workstation, send the commands that take --daemon, join the host's token pool, and place an instance on a remote substrate daemon.
 lede: A daemon on another box serves its API on a TLS listener only, every request carries an Identity bearer, and a workstation reaches it with conductor login and --daemon.
 source: crates/conductor/src/daemon/mod.rs, daemon/api.rs, daemon/browser.rs, daemon/install.rs; crates/conductor/src/login.rs, remote.rs, token.rs, secret.rs, placement.rs, config.rs; conductor login --help, conductor join --help, conductor daemon serve --help
 ---
@@ -93,7 +93,7 @@ A cluster probes the daemon at `GET /healthz` and `GET /readyz` and a Prometheus
 | `conductor tui` | the global API, read-only ([the dashboard and the TUI](./dashboard.md#5-the-terminal-ui)) |
 | `conductor config put` | `PUT /v1/config` ([configure an instance](./configure-an-instance.md#4-change-one-key)) |
 | `conductor instance upgrade` | `POST /v1/instances/<name>/upgrade` ([upgrade and roll back](./upgrade-and-rollback.md)) |
-| `conductor join`, `conductor leave` | `POST /v1/instances/<name>/join`, `leave` |
+| `conductor join`, `conductor leave` | `POST /v1/join`, `POST /v1/leave`; with `--instance`, `POST /v1/instances/<name>/join`, `leave` |
 
 ```console
 $ export CONDUCTOR_DAEMON=https://conductor.example.com:7443
@@ -113,17 +113,19 @@ or `ActorNotHuman` for a principal that is not a person.
 
 ```console
 $ conductor join --daemon https://conductor.example.com:7443 --instance platform < ~/claude-token
-joined platform as engineer@example.com (grants AnswerDecisions,ChangeSettings,UpgradeInstances,Join): token <id> in its pool, seat engineer@example.com, kind SubscriptionToken, Available
+joined platform as engineer@example.com (grants AnswerDecisions,ChangeSettings,UpgradeInstances,Join)
+token <id> in the host's pool, seat engineer@example.com, kind SubscriptionToken, Available; it serves every instance on the host: platform
 ```
 
-`join` makes you an operator of the instance with the grants `daemon.operators` gives you, and
-puts your Claude token, read from standard input, into the instance's pool. The value goes into
+`join` puts your Claude token, read from standard input, into the host's pool, which every
+instance the daemon runs leases from, and prints those instances; with `--instance` it also makes
+you an operator of that instance with the grants `daemon.operators` gives you. The value goes into
 the daemon's secrets source; under the `files` source it is a file of `daemon.secrets.dir`,
 owner-only, which `leave` removes. The pool records its owner, seat, kind and state, never the
 value. `--seat` names the Claude login the token draws on, your operator name by default.
 `--kind` says what the token is: `SubscriptionToken` (the default), the long-lived token of a
 subscription login, which an agent gets as `CLAUDE_CODE_OAUTH_TOKEN`; or `ApiKey`, which it gets
-through its settings' `apiKeyHelper`. It needs the
+as `ANTHROPIC_API_KEY`. It needs the
 `join` grant, and an agent's session is refused `ActorNotHuman`.
 
 The daemon of section 1 cannot store the value yet, and `join` exits 1:

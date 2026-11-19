@@ -219,12 +219,31 @@ pub fn serve_saying(listener: &TcpListener, api: &Arc<Api>, say: Say) {
 /// Admits `stream` to [`POOL`] by its first line, or answers why it is closed; a surplus one is
 /// told [`crate::instance::DIAL_FULL`] first.
 fn admit(mut stream: TcpStream, api: &Api) -> Result<(), Closed> {
-    let (instance, token) =
-        hello(&mut stream).map_err(|error| Closed::Greeting(format!("{error:#}")))?;
+    let (greeting, instance, token) =
+        greeting(&mut stream).map_err(|error| Closed::Greeting(format!("{error:#}")))?;
     match api.admit_dial(&instance, &token) {
         Admission::Admitted => {}
         Admission::NotRouted => return Err(Closed::NotRouted(instance)),
         Admission::WrongToken => return Err(Closed::WrongToken(instance)),
+    }
+    if greeting == Greeting::Pool {
+        // One call to the host's token pool (story:host-token-pool), for the instance this
+        // connection was admitted as, never one its request names.
+        if let Some(target) = api.pool_target() {
+            let operators = api.operators();
+            let daemon = crate::token::Daemon {
+                file: &target.0,
+                store: &target.1,
+                operators: &operators,
+            };
+            let runtime = crate::token::runtime_tag(&token);
+            if let Err(error) =
+                crate::token::serve_pool_call(&mut stream, &daemon, &instance, &runtime)
+            {
+                eprintln!("conductord: {instance}: a token pool call failed: {error}");
+            }
+        }
+        return Ok(());
     }
     stream
         .set_read_timeout(None)
@@ -238,6 +257,35 @@ fn admit(mut stream: TcpStream, api: &Api) -> Result<(), Closed> {
     }
 }
 
+/// What a dialed connection's first line opens: an idle connection of the instance API, or one
+/// call to the host's token pool.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Greeting {
+    /// [`crate::instance::DIAL_HELLO`].
+    Dial,
+    /// [`crate::instance::POOL_HELLO`].
+    Pool,
+}
+
+/// The greeting, the instance and the token of a dialed connection's first line.
+///
+/// # Errors
+///
+/// As [`hello`], or with [`crate::instance::POOL_HELLO`] in place of
+/// [`crate::instance::DIAL_HELLO`].
+pub fn greeting(stream: &mut TcpStream) -> Result<(Greeting, String, String)> {
+    let line = first_line(stream)?;
+    if let Some(rest) = line
+        .strip_prefix(crate::instance::POOL_HELLO)
+        .and_then(|rest| rest.strip_prefix(' '))
+    {
+        let (instance, token) = parse_hello(&format!("{} {rest}", crate::instance::DIAL_HELLO))?;
+        return Ok((Greeting::Pool, instance, token));
+    }
+    let (instance, token) = parse_hello(&line)?;
+    Ok((Greeting::Dial, instance, token))
+}
+
 /// The instance and the token of a dialed connection's first line.
 ///
 /// # Errors
@@ -245,6 +293,11 @@ fn admit(mut stream: TcpStream, api: &Api) -> Result<(), Closed> {
 /// The line does not arrive within [`HELLO_TIMEOUT`], is longer than [`HELLO_MAX`], or is not
 /// [`crate::instance::DIAL_HELLO`] followed by a name and a token.
 pub fn hello(stream: &mut TcpStream) -> Result<(String, String)> {
+    parse_hello(&first_line(stream)?)
+}
+
+/// A dialed connection's first line, without its newline.
+fn first_line(stream: &mut TcpStream) -> Result<String> {
     stream.set_read_timeout(Some(HELLO_TIMEOUT))?;
     let mut line = Vec::new();
     let mut byte = [0_u8; 1];
@@ -275,7 +328,7 @@ pub fn hello(stream: &mut TcpStream) -> Result<(String, String)> {
             bail!("the first line is longer than {HELLO_MAX} bytes");
         }
     }
-    parse_hello(&String::from_utf8_lossy(&line))
+    Ok(String::from_utf8_lossy(&line).into_owned())
 }
 
 /// The instance and the token of `line`, a dialed connection's first line without its newline.

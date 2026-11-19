@@ -1,7 +1,7 @@
 type: ess-scenario/1
 domain: conductor.token
 scenario: token-withdraw-token
-summary: The owner leaves while an agent runs on their token; the token is Withdrawn with no agent, the event names the agent to resume on another token, and a second withdrawal is refused as a wrong state.
+summary: The owner leaves while an agent runs on their token; the token is Withdrawn, and a second withdrawal is refused as a wrong state.
 
 arrange:
   - instance: token
@@ -13,7 +13,6 @@ timeline:
     actor: conductor.token.Operator
     input:
       actor: {kind: Human, operator: alice}
-      instance: example-org
       owner: alice
       seat: alice@example-org.example
       secret: example-org-claude-alice
@@ -29,6 +28,7 @@ timeline:
       actor: {kind: Agent, agent: {instance: example-org, role: Lead, name: example-org-controller, kind: claude-code}}
       instance: example-org
       token_id: {$instance: token}
+      owner: alice
       agent: example-org-controller
       leased_at: 2026-11-08T09:05:00Z
     outcome: leased
@@ -60,7 +60,6 @@ timeline:
 
 assert:
   - view: conductor.token.Tokens
-    params: {instance: example-org}
     contains:
       token_id: {$instance: token}
       state: Withdrawn

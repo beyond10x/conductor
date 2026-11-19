@@ -730,11 +730,11 @@ pub enum Group {
     #[command(subcommand)]
     Instance(InstanceCommand),
 
-    /// Join an instance of the daemon --daemon names as one of its operators (JoinInstance, with the grants daemon.operators gives you) and contribute your Claude token, read from standard input, to the instance's pool (ContributeToken): the value goes into the daemon's secrets source, the pool records its owner, seat (--seat, your operator name by default), kind (--kind, SubscriptionToken by default, or ApiKey) and state, never the value; under the files source the value is a file of daemon.secrets.dir, owner-only, which leave removes
+    /// Contribute your Claude token, read from standard input, to the host's token pool of the daemon --daemon names (ContributeToken), which every instance on that host leases from: the value goes into the daemon's secrets source, the pool records its owner, seat (--seat, your operator name by default), kind (--kind, SubscriptionToken by default, or ApiKey) and state, never the value, and the answer names the instances it serves; with --instance, also join that instance as one of its operators (JoinInstance, with the grants daemon.operators gives you); under the files source the value is a file of daemon.secrets.dir, owner-only, which leave removes
     #[command(name = "join")]
     Join(JoinArgs),
 
-    /// Leave an instance of the daemon --daemon names (LeaveInstance) and withdraw every token you contributed to its pool (WithdrawToken); each agent on one is resumed on another token by the instance's loop
+    /// Withdraw every token you contributed to the host's token pool of the daemon --daemon names (WithdrawToken); each agent on one is resumed on another token by its instance's loop; with --instance, also leave that instance (LeaveInstance)
     #[command(name = "leave")]
     Leave(LeaveArgs),
 
@@ -1226,7 +1226,8 @@ pub struct InstanceUpgradeArgs {
 /// (`story:token-pool`). The token is read from standard input, never from a flag.
 #[derive(Debug, Clone, Default, Args)]
 pub struct JoinArgs {
-    /// The instance joined
+    /// The instance to join as one of its operators as well; absent, the token joins the host's
+    /// pool alone
     #[arg(long, value_name = "NAME")]
     pub instance: Option<String>,
     /// The Claude login the token draws on; absent, your operator name
@@ -1234,7 +1235,7 @@ pub struct JoinArgs {
     pub seat: Option<String>,
     /// The token's kind: `SubscriptionToken`, the long-lived token of a subscription login
     /// (`claude setup-token`), which the harness reads from `CLAUDE_CODE_OAUTH_TOKEN`; or
-    /// `ApiKey`, an API key, which it asks its `apiKeyHelper` for. Absent, `SubscriptionToken`
+    /// `ApiKey`, an API key, which it reads from `ANTHROPIC_API_KEY`. Absent, `SubscriptionToken`
     #[arg(long, value_parser = ["ApiKey", "SubscriptionToken"])]
     pub kind: Option<String>,
 }
@@ -1242,7 +1243,7 @@ pub struct JoinArgs {
 /// The input of the binding's `leave` callable, `conductor.token.LeaveDaemon`.
 #[derive(Debug, Clone, Default, Args)]
 pub struct LeaveArgs {
-    /// The instance left
+    /// The instance to leave as one of its operators as well
     #[arg(long, value_name = "NAME")]
     pub instance: Option<String>,
 }
@@ -1250,19 +1251,16 @@ pub struct LeaveArgs {
 /// The input of the binding's `token-reveal` callable, `conductor.token.RevealToken`.
 #[derive(Debug, Clone, Default, Args)]
 pub struct TokenRevealArgs {
-    /// The leased token's id
-    #[arg(long, value_name = "ID")]
-    pub token: Option<String>,
-    /// The instance whose model_token to print instead, for an agent at a placement with no box
+    /// The instance whose model_token to print, for an agent at a placement with no box
     #[arg(long, value_name = "INSTANCE")]
-    pub model_token: Option<String>,
+    pub model_token: String,
 }
 
 // `conductor token`: the instance's token pool (`story:token-pool`).
 #[allow(missing_docs)]
 #[derive(Debug, Subcommand)]
 pub enum TokenCommand {
-    /// Print the value of a leased token of the instance's pool from the daemon's secrets source, or with --model-token the model_token of an instance whose placement opens no box, for the claude-code kind's harness, whose settings name this command as their apiKeyHelper; refuse a token that is not leased; nothing else prints a value
+    /// Print the model_token of an instance whose placement opens no box (--model-token), for the claude-code kind's harness, whose settings name this command as their apiKeyHelper; a token of the host's pool is never printed, it reaches the harness once, in its environment at its start
     #[command(name = "reveal")]
     Reveal(TokenRevealArgs),
 }

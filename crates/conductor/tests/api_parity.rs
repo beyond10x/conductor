@@ -35,7 +35,6 @@ use conductor_model::behaviour::{
     BoxStorage, ConfigRevisionStorage, MigrationStorage, OperatorStorage, PoolTokenStorage,
     ReconciliationStorage, SecretStorage,
 };
-use conductor_model::config::InstanceName;
 use conductor_model::operator::OperatorName;
 use conductor_model::primitives::{Timestamp, Uuid};
 use conductor_model::secret::SecretName;
@@ -218,13 +217,11 @@ fn seed(url: &str) {
             state: PoolTokenState::Available,
             data: PoolTokenData {
                 token_id: TokenId(Uuid("00000000-0000-4000-8000-000000000001".to_owned())),
-                instance: InstanceName(INSTANCE.to_owned()),
                 owner: OperatorName("operator-one".to_owned()),
                 seat: Seat("operator-one@example-org.example".to_owned()),
                 secret: SecretName("example-org-claude-operator-one".to_owned()),
                 token_state: TokenState::Ok,
                 limited_until: None,
-                agent: None,
                 contributed_at: Timestamp("2026-11-08T09:00:00Z".to_owned()),
                 actor: conductor_cli::actor::operator("operator-one"),
                 kind: None,
@@ -451,9 +448,14 @@ fn probes() -> Vec<Probe> {
                 "/v1/secrets".to_owned(),
             ),
             read(
-                "GET /v1/instances/{name}/tokens",
+                "GET /v1/tokens",
                 Binding::Bound("conductor.token.Tokens"),
-                instance("tokens"),
+                "/v1/tokens".to_owned(),
+            ),
+            read(
+                "GET /v1/tokens/leases",
+                Binding::Bound("conductor.token.TokenLeases"),
+                "/v1/tokens/leases".to_owned(),
             ),
             read(
                 "GET /v1/instances/{name}/settings",

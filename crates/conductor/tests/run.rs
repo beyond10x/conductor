@@ -3866,7 +3866,8 @@ impl Case {
     /// checkouts root: a git repository with one commit whose `origin` names the project. The
     /// fake `glab` answers the project list with that project and every other read of it with
     /// the collector tests' fixtures, but a merge request read by the project's path, which it
-    /// answers with `fake/mr-<iid>.json`; `aep` answers an empty workspace and an empty listing.
+    /// answers with `fake/mr-<iid>.json`, and the pipelines read by that path, which it answers
+    /// with `fake/pipelines.json`; `aep` answers an empty workspace and an empty listing.
     fn gitlab_checks(&self) {
         let config = fs::read_to_string(self.config()).expect("the config file");
         let github = "sources: [{github: example-org}]";
@@ -3930,6 +3931,8 @@ impl Case {
                  \x20 groups/*/projects\\?*) exec cat '{fake}/projects.json' ;;\n\
                  \x20 projects/example-org%2Fexample-checks/merge_requests/*)\n\
                  \x20   exec cat \"{fake}/mr-${{last##*/}}.json\" ;;\n\
+                 \x20 projects/example-org%2Fexample-checks/pipelines\\?*)\n\
+                 \x20   exec cat '{fake}/pipelines.json' ;;\n\
                  \x20 projects/*/repository/commits/*/diff*)\n\
                  \x20   sha=${{last#*/repository/commits/}}\n\
                  \x20   file=${{sha%%/*}}.diff.json ;;\n\
@@ -4164,4 +4167,248 @@ fn a_merged_github_pull_request_is_relayed_once_and_another_host_is_not_read() {
         "{calls}"
     );
     assert!(!calls.contains("forge.example.org"), "{calls}");
+}
+
+// ---------------------------------------------------------------------------------------------
+// story:default-branch-pipeline-wakes-controller
+// ---------------------------------------------------------------------------------------------
+
+/// The deliveries that tell a controller how the default-branch pipeline of its merge decided.
+fn after_merge_deliveries(case: &Case) -> Vec<(String, String)> {
+    case.deliveries()
+        .into_iter()
+        .filter(|(_, text)| text.contains("main CI after merge: "))
+        .collect()
+}
+
+impl Case {
+    /// [`Case::watch`] with `main`'s CI due: the loop's last CI read is forgotten first.
+    fn watch_ci(&self) -> (Value, Vec<String>) {
+        let _ = fs::remove_file(self.state().join("run/ci.last"));
+        self.watch()
+    }
+
+    /// The fake `gh` of a merge on GitHub: it logs each call to `fake/gh.calls`, answers the
+    /// pull request `example-org/alpha#7` with `fake/pull-7.json` and the runs of the commit
+    /// `abc1234def` with `fake/runs.json`, and every other call with an empty list.
+    fn gh_merge(&self) {
+        let fake = self.fake();
+        executable(
+            &self.bin().join("gh"),
+            &format!(
+                "#!/bin/sh\n\
+                 printf '%s\\n' \"$*\" >> '{fake}/gh.calls'\n\
+                 case \"$1 $2\" in\n\
+                 \x20 'api repos/example-org/alpha/pulls/7') exec cat '{fake}/pull-7.json' ;;\n\
+                 \x20 'run list') case \"$*\" in *'--commit abc1234def'*) \
+                 exec cat '{fake}/runs.json' ;; esac ;;\n\
+                 esac\n\
+                 echo '[]'\n",
+                fake = fake.display()
+            ),
+        );
+        write(
+            &fake.join("pull-7.json"),
+            &json!({
+                "number": 7, "merged": true, "merge_commit_sha": "abc1234def",
+                "merged_at": "2026-10-17T09:00:00Z", "base": {"ref": "main"},
+            })
+            .to_string(),
+        );
+    }
+
+    /// An open dispatch of `alpha` whose live, idle controller linked the pull request #7.
+    fn merging_alpha(&self) {
+        let dispatch = self.dispatch("alpha");
+        self.spawn("alpha", FIRST);
+        self.idle("alpha", FIRST);
+        self.ok(&[
+            "dispatch",
+            "record-link",
+            "--dispatch-id",
+            &dispatch,
+            "--link",
+            "https://github.com/example-org/alpha/pull/7",
+        ]);
+    }
+}
+
+/// The acceptance, on a fake GitLab: the merge request of `checks`' idle controller merged while
+/// the default branch's pipeline of its merge commit runs, after an earlier green one. The watch
+/// relays `PR merged`, reads that pipeline on each `main` CI read while it runs, and once it is
+/// green tells the controller once; a later read tells nothing and reads it no more.
+#[test]
+fn the_default_branch_pipeline_of_a_merge_is_relayed_once_when_it_decides() {
+    let case = Case::new("merge-pipeline");
+    case.gitlab_checks();
+    write(
+        &case.charter("checks"),
+        "# Charter: checks\n\nKeep main green.\n",
+    );
+    case.ok(&[
+        "snapshot",
+        "start-snapshot",
+        "--started-at",
+        "2026-10-07T12:00:00Z",
+        "--disk-free-bytes",
+        "100000000000",
+    ]);
+    let dispatch = case.dispatch("checks");
+    case.spawn("checks", FIRST);
+    case.idle("checks", FIRST);
+    let url = "https://gitlab.example.com/example-org/example-checks/-/merge_requests/5";
+    case.ok(&[
+        "dispatch",
+        "record-link",
+        "--dispatch-id",
+        &dispatch,
+        "--link",
+        url,
+    ]);
+    write(
+        &case.fake().join("mr-5.json"),
+        &json!({
+            "iid": 5, "state": "merged", "sha": "c0ffee5", "merge_commit_sha": "9f8e7d6c5b4a",
+            "squash_commit_sha": null, "target_branch": "main",
+            "merged_at": "2026-10-17T09:00:00Z", "web_url": url,
+        })
+        .to_string(),
+    );
+    let pipelines = |status: &str| {
+        json!([
+            {"id": 602, "sha": "9f8e7d6c5b4a", "ref": "main", "status": status,
+             "created_at": "2026-10-17T09:00:05Z"},
+            {"id": 601, "sha": "0a1b2c3", "ref": "main", "status": "success",
+             "created_at": "2026-10-07T08:00:00Z"},
+        ])
+        .to_string()
+    };
+    write(&case.fake().join("pipelines.json"), &pipelines("running"));
+
+    let (merged, _) = case.watch_ci();
+    assert_eq!(merged_deliveries(&case).len(), 1, "{merged}");
+    let (running, _) = case.watch_ci();
+    assert_eq!(after_merge_deliveries(&case), Vec::new(), "{running}");
+
+    write(&case.fake().join("pipelines.json"), &pipelines("success"));
+    let (green, _) = case.watch_ci();
+    let told = (
+        "ex-checks".to_owned(),
+        "[REPORT checks -] watch: main CI after merge: checks#5 (merge 9f8e7d6c5b4a) green \
+         (pipeline 602)"
+            .to_owned(),
+    );
+    assert_eq!(
+        after_merge_deliveries(&case),
+        std::slice::from_ref(&told),
+        "{green}"
+    );
+    assert!(
+        case.lines_of(&green)
+            .iter()
+            .any(|line| line["event"] == "relayed"
+                && line["line"]
+                    .as_str()
+                    .is_some_and(|line| line.starts_with("main CI after merge: checks#5"))),
+        "{green}"
+    );
+
+    let (later, _) = case.watch_ci();
+    assert_eq!(after_merge_deliveries(&case), [told], "told once: {later}");
+    let reads = fs::read_to_string(case.fake().join("glab.calls"))
+        .unwrap_or_default()
+        .lines()
+        .filter(|call| call.contains("example-org%2Fexample-checks/pipelines"))
+        .count();
+    assert_eq!(
+        reads, 2,
+        "read while it ran and once it decided, then no more"
+    );
+}
+
+/// On GitHub: every workflow run of the default branch for the merge commit is read; once all
+/// completed and one failed, the controller is told once that the merge is red, naming the failed
+/// workflow and not a run of the same commit on a tag.
+#[test]
+fn a_github_merge_is_relayed_red_naming_the_failed_workflow() {
+    let case = Case::new("merge-pipeline-github");
+    case.gh_merge();
+    case.merging_alpha();
+    write(
+        &case.fake().join("runs.json"),
+        &json!([
+            {"databaseId": 31, "workflowName": "CI", "status": "completed",
+             "conclusion": "failure", "createdAt": "2026-10-17T09:00:10Z", "headBranch": "main"},
+            {"databaseId": 32, "workflowName": "Lint", "status": "completed",
+             "conclusion": "success", "createdAt": "2026-10-17T09:00:11Z", "headBranch": "main"},
+            {"databaseId": 33, "workflowName": "Publish", "status": "completed",
+             "conclusion": "failure", "createdAt": "2026-10-17T09:30:00Z",
+             "headBranch": "v1.2.0"},
+        ])
+        .to_string(),
+    );
+
+    let (merged, _) = case.watch_ci();
+    assert_eq!(merged_deliveries(&case).len(), 1, "{merged}");
+    let (red, _) = case.watch_ci();
+    let told = (
+        "ex-alpha".to_owned(),
+        "[REPORT alpha -] watch: main CI after merge: alpha#7 (merge abc1234def) red \
+         (pipeline 31): CI"
+            .to_owned(),
+    );
+    assert_eq!(
+        after_merge_deliveries(&case),
+        std::slice::from_ref(&told),
+        "{red}"
+    );
+    let (later, _) = case.watch_ci();
+    assert_eq!(after_merge_deliveries(&case), [told], "told once: {later}");
+}
+
+/// The pipeline of a merge is read whether or not the newest complete snapshot holds its
+/// repository Active: `alpha` is not among the Active repositories, whose `main` CI alone is read,
+/// and its merge is still told green.
+#[test]
+fn the_pipeline_of_a_merge_in_an_inactive_repository_is_read() {
+    let case = Case::new("merge-pipeline-inactive");
+    case.gh_merge();
+    case.merging_alpha();
+    write(
+        &case.fake().join("runs.json"),
+        &json!([
+            {"databaseId": 41, "workflowName": "CI", "status": "completed",
+             "conclusion": "success", "createdAt": "2026-10-17T09:00:10Z", "headBranch": "main"},
+            {"databaseId": 42, "workflowName": "Lint", "status": "completed",
+             "conclusion": "success", "createdAt": "2026-10-17T09:00:11Z", "headBranch": "main"},
+        ])
+        .to_string(),
+    );
+    let watch = || {
+        let _ = fs::remove_file(case.state().join("run/ci.last"));
+        case.child(json!({"do": "watch", "reviews": {"beta": 0}}))
+    };
+
+    let merged = watch();
+    assert_eq!(merged_deliveries(&case).len(), 1, "{merged}");
+    let green = watch();
+    assert_eq!(
+        after_merge_deliveries(&case),
+        [(
+            "ex-alpha".to_owned(),
+            "[REPORT alpha -] watch: main CI after merge: alpha#7 (merge abc1234def) green \
+             (pipeline 42)"
+                .to_owned(),
+        )],
+        "{green}"
+    );
+    let calls = fs::read_to_string(case.fake().join("gh.calls")).unwrap_or_default();
+    assert!(
+        calls.contains("run list -R example-org/beta --branch main"),
+        "the Active repository's main CI is read: {calls}"
+    );
+    assert!(
+        !calls.contains("run list -R example-org/alpha --branch main"),
+        "alpha is not Active: {calls}"
+    );
 }

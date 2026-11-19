@@ -75,7 +75,16 @@ pub fn command(program: impl AsRef<std::ffi::OsStr>) -> std::process::Command {
     command
         .env_remove(SLOTS_VARIABLE)
         .env_remove(PARENT_VARIABLE)
-        .env_remove(TOKEN_VARIABLE);
+        .env_remove(TOKEN_VARIABLE)
+        // A model token reaches a harness only where its start puts it (story:host-token-pool):
+        // no process inherits one.
+        .env_remove(crate::token::OAUTH_VARIABLE)
+        .env_remove(crate::token::API_KEY_VARIABLE);
+    // The runtime's start, a fingerprint and no credential: each lease a process it starts takes
+    // names it, so conductord releases them once the start ended.
+    if let Some(runtime) = crate::token::runtime() {
+        command.env(crate::token::RUNTIME_VARIABLE, runtime);
+    }
     if works_for_anonymous() {
         command.env(NO_LAZY_FETCH_VARIABLE, "1").env(
             crate::collect::SSH_COMMAND,
@@ -293,6 +302,11 @@ pub const DIAL_VARIABLE: &str = "CONDUCTOR_API_DIAL";
 
 /// The first word of the line a dialed connection opens with.
 pub const DIAL_HELLO: &str = "CONDUCTOR-DIAL/1";
+
+/// The first word of the line a connection a runtime in a box opens to conductord's token pool
+/// starts with (story:host-token-pool): the instance's name and its token follow, as on
+/// [`DIAL_HELLO`]; then one pool call, one answer, the close ([`crate::token::pool_call`]).
+pub const POOL_HELLO: &str = "CONDUCTOR-POOL/1";
 
 /// The line the daemon sends on a dialed connection it admitted and closes because the
 /// instance's pool is full ([`crate::daemon::dial::MAX_IDLE`]): a surplus connection, which the
@@ -797,6 +811,7 @@ pub fn instance_serve(
         .ok()
         .map(|address| address.trim().to_owned())
         .filter(|address| !address.is_empty());
+    let given_token = given.is_some();
     let token = match (given, &listen, &dial) {
         (Some(token), _, _) => token,
         (None, Some(_), _) => bail!(
@@ -813,6 +828,14 @@ pub fn instance_serve(
             dashboard::mint().context("instance serve: mint the instance's token")?
         }
     };
+    // The start this runtime is, by a fingerprint of its token; a runtime in a box reaches the
+    // host's token pool through conductord over the address it dials (story:host-token-pool).
+    if given_token {
+        crate::token::hold_runtime(&token);
+    }
+    if let Some(address) = &dial {
+        crate::token::hold_dial(address, &active.instance.name.0, &token);
+    }
     let what = format!("conductor instance {}", active.instance.name.0);
     let listener = if let Some(address) = &dial {
         println!("{what}: serving /v1/ over connections dialed to {address}");

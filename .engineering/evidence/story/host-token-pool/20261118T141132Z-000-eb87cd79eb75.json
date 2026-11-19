@@ -1,0 +1,13 @@
+{
+  "at": "2026-11-18T14:11:32Z",
+  "actor": "human:unknown",
+  "artifact": "story:host-token-pool",
+  "kind": "story",
+  "revision": 5,
+  "change": {
+    "change": "evidence",
+    "kind": "test_result",
+    "source": "unit gate at e8bb5585: ess validate + conformance 713/713, clippy -D warnings, docs-check, token_pool 20/28 (8 need tmux, not runnable in the box), config, daemon_config, sec_instance_pods, no_organization, isolated_home green",
+    "reference": "e8bb5585"
+  }
+}

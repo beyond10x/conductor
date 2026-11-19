@@ -1,7 +1,7 @@
 type: ess-scenario/1
 domain: conductor.token
 scenario: token-lease-token
-summary: The instance runtime leases a contributed token for an agent start; the token is Leased and names the agent, and the lease event names the token's owner and seat.
+summary: The instance runtime leases a token of the host's pool for an agent start; the lease is Held and names the token, the agent, its instance and the token's owner, and the token stays Available.
 
 arrange:
   - instance: token
@@ -13,7 +13,6 @@ timeline:
     actor: conductor.token.Operator
     input:
       actor: {kind: Human, operator: alice}
-      instance: example-org
       owner: alice
       seat: alice@example-org.example
       secret: example-org-claude-alice
@@ -29,6 +28,7 @@ timeline:
       actor: {kind: Agent, agent: {instance: example-org, role: Lead, name: example-org-controller, kind: claude-code}}
       instance: example-org
       token_id: {$instance: token}
+      owner: alice
       agent: example-org-controller
       preferred_owner: alice
       leased_at: 2026-11-08T09:05:00Z
@@ -37,15 +37,20 @@ timeline:
       - event: conductor.token.TokenLeased
         payload:
           token_id: {$instance: token}
+          instance: example-org
           owner: alice
-          seat: alice@example-org.example
           agent: example-org-controller
 
 assert:
-  - view: conductor.token.Tokens
-    params: {instance: example-org}
+  - view: conductor.token.TokenLeases
     contains:
       token_id: {$instance: token}
-      state: Leased
-      owner: alice
+      state: Held
       agent: example-org-controller
+      instance: example-org
+      owner: alice
+  - view: conductor.token.Tokens
+    contains:
+      token_id: {$instance: token}
+      state: Available
+      owner: alice

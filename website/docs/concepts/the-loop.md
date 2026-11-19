@@ -89,6 +89,7 @@ until one finds a change, or with `--follow` prints each change and goes on.
 | dispatch log and commits | `session stalled` after `thresholds.stalled_session` |
 | host ledger | `build queued` after `thresholds.build_queued` |
 | requests linked to open dispatches | `PR merged`, relayed to the repository's running controller |
+| default-branch pipelines of those merges, any repository | `main CI after merge` once the pipeline of the merge commit is green or red, relayed to the repository's running controller |
 | CI of Active repositories | `CI red on main`, `CI green again on main`, `PR checks done` |
 | newest complete snapshot | `review full`, `review open`, `gates hooks stale`, `workspace stale` |
 | free disk on `/` | `disk low`, `disk admit`, `disk gate stop` ([disk](./disk.md)) |

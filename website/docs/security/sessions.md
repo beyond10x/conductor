@@ -96,8 +96,8 @@ does not pass the starter's environment to the session, so only the pin selects 
 hooks act for. A file that pins another instance, or is no JSON, is refused (`InstanceNotPinned`).
 `conductor config validate` names it by its `settings` path.
 
-When the instance's token pool leases the session a token, the copy also names `conductor token
-reveal --token <id>` as its `apiKeyHelper`
+When the host's token pool leases the session a token, the copy names no `apiKeyHelper`: the
+value is in the harness process's environment only
 ([token pool](/docs/security/operators-and-credentials#the-token-pool)). No session writes a
 settings file ([file tools](/docs/security/the-guard#file-tools-edit-write-notebookedit)).
 
@@ -153,7 +153,7 @@ Conductor builds no sandbox. It asks substrate for a box. Today only runtimes ru
 
 | process | runs as | bounded by |
 |---|---|---|
-| an instance runtime whose `placement` names an adapter | a substrate PTY session in the instance's substrate workspace | the adapter's confinement facts |
+| an instance runtime whose `placement` names an adapter | a substrate PTY session in the instance's substrate workspace | the adapter's confinement facts, and the instance's `limits`: its `memory_max`, unset, is `8 + 2 * controllers.max_working` GiB (24 GiB for 8 controllers), bounded by substrate and the host's memory; `conductor doctor` names one written below that, without failing |
 | an instance runtime whose `placement` names none, such as `local` | the user unit `conductor_<instance>-runtime.service` (`systemd-run --user`), restarted 30 s after a failure | the instance's `limits` on its slice: `MemoryMax`, `CPUWeight`, `TasksMax` |
 | every agent session | `claude --bg`; in a runtime's box, `claude -p` as the runtime's child ([the child launch](#in-a-box-the-child-launch)) | the runtime's box when it runs in one; its record says conductor measured no box of its own |
 

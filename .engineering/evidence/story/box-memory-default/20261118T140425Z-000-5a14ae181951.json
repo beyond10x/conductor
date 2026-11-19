@@ -1,0 +1,12 @@
+{
+  "at": "2026-11-18T14:04:25Z",
+  "actor": "human:unknown",
+  "artifact": "story:box-memory-default",
+  "kind": "story",
+  "revision": 7,
+  "change": {
+    "change": "evidence",
+    "kind": "test_result",
+    "source": "w57/u3-box-memory (staged): clippy -D warnings clean; doctor 41/41, no_organization 4/4, isolated_home 7/7; placement an_unset_memory_max_is_derived_from_max_working ok; docs-check current; 24 placement socket tests fail in sandbox (AF_UNIX bind denied), unrelated"
+  }
+}

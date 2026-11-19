@@ -207,6 +207,11 @@ pub const UPGRADE_TIMEOUT: u64 = 120;
 /// `state: unreachable`, when `daemon.timeout` is absent (`story:federated-views`).
 pub const FEDERATED_TIMEOUT: u64 = 5;
 
+/// The most agent sessions one `subscription_token` of the host's token pool serves at once, when
+/// `daemon.subscription_token_sessions` is absent (story:host-token-pool; Decision (operator,
+/// 2026-11-18)).
+pub const SUBSCRIPTION_TOKEN_SESSIONS: i64 = 4;
+
 /// The variable of the `conductor-config` setting: the config file, when no `--config` names one.
 pub const CONFIG_VARIABLE: &str = "CONDUCTOR_CONFIG";
 
@@ -825,7 +830,7 @@ const REMOVED_KEYS: [(&str, &str); 3] = [
         "the store is the deployment's one database, at daemon.store",
     ),
 ];
-const DAEMON_KEYS: [&str; 16] = [
+const DAEMON_KEYS: [&str; 18] = [
     "port",
     "loopback",
     "tls",
@@ -842,6 +847,8 @@ const DAEMON_KEYS: [&str; 16] = [
     "kubernetes",
     "control_token",
     "dial_port",
+    "subscription_token_sessions",
+    "api_key_sessions",
 ];
 /// The keys of `daemon.kubernetes` (`conductor.config.Kubernetes`) and of its mappings.
 const KUBERNETES_KEYS: [&str; 7] = [
@@ -2311,6 +2318,8 @@ pub fn default_daemon(home: &Path) -> Daemon {
         kubernetes: None,
         control_token: None,
         dial_port: 0,
+        subscription_token_sessions: SUBSCRIPTION_TOKEN_SESSIONS,
+        api_key_sessions: 0,
     }
 }
 
@@ -3391,6 +3400,29 @@ impl Reader<'_> {
                 format!("is {dial}, the port of the API's own listener: name another"),
             );
         }
+        // The most sessions one pool token of each kind serves at once (story:host-token-pool):
+        // 0 is no cap.
+        let mut sessions = |key: &str, default: i64| match Self::get(map, key) {
+            Some(value) => {
+                let count = value.as_i64().filter(|count| *count >= 0);
+                if count.is_none() {
+                    self.problem(
+                        &join(path, key),
+                        format!(
+                            "`{value}` is no count of sessions: write a whole number, or 0 for \
+                             no cap"
+                        ),
+                    );
+                }
+                count
+            }
+            None => Some(default),
+        };
+        let subscription_token_sessions = sessions(
+            "subscription_token_sessions",
+            defaults.subscription_token_sessions,
+        );
+        let api_key_sessions = sessions("api_key_sessions", defaults.api_key_sessions);
         let daemon = Daemon {
             port: port?,
             loopback: loopback?,
@@ -3408,6 +3440,8 @@ impl Reader<'_> {
             kubernetes: kubernetes?,
             control_token: control_token?,
             dial_port: dial_port?,
+            subscription_token_sessions: subscription_token_sessions?,
+            api_key_sessions: api_key_sessions?,
         };
         // The pods get none of the daemon's own secrets either.
         let own = crate::secret::daemons_own(&daemon);
@@ -6650,6 +6684,14 @@ pub fn daemon_document(daemon: &Daemon) -> Yaml {
             ),
         ),
         ("dial_port", Yaml::Number(daemon.dial_port.into())),
+        (
+            "subscription_token_sessions",
+            Yaml::Number(daemon.subscription_token_sessions.into()),
+        ),
+        (
+            "api_key_sessions",
+            Yaml::Number(daemon.api_key_sessions.into()),
+        ),
     ])
 }
 

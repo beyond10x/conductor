@@ -1,11 +1,13 @@
 type: ess-scenario/1
 domain: conductor.token
 scenario: token-release-token
-summary: The agent on a leased token stops; the release makes the token Available again with no agent, and a second release is refused as a wrong state.
+summary: The agent on a lease stops; the lease is Released and its token stays Available, and a second release is refused as a wrong state.
 
 arrange:
   - instance: token
     entity: conductor.token.PoolToken
+  - instance: lease
+    entity: conductor.token.TokenLease
 
 timeline:
   - at: 2026-11-08T09:00:00Z
@@ -13,7 +15,6 @@ timeline:
     actor: conductor.token.Operator
     input:
       actor: {kind: Human, operator: alice}
-      instance: example-org
       owner: alice
       seat: alice@example-org.example
       secret: example-org-claude-alice
@@ -29,21 +30,24 @@ timeline:
       actor: {kind: Agent, agent: {instance: example-org, role: Lead, name: example-org-controller, kind: claude-code}}
       instance: example-org
       token_id: {$instance: token}
+      owner: alice
       agent: example-org-controller
       leased_at: 2026-11-08T09:05:00Z
     outcome: leased
+    capture: {instance: lease, event: conductor.token.TokenLeased, field: lease_id}
 
   - at: 2026-11-08T10:00:00Z
     command: conductor.token.ReleaseToken
     actor: conductor.token.InstanceRuntime
     input:
       actor: {kind: Agent, agent: {instance: example-org, role: Lead, name: example-org-controller, kind: claude-code}}
-      token_id: {$instance: token}
+      lease_id: {$instance: lease}
       released_at: 2026-11-08T10:00:00Z
     outcome: released
     events:
       - event: conductor.token.TokenReleased
         payload:
+          lease_id: {$instance: lease}
           token_id: {$instance: token}
           agent: example-org-controller
 
@@ -52,15 +56,19 @@ timeline:
     actor: conductor.token.InstanceRuntime
     input:
       actor: {kind: Agent, agent: {instance: example-org, role: Lead, name: example-org-controller, kind: claude-code}}
-      token_id: {$instance: token}
+      lease_id: {$instance: lease}
       released_at: 2026-11-08T10:01:00Z
     outcome: wrong-state
     error:
-      name: conductor.token.TokenStateConflict
+      name: conductor.token.LeaseStateConflict
 
 assert:
+  - view: conductor.token.TokenLeases
+    contains:
+      lease_id: {$instance: lease}
+      state: Released
+      released_at: 2026-11-08T10:00:00Z
   - view: conductor.token.Tokens
-    params: {instance: example-org}
     contains:
       token_id: {$instance: token}
       state: Available

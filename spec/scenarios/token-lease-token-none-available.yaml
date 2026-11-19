@@ -1,7 +1,7 @@
 type: ess-scenario/1
 domain: conductor.token
 scenario: token-lease-token-none-available
-summary: With the pool's only token leased, a second lease is refused with NoTokenAvailable and the token keeps its agent.
+summary: With the host pool's only token Limited, a lease is refused with NoTokenAvailable and no lease is recorded.
 
 arrange:
   - instance: token
@@ -13,7 +13,6 @@ timeline:
     actor: conductor.token.Operator
     input:
       actor: {kind: Human, operator: alice}
-      instance: example-org
       owner: alice
       seat: alice@example-org.example
       secret: example-org-claude-alice
@@ -23,15 +22,14 @@ timeline:
     capture: {instance: token, event: conductor.token.TokenContributed, field: token_id}
 
   - at: 2026-11-08T09:05:00Z
-    command: conductor.token.LeaseToken
+    command: conductor.token.MarkTokenLimited
     actor: conductor.token.InstanceRuntime
     input:
       actor: {kind: Agent, agent: {instance: example-org, role: Lead, name: example-org-controller, kind: claude-code}}
-      instance: example-org
       token_id: {$instance: token}
-      agent: example-org-controller
-      leased_at: 2026-11-08T09:05:00Z
-    outcome: leased
+      limited_until: 2026-11-08T14:00:00Z
+      limited_at: 2026-11-08T09:05:00Z
+    outcome: limited
 
   - at: 2026-11-08T09:06:00Z
     command: conductor.token.LeaseToken
@@ -40,6 +38,7 @@ timeline:
       actor: {kind: Agent, agent: {instance: example-org, role: Lead, name: example-org-controller, kind: claude-code}}
       instance: example-org
       token_id: {$instance: token}
+      owner: alice
       agent: example-org-implementer
       leased_at: 2026-11-08T09:06:00Z
     outcome: none-available
@@ -48,8 +47,9 @@ timeline:
 
 assert:
   - view: conductor.token.Tokens
-    params: {instance: example-org}
     contains:
       token_id: {$instance: token}
-      state: Leased
-      agent: example-org-controller
+      state: Limited
+  - view: conductor.token.TokenLeases
+    excludes:
+      agent: example-org-implementer

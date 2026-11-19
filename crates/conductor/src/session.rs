@@ -1151,6 +1151,14 @@ impl TryContext for Delivering {
         ))
     }
 
+    fn try_generate_conductor_token_token_lease_id(
+        &mut self,
+    ) -> Result<conductor_model::token::TokenLeaseId, UnmetObligation> {
+        Err(conductor_model::behaviour::unmet_context(
+            "conductor.token.TokenLeaseId",
+        ))
+    }
+
     fn try_generate_string(&mut self) -> Result<String, UnmetObligation> {
         Err(conductor_model::behaviour::unmet_context("String"))
     }

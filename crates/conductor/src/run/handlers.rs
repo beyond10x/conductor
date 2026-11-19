@@ -6,7 +6,7 @@
 //! | `context: <repo> <n>k …` at or over `thresholds.context_handover` | deliver `[HANDOVER <repo>] context <n>k` once per controller; over 1.25 times the threshold, at once or in a later tick, once `<checkout>/.git/handoff/` holds a file newer than the delivery and the session is idle, or once `thresholds.silent_session` passed since the delivery, restart the controller ([`Tick::restart_with`]) with the newest hand-over file as the charter's resume point, its line carrying the `context:` line; a later tick restarts only the controller, by its id, and the session the hand-over was asked of ([`handovers`]) | `handover-sent`, `handover`, `controller-restarted` |
 //! | `usage limit: …; <n> sessions: <names>` | mark each session with the reset its text names ([`crate::limit::reset`]), else the token's limit window from now; the first tick past that reset, or an earlier one whose [`Headroom`](super::Headroom) is back, resumes each once (`spawn::resume`), or restarts one a hand-over was asked of as its controller's; a session resumed and stopped again is said in one journal line and backs off ([`crate::limit::backoff`]), resumed at neither the probe's yes nor before a reset its new text names ([`limited`]) | `usage-limit`, `resumed`, `controller-restarted` |
 //! | `session exited (blocked): <name> …` | marked as a usage limit marks it, when its repository has an open dispatch | `usage-limit`, `resumed` |
-//! | `PR checks done: <repo>#…`, `PR merged: <repo>#…` (`story:merge-wakes-idle-controller`), `CI red on main: <repo> / …`, `CI green again on main: <repo> / …` | deliver `[REPORT <repo> -] watch: <line>` to the running controller; a red `main` with none spawns one when the repository has a charter, within `controllers.max_working` | `relayed`, `red-ci` |
+//! | `PR checks done: <repo>#…`, `PR merged: <repo>#…` (`story:merge-wakes-idle-controller`), `main CI after merge: <repo>#…` (`story:default-branch-pipeline-wakes-controller`), `CI red on main: <repo> / …`, `CI green again on main: <repo> / …` | deliver `[REPORT <repo> -] watch: <line>` to the running controller; a red `main` with none spawns one when the repository has a charter, within `controllers.max_working` | `relayed`, `red-ci` |
 //! | `session stalled: <name> …`, `session silent: <name> …` | first a delivered check-in; the second time, a restart | `stalled`, `controller-restarted` |
 //! | `session gone: <name> …` | a restart, when the repository has an open dispatch and no usage limit marked the session; the instance's conductor-dev started again in the checkout it worked in, when that checkout's plan holds an `active` story ([`conductor_dev`]) | `controller-restarted` |
 //! | `disk low: …` | `gc`, beside the tick ([`cleaned`]) | `cleanup` |
@@ -131,7 +131,7 @@ fn act(tick: &mut Tick<'_, '_>, line: &str) -> Result<bool> {
     if line.starts_with("usage limit: ") {
         return usage_limit(tick, line);
     }
-    for prefix in ["PR checks done: ", "PR merged: "] {
+    for prefix in ["PR checks done: ", "PR merged: ", "main CI after merge: "] {
         if let Some(rest) = line.strip_prefix(prefix) {
             let repo = rest.split('#').next().unwrap_or_default();
             return relay(tick, line, repo);

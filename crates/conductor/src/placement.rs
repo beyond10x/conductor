@@ -75,7 +75,7 @@ use std::time::Duration;
 
 use anyhow::{Result, anyhow};
 use conductor_model::behaviour::Generated;
-use conductor_model::config::{Instance, InstanceName, Limits, Source};
+use conductor_model::config::{Gibibytes, Instance, InstanceName, Limits, Source};
 pub use conductor_model::placement::Adapter;
 use conductor_model::placement::obligations::{CloseBoxBehavior as _, OpenBoxBehavior as _};
 use conductor_model::placement::{
@@ -704,7 +704,8 @@ pub struct BoxRequest {
     pub read_only_files: Vec<HostFile>,
     /// The six writable places, each a subdirectory of the one workspace.
     pub places: Vec<String>,
-    /// The instance's limits.
+    /// The instance's limits, its `memory_max` always set: as written, else derived from
+    /// `controllers.max_working` ([`box_memory`]).
     pub limits: Limits,
     /// The hosts the runtime asks for: the forges of its sources and [`MODEL_HOST`]. No start
     /// carries a host: it names the apertures the daemon declares for them ([`Self::apertures`]).
@@ -1830,7 +1831,12 @@ pub fn request_on(
         read_only_roots,
         read_only_files,
         places: crate::config::PLACES.map(str::to_owned).to_vec(),
-        limits: instance.limits.clone(),
+        // With no `memory_max`, the box's memory follows its controllers
+        // (`story:box-memory-default`).
+        limits: Limits {
+            memory_max: Some(box_memory(instance)),
+            ..instance.limits.clone()
+        },
         egress,
         apertures,
         forges,
@@ -2468,8 +2474,65 @@ pub const RESTART_BEFORE: Duration = Duration::from_secs(3600);
 /// The name of the refusal of a renewal or restart by a box opener that serves neither.
 pub const RENEW_UNSERVED: &str = "placement.renewal-unserved";
 
-/// The memory a box gets when the instance sets none: 8 GiB.
-const DEFAULT_MEMORY: u64 = 8 << 30;
+/// The memory a box gives each controller of `controllers.max_working`, in GiB
+/// (`story:box-memory-default`).
+pub const CONTROLLER_MEMORY_GIB: i64 = 2;
+
+/// The memory a box gives its runtime and one build, in GiB (`story:box-memory-default`).
+pub const RUNTIME_MEMORY_GIB: i64 = 8;
+
+/// The memory, in GiB, a box running `max_working` controllers needs
+/// (`story:box-memory-default`): [`CONTROLLER_MEMORY_GIB`] per controller and
+/// [`RUNTIME_MEMORY_GIB`] for the runtime and one build; 24 for 8 controllers, 12 for 2.
+#[must_use]
+pub fn needed_memory(max_working: i64) -> i64 {
+    RUNTIME_MEMORY_GIB.saturating_add(CONTROLLER_MEMORY_GIB.saturating_mul(max_working.max(0)))
+}
+
+/// The memory cap, in GiB, of the box of `instance`: its `limits.memory_max` as written, else
+/// [`needed_memory`] of its `controllers.max_working` (`story:box-memory-default`).
+#[must_use]
+pub fn box_memory(instance: &Instance) -> Gibibytes {
+    instance
+        .limits
+        .memory_max
+        .clone()
+        .unwrap_or_else(|| Gibibytes(needed_memory(instance.controllers.max_working)))
+}
+
+/// The bytes a box's run may use: the request's `memory_max` (with none, [`needed_memory`] of
+/// one controller), bounded by substrate's largest run memory (`MAX_EXEC_MEMORY_BYTES`) and by
+/// `host`, the memory of the local daemon's host when it is known.
+#[must_use]
+pub fn run_memory(limits: &Limits, host: Option<u64>) -> u64 {
+    let gib = limits
+        .memory_max
+        .as_ref()
+        .map_or_else(|| needed_memory(1), |size| size.0);
+    u64::try_from(gib)
+        .unwrap_or(0)
+        .saturating_mul(1 << 30)
+        .min(substrate_sdk::MAX_EXEC_MEMORY_BYTES)
+        .min(host.unwrap_or(u64::MAX))
+}
+
+/// The `MemTotal` of a `/proc/meminfo` text, in bytes.
+#[must_use]
+pub fn mem_total(meminfo: &str) -> Option<u64> {
+    let line = meminfo
+        .lines()
+        .find_map(|line| line.strip_prefix("MemTotal:"))?;
+    let kib: u64 = line.trim().strip_suffix("kB")?.trim().parse().ok()?;
+    kib.checked_mul(1024)
+}
+
+/// The memory of this host ([`mem_total`] of `/proc/meminfo`); `None` where it does not read.
+fn host_memory() -> Option<u64> {
+    std::fs::read_to_string("/proc/meminfo")
+        .ok()
+        .as_deref()
+        .and_then(mem_total)
+}
 
 /// Each output stream's bound: the most the SDK admits (`MAX_IO_BYTES`, 1 MiB); a larger one is
 /// refused before anything is sent.
@@ -2585,18 +2648,13 @@ impl Sdk {
 
 impl Sdk {
     /// Starts the runtime `request` asks for as a PTY session in `workspace` and answers its id.
+    /// Its memory is [`run_memory`] on `host`, the memory of the local daemon's host.
     async fn runtime(
         workspace: &substrate_sdk::Workspace,
         request: &BoxRequest,
+        host: Option<u64>,
     ) -> Result<String, substrate_sdk::SdkError> {
-        let memory = request
-            .limits
-            .memory_max
-            .as_ref()
-            .map_or(DEFAULT_MEMORY, |size| {
-                u64::try_from(size.0).unwrap_or(0).saturating_mul(1 << 30)
-            })
-            .min(substrate_sdk::MAX_EXEC_MEMORY_BYTES);
+        let memory = run_memory(&request.limits, host);
         let processes = request
             .limits
             .tasks_max
@@ -2745,6 +2803,7 @@ impl Sdk {
 impl Substrate for Sdk {
     fn open(&mut self, request: &BoxRequest) -> Result<Opened, Refused> {
         let request = request.clone();
+        let host = self.remote.is_none().then(host_memory).flatten();
         self.block_on(async move |client| {
             // The facts the start's capability snapshot carries: the same client's machine.
             if let Some(refused) = Self::unserved(&client.machine(), &request) {
@@ -2757,7 +2816,7 @@ impl Substrate for Sdk {
                 .lease(RUN_BOUND)
                 .create()
                 .await?;
-            let session = Self::runtime(&workspace, &request).await?;
+            let session = Self::runtime(&workspace, &request, host).await?;
             Ok(Ok(Opened {
                 workspace: workspace.id().to_owned(),
                 session,
@@ -2803,12 +2862,13 @@ impl Substrate for Sdk {
 
     fn restart(&mut self, workspace: &str, request: &BoxRequest) -> Result<String, Refused> {
         let (id, request) = (workspace.to_owned(), request.clone());
+        let host = self.remote.is_none().then(host_memory).flatten();
         self.block_on(async move |client| {
             if let Some(refused) = Self::unserved(&client.machine(), &request) {
                 return Ok(Err(refused));
             }
             let workspace = client.get_workspace(&id).await?;
-            Ok(Ok(Self::runtime(&workspace, &request).await?))
+            Ok(Ok(Self::runtime(&workspace, &request, host).await?))
         })
         .and_then(|session| session)
     }
@@ -3124,6 +3184,7 @@ impl conductor_model::behaviour::TryContext for Ports<'_> {
         try_generate_conductor_session_delivery_id -> conductor_model::session::DeliveryId, "conductor.session.DeliveryId";
         try_generate_conductor_session_tick_id -> conductor_model::session::TickId, "conductor.session.TickId";
         try_generate_conductor_token_token_id -> conductor_model::token::TokenId, "conductor.token.TokenId";
+        try_generate_conductor_token_token_lease_id -> conductor_model::token::TokenLeaseId, "conductor.token.TokenLeaseId";
         try_generate_conductor_tool_tool_call_id -> conductor_model::tool::ToolCallId, "conductor.tool.ToolCallId";
         try_generate_string -> String, "String";
     }
@@ -3270,5 +3331,41 @@ pub fn close_box(
             "BoxStateConflict: the box {} is already closed",
             opened.box_id
         )),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const GIB: u64 = 1 << 30;
+
+    #[test]
+    fn a_box_s_memory_is_derived_from_max_working_and_bounded_by_the_host() {
+        assert_eq!(needed_memory(8), 24);
+        assert_eq!(needed_memory(2), 12);
+        let derived = Limits {
+            memory_max: Some(Gibibytes(needed_memory(8))),
+            cpu_weight: None,
+            tasks_max: None,
+        };
+        assert_eq!(run_memory(&derived, None), 24 * GIB);
+        assert_eq!(run_memory(&derived, Some(64 * GIB)), 24 * GIB);
+        assert_eq!(run_memory(&derived, Some(16 * GIB)), 16 * GIB);
+        let huge = Limits {
+            memory_max: Some(Gibibytes(i64::MAX)),
+            ..derived
+        };
+        assert_eq!(
+            run_memory(&huge, None),
+            substrate_sdk::MAX_EXEC_MEMORY_BYTES
+        );
+    }
+
+    #[test]
+    fn mem_total_reads_proc_meminfo() {
+        let text = "MemTotal:       32768000 kB\nMemFree:         1024 kB\n";
+        assert_eq!(mem_total(text), Some(32_768_000 * 1024));
+        assert_eq!(mem_total("MemFree: 1 kB\n"), None);
     }
 }

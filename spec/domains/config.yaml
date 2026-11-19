@@ -311,7 +311,12 @@ types:
   # The CPU, memory and process limits of a box (story:session-envelope-model), as systemd sets
   # them on a cgroup: `memory_max` its `MemoryMax`, in GiB, written as a size, `15G`;
   # `cpu_weight` its `CPUWeight`, from 1 to 10000; `tasks_max` its `TasksMax`, the most
-  # processes and threads at once. Absent, a key sets no limit.
+  # processes and threads at once. Absent, a key sets no limit, but for the `memory_max` of an
+  # instance whose `placement` opens a substrate box (story:box-memory-default): its box is then
+  # given 2 GiB per controller of `controllers.max_working` and 8 GiB for the runtime and one
+  # build, `8 + 2 * max_working` GiB (24G for 8 controllers, 12G for 2), bounded by substrate's
+  # largest run memory and by the memory of the local daemon's host. An instance `memory_max`
+  # written below that value is kept; `conductor doctor` names it, not failing.
   - name: conductor.config.Limits
     kind: struct
     fields:
@@ -873,6 +878,11 @@ types:
   # sealed slot. The runtime's session names `conductord` first, which substrate listens for on
   # 127.0.0.1 in the box, and `conductor`, the model host's. A `none` placement keeps the socket,
   # a pod its TCP listener, a box on a remote daemon its relay.
+  # `subscription_token_sessions` and `api_key_sessions` (story:host-token-pool; Decision
+  # (operator, 2026-11-18)): the most agent sessions one token of the host's pool of that kind
+  # serves at once, each a live lease; 0 is no cap. Absent 4 for a `subscription_token` and 0 for
+  # an `api_key`. A start that finds every token with headroom at its cap is refused
+  # `NoTokenAvailable`, as with an empty pool, and waits as such a start does.
   # UNMAPPED: "the dashboard's served path" may be the URL path the app is served under (`/`, as
   # § 5.3 says) or the directory of the built app the daemon serves; read here as the URL path.
   # Open question.
@@ -895,12 +905,16 @@ types:
       - {name: kubernetes, type: Optional<conductor.config.Kubernetes>}
       - {name: control_token, type: Optional<conductor.secret.SecretName>}
       - {name: dial_port, type: Integer}
+      - {name: subscription_token_sessions, type: Integer}
+      - {name: api_key_sessions, type: Integer}
     invariants:
       - port >= 1
       - port <= 65535
       - substrate_slots >= 0
       - dial_port >= 0
       - dial_port <= 65535
+      - subscription_token_sessions >= 0
+      - api_key_sessions >= 0
       - distinct: {in: operators, as: operator, by: operator.name}
 
   # The `globals` section (design architecture-next § 9, § 10): the defaults every instance starts

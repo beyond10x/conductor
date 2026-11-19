@@ -7,38 +7,63 @@ title: A boxed instance's disk thresholds read the filesystem its builds write
 summary: Absent thresholds.disk_path, a box measures free disk on its checkouts root, not on the box's tmpfs root
 tags:
 - from-finding
+refs:
+- provider: github
+  reference: beyond10x/conductor#201
 relations:
 - decomposes: epic:architecture-next
 - informed_by: epic:disk-protocol
 scope:
 - confidence: cited
-  path: spec/domains/config.yaml
-- confidence: inferred
+  path: crates/conductor/src/build.rs
+- confidence: cited
   path: crates/conductor/src/config.rs
 - confidence: inferred
-  path: crates/conductor/src/build.rs
-- confidence: inferred
   path: crates/conductor/src/doctor.rs
-revision: 1
+- confidence: cited
+  path: crates/conductor/src/snapshot.rs
+- confidence: cited
+  path: crates/conductor/src/watch.rs
+- confidence: inferred
+  path: crates/conductor/tests/config.rs
+- confidence: inferred
+  path: crates/conductor/tests/doctor.rs
+- confidence: inferred
+  path: crates/conductor/tests/free_space.rs
+- confidence: cited
+  path: spec/domains/config.yaml
+revision: 5
 ---
 ## Why
 
-Agentbox friction logs F16 and F25 (2026-11-15). In a substrate box `/` and the box's home are
-a tmpfs, 15 GiB on this host. `thresholds.disk_path` defaults to `/`
-(`website/docs/reference/config.md:109`, `conductor.example.yaml:42`). So every snapshot
-reported `disk_free 16453287936` against `disk_admit` 20G, and the first build in the box was
-refused for disk and escalated as class H (request `disk-01a1df49-…`). The checkouts root it
-builds in had 131G free. The operator's fix was `thresholds.disk_path` = the checkouts root.
-That value cannot be read off the host, and nothing tells an operator to set it.
+Issue #201 (agent box friction F16, F25). In a box `/` and the home directory are a tmpfs of about
+15 GiB. Snapshots read `disk_free 16453287936` against `disk_admit` 20G; the first build was refused
+for disk and escalated class H while the checkouts root it builds in had 131G free on the host disk.
+The operator set `thresholds.disk_path` to the checkouts root.
+
+Read on the wave 56 branch:
+
+- `thresholds.disk_path` defaults to `/` (`crates/conductor/src/config.rs:401`, `:2202`, read at
+  `:5699-5702`); builds read it (`crates/conductor/src/build.rs:388`).
+- The snapshot ignores it: `start-snapshot` reads `statvfs` on the constant `DISK = "/"`
+  (`crates/conductor/src/snapshot.rs:123`, `:996`), and the watch's disk probe reads `/` too
+  (`crates/conductor/src/watch.rs:449`). So even with `disk_path` set, the snapshot's `disk_free` and
+  the watch's `disk low` lines measure the box's tmpfs.
 
 ## Outcome
 
-- For an instance at a box placement whose config sets no `disk_path`, the thresholds read the
-  filesystem of its checkouts root.
-- `conductor doctor` reports a `disk_path` that is a tmpfs inside the box.
+- One resolved disk path per instance: `thresholds.disk_path` when set; else, for an instance whose
+  placement opens a box, its checkouts root; else `/`. The build gate, the snapshot's `disk_free`
+  and the watch's disk probe all read it, and the watch's lines name it instead of `/`.
+- `conductor doctor` names a `disk_path` that is a tmpfs inside the box.
+- The `thresholds.disk_path` documentation in `spec/domains/config.yaml` states the boxed default.
 
-## Acceptance
+Decision (class C, controller, 2026-11-18): the snapshot and the watch follow `disk_path` for every
+instance, boxed or not, rather than only in a box, so one key means one filesystem. Undone by pinning
+them to `/` again.
 
-- A boxed instance with no `thresholds.disk_path` reads its checkouts root's free space. A
-  config whose `disk_path` resolves to the box's tmpfs gets a doctor row that names the key. A
-  config test and a doctor test hold both.
+## Acceptance (tests that fail on the current code)
+
+- `tests/config.rs` `a_boxed_instance_with_no_disk_path_reads_its_checkouts_root`.
+- `tests/free_space.rs` `the_snapshot_reads_free_disk_on_the_instance_s_disk_path`.
+- `tests/doctor.rs` `doctor_names_a_disk_path_on_the_box_s_tmpfs`.

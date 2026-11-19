@@ -1677,7 +1677,8 @@ fn kind_lines(flag: Option<&Path>) -> Vec<(String, Option<String>)> {
 /// [`crate::placement::slot_undeclared`]) a second line, `box <instance> token: `, says the
 /// token does not reach the box and prints the `--secret-slot` flag that declares the slot;
 /// it is reported, not a failure, as a usage watcher not running is: the box starts and runs
-/// without it. A box the local daemon would open gets the rows of [`forge_work_lines`] and
+/// without it. Every box gets the row of [`memory_line`] when its written memory cap is below
+/// what its controllers need. A box the local daemon would open gets the rows of [`forge_work_lines`] and
 /// [`bypass_line`]. It opens no box, starts nothing and writes nothing; only
 /// [`doctor_with`] calls it, never [`check_in`], which the dashboard's health thread repeats.
 /// A config that does not load, no config file, and a file that writes no `daemon.store`
@@ -1792,6 +1793,7 @@ fn box_lines(
                     None,
                 ),
             }];
+            rows.extend(memory_line(name, instance));
             // Reported, not a failure: the box starts without the slot.
             if let (None, Some(unsealed)) = (&refused, &answer.unsealed) {
                 rows.push((format!("box {name} token: {}", one_line(unsealed)), None));
@@ -1805,6 +1807,26 @@ fn box_lines(
             rows
         })
         .collect()
+}
+
+/// The row of the box of the instance `name` whose written `limits.memory_max` is below what its
+/// controllers need ([`crate::placement::needed_memory`] of `controllers.max_working`,
+/// `story:box-memory-default`): `box <name> memory: <n>G for <k> controllers; set
+/// limits.memory_max to at least <m>G`. Reported, not a failure: the operator's cap is kept. A
+/// box with no `memory_max`, whose memory is derived, or one large enough gets none.
+fn memory_line(name: &str, instance: &Instance) -> Option<(String, Option<String>)> {
+    let written = instance.limits.memory_max.as_ref()?.0;
+    let controllers = instance.controllers.max_working;
+    let needed = crate::placement::needed_memory(controllers);
+    (written < needed).then(|| {
+        (
+            format!(
+                "box {name} memory: {written}G for {controllers} controllers; set \
+                 limits.memory_max to at least {needed}G"
+            ),
+            None,
+        )
+    })
 }
 
 /// The rows of a box the local daemon would open about the forge work of its controllers

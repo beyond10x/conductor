@@ -1,13 +1,15 @@
 domain: conductor.token
 
 summary: >
-  The token pool of an instance (design docs/design/architecture-next.md § 5.3, decisions 10 and
-  11): an engineer who joins an instance contributes their Claude token; the pool is a set of
-  secrets, each with its owner, its seat and its state (`ok`, or `limited until <time>`); values
-  never leave the secrets source except as a sealed slot. The `claude-code` kind leases one token
-  per agent start, resumes an agent on another token after a usage-limit stop, and names the
-  token's owner on every agent record. A controller started for Remote Control on a named owner's
-  token appears in that owner's Claude app.
+  The token pool of a host (design docs/design/architecture-next.md § 5.3, decisions 10 and 11;
+  story:host-token-pool): conductord's store holds one pool per host, shared by every instance it
+  runs. An engineer who joins contributes their Claude token to it; the pool is a set of secrets,
+  each with its owner, its seat and its state (`ok`, or `limited until <time>`); values never
+  leave the secrets source but for the one start that leases them. The `claude-code` kind of any
+  instance on the host leases a token per agent start (a token serves any number of agents at
+  once, one lease each), resumes an agent on another token after a usage-limit stop, and names
+  the token's owner on every agent record. A controller started for Remote Control on a named
+  owner's token appears in that owner's Claude app.
 
 naming:
   wire: token
@@ -23,15 +25,22 @@ types:
     kind: newtype
     of: Uuid
 
+  # A lease's id, minted when an agent start leases a token (story:host-token-pool).
+  - name: conductor.token.TokenLeaseId
+    kind: newtype
+    of: Uuid
+
   # The seat a token belongs to: the Claude login whose usage it draws on (§ 5.3, "usage is
   # attributable per seat").
   - name: conductor.token.Seat
     kind: newtype
     of: String
 
-  # The input of `conductor join` (story:token-pool), the binding's `join` callable: `instance`
-  # the instance joined, `seat` the Claude login the token draws on
-  # (absent, the operator's name). The token's value is read from standard input, never from a
+  # The input of `conductor join` (story:token-pool), the binding's `join` callable: `seat` the
+  # Claude login the token draws on (absent, the operator's name). The token joins the host's pool
+  # (story:host-token-pool); `instance`, when given, also records the caller as an operator of
+  # that instance with the grants `daemon.operators` gives them (`JoinInstance`); absent, no
+  # operator record is written. The token's value is read from standard input, never from a
   # flag, the environment or the config. The daemon is the one the global `--daemon` or
   # `CONDUCTOR_DAEMON` names (story:daemon-remote), as for every command with a route on its
   # global API; it is no field of the input. `kind` the kind of the token
@@ -44,63 +53,41 @@ types:
       - {name: seat, type: Optional<conductor.token.Seat>}
       - {name: kind, type: Optional<conductor.config.ModelTokenKind>}
 
-  # The input of `conductor leave`: the instance left, on the daemon `--daemon` names.
+  # The input of `conductor leave`: every token the caller contributed to the host's pool is
+  # withdrawn; `instance`, when given, also ends the caller's operator record of that instance
+  # (`LeaveInstance`). On the daemon `--daemon` names.
   - name: conductor.token.LeaveDaemon
     kind: struct
     fields:
       - {name: instance, type: Optional<conductor.config.InstanceName>}
 
-  # The input of `conductor token reveal`: the token whose value the `claude-code` kind's harness
-  # asks for (its settings' `apiKeyHelper`), by id; or, with `model_token`, the `model_token` of
-  # that instance of the config file, the token an agent at a placement with no box runs on when
-  # the pool leases it none and the config file says `daemon.unattended`
-  # (story:container-start-without-prompt); an instance whose placement opens a box is refused
-  # and nothing of its token is printed. One of the two is given.
+  # The input of `conductor token reveal`: the `model_token` of that instance of the config file,
+  # the token an agent at a placement with no box runs on when the pool leases it none and the
+  # config file says `daemon.unattended` (story:container-start-without-prompt); an instance whose
+  # placement opens a box is refused and nothing of its token is printed. A pool token is never
+  # revealed (story:host-token-pool): its value reaches the harness once, in its process's
+  # environment at its start, and no command prints it.
   - name: conductor.token.RevealToken
     kind: struct
     fields:
-      - {name: token, type: Optional<String>}
-      - {name: model_token, type: Optional<conductor.config.InstanceName>}
+      - {name: model_token, type: conductor.config.InstanceName}
 
 entities:
-  # The token pool of one instance (§ 5.3): a set of secrets in the instance's secrets namespace.
-  # UNMAPPED: no command in the design creates a pool (neither `ContributeToken`, nor
-  # `JoinInstance`, nor the instance's start is said to); which one does, and whether a pool
-  # exists before its first token, is an open question for the owner. Until it is answered no
-  # outcome creates this entity and no command checks that a pool exists.
-  - name: conductor.token.TokenPool
-    identity:
-      name: instance
-      type: conductor.config.InstanceName
-    fields: []
-    relations:
-      - name: tokens
-        kind: owns
-        target: conductor.token.PoolToken
-        cardinality: many
-        via: instance
-      - name: instance
-        kind: references
-        target: conductor.instance.Instance
-        cardinality: one
-        via: instance
-    lifecycle:
-      initial: Open
-      states: [Open]
-      terminal: [Open]
-
-  # One contributed token (§ 5.3): its pool, its owner (the operator who contributed it), its
-  # seat, the secret that holds its value (the name only; the value never leaves the secrets
-  # source except as a sealed slot), its usage state (`Ok`, or `Limited` until `limited_until`),
-  # the agent that holds its lease, and when it was contributed; and its kind
+  # One contributed token of the host's pool (§ 5.3, story:host-token-pool): its owner (the
+  # operator who contributed it), its seat, the secret that holds its value (the name only; the
+  # value never leaves the secrets source but for the start that leases it), its usage state
+  # (`Ok`, or `Limited` until `limited_until`), and when it was contributed; and its kind
   # (story:pool-token-kind-files-source): `SubscriptionToken` reaches the harness as
   # `CLAUDE_CODE_OAUTH_TOKEN` of its process's environment and its settings name no
   # `apiKeyHelper`, `ApiKey` through the settings' `apiKeyHelper`. A token recorded before the kind
-  # existed has none and is an `ApiKey`, the route every pool token took then.
+  # existed has none and is an `ApiKey`, the route every pool token took then. A token names no
+  # instance: every instance on the host leases from the one pool, and each lease is a
+  # `TokenLease` of its own, so a token serves several agents at once.
   #
-  # Lifecycle, as § 5.3 words it: `Available` once contributed; `Leased` while an agent of the
-  # `claude-code` kind runs on it (one lease per agent start); `Limited` once a usage-limit stop
-  # released it as limited; `Withdrawn` once its owner withdrew it (`conductor leave`).
+  # Lifecycle: `Available` once contributed, whatever its leases; `Limited` once an agent on it
+  # stopped at a usage limit, until `limited_until`; `Available` again once restored (a lease of
+  # a Limited token whose time is past, or with the account's headroom back, restores it first);
+  # `Withdrawn` once its owner withdrew it (`conductor leave`).
   #
   # UNMAPPED: `owner` names a `conductor.operator.Operator`, keyed by `OperatorKey {operator,
   # instance}`; a `references` relation via `owner` (an `OperatorName`) is refused by ess 0.90,
@@ -111,8 +98,6 @@ entities:
       name: token_id
       type: conductor.token.TokenId
     fields:
-      - name: instance
-        type: conductor.config.InstanceName
       - name: owner
         type: conductor.operator.OperatorName
       - name: seat
@@ -123,8 +108,6 @@ entities:
         type: conductor.token.TokenState
       - name: limited_until
         type: Optional<Timestamp>
-      - name: agent
-        type: Optional<conductor.agent.AgentName>
       - name: contributed_at
         type: Timestamp
       # Who created or last moved the record (architecture-next § 3 "Actors": every record
@@ -139,35 +122,82 @@ entities:
         target: conductor.secret.Secret
         cardinality: one
         via: secret
+      - name: leases
+        kind: owns
+        target: conductor.token.TokenLease
+        cardinality: many
+        via: token_id
+    lifecycle:
+      initial: Available
+      states: [Available, Limited, Withdrawn]
+      terminal: [Withdrawn]
+      transitions:
+        - name: limit
+          from: [Available, Limited]
+          to: Limited
+        - name: restore
+          from: [Limited]
+          to: Available
+        - name: withdraw
+          from: [Available, Limited]
+          to: Withdrawn
+
+  # One agent start's lease of a token of the host's pool (story:host-token-pool): the token, the
+  # agent that runs on it, the instance that agent belongs to (an agent holds at most one held
+  # lease per instance: `(instance, agent)` finds it, and a runtime acts only on its own
+  # instance's leases, the instance conductord admitted it as, never one its request names), the token's owner (whom the agent's
+  # record names), the owner the start asked for, if any, when it was leased and when released.
+  # `Held` while the agent runs; `Released` once it stopped, at a usage limit or not, or once its
+  # token was withdrawn.
+  - name: conductor.token.TokenLease
+    identity:
+      name: lease_id
+      type: conductor.token.TokenLeaseId
+    fields:
+      - name: token_id
+        type: conductor.token.TokenId
+      - name: agent
+        type: conductor.agent.AgentName
+      - name: instance
+        type: conductor.config.InstanceName
+      - name: owner
+        type: conductor.operator.OperatorName
+      - name: preferred_owner
+        type: Optional<conductor.operator.OperatorName>
+      - name: leased_at
+        type: Timestamp
+      - name: released_at
+        type: Optional<Timestamp>
+      - name: actor
+        type: conductor.operator.Actor
+      # The runtime start that leased it: a tag the daemon derives from the token it minted for
+      # that start, so the leases of a start that ended are released (reaped) once the instance
+      # runs on another start or not at all; absent for a start outside a runtime.
+      - name: runtime
+        type: Optional<String>
+    relations:
       - name: agent
         kind: references
         target: conductor.agent.Agent
         cardinality: one
         via: agent
-    # A `Limited` token is leased again (story:token-pool): the runtime's pick admits it once its
-    # `limited_until` is past, or, with a pool of one, when the account has headroom again (today's
-    # `auto-resume`); the lease sets it `Ok` and clears `limited_until`.
+      - name: instance
+        kind: references
+        target: conductor.instance.Instance
+        cardinality: one
+        via: instance
     lifecycle:
-      initial: Available
-      states: [Available, Leased, Limited, Withdrawn]
-      terminal: [Withdrawn]
+      initial: Held
+      states: [Held, Released]
+      terminal: [Released]
       transitions:
-        - name: lease
-          from: [Available, Limited]
-          to: Leased
         - name: release
-          from: [Leased]
-          to: Available
-        - name: limit
-          from: [Leased]
-          to: Limited
-        - name: withdraw
-          from: [Available, Leased, Limited]
-          to: Withdrawn
+          from: [Held]
+          to: Released
 
 actors:
-  # An operator contributes a token when joining an instance and withdraws it when leaving
-  # (`conductor join`, `conductor leave`, § 5.3).
+  # An operator contributes a token when joining and withdraws it when leaving (`conductor
+  # join`, `conductor leave`, § 5.3).
   - name: conductor.token.Operator
     may:
       - conductor.token.ContributeToken
@@ -176,9 +206,10 @@ actors:
       display: Operator
 
   # The instance runtime starts the instance's agents; its `claude-code` kind leases a token per
-  # agent start, releases it when the agent stops, and releases it as limited on a usage-limit
-  # stop (§ 5.3, § 7).
-  # UNMAPPED: the instance runtime, a program but no agent, issues these three commands. Which
+  # agent start, releases the lease when the agent stops, marks the token limited on a usage-limit
+  # stop and restores a Limited token it leases again (§ 5.3, § 7). A runtime in a box reaches
+  # these commands through conductord, over the connection it dials in (story:host-token-pool).
+  # UNMAPPED: the instance runtime, a program but no agent, issues these commands. Which
   # actor they carry (the agent the token serves, as the scenarios write it; `{kind: Daemon}`, the
   # runtime on its own account; or the person or agent that asked for the agent start) is said
   # nowhere. Open question for the owner.
@@ -187,6 +218,7 @@ actors:
       - conductor.token.LeaseToken
       - conductor.token.ReleaseToken
       - conductor.token.MarkTokenLimited
+      - conductor.token.RestoreToken
     naming:
       display: Instance runtime
 
@@ -194,17 +226,28 @@ errors:
 
   - name: conductor.token.TokenStateConflict
     summary: >
-      The token is not in a state the command acts from (a lease of a token that is not
-      Available, a release or a limit of one that is not Leased, a withdrawal of one already
-      withdrawn); nothing changed.
+      The token is not in a state the command acts from (a lease of a token that is withdrawn or
+      not in the pool, a limit of one that is withdrawn, a restore of one that is not Limited, a
+      withdrawal of one already withdrawn); nothing changed.
     fields:
       - name: token_id
         type: conductor.token.TokenId
 
+  # story:host-token-pool: a release of a lease already released.
+  - name: conductor.token.LeaseStateConflict
+    summary: >
+      The lease was released already, so there is nothing to release; nothing changed.
+    fields:
+      - name: lease_id
+        type: conductor.token.TokenLeaseId
+
+  # story:host-token-pool: the pool is the host's, so the refusal names the host's pool; the
+  # instance is the one whose agent start found no token.
   - name: conductor.token.NoTokenAvailable
     summary: >
-      No token of the instance's pool is Available (every one is leased, limited or withdrawn),
-      so no agent can start on one; nothing changed.
+      No token of the host's pool has headroom (every one is limited or withdrawn, or the owner
+      the start asked for has none), so the agent of the instance does not start on one; nothing
+      changed.
     fields:
       - name: instance
         type: conductor.config.InstanceName
@@ -218,9 +261,9 @@ errors:
       - name: token_id
         type: conductor.token.TokenId
 commands:
-  # `conductor join <daemon url> --instance <i>` contributes the joining engineer's Claude token
-  # to the instance's pool (§ 5.3): the token's value is already in the instance's secrets
-  # namespace under `secret`; the pool records its owner, seat, kind and state, never the value.
+  # `conductor join <daemon url>` contributes the joining engineer's Claude token to the host's
+  # pool (§ 5.3, story:host-token-pool): the token's value is already in the daemon's secrets
+  # source under `secret`; the pool records its owner, seat, kind and state, never the value.
   # Under the `files` source (story:pool-token-kind-files-source) the value is the file of that
   # name in `daemon.secrets.dir`, owner-only, which `conductor join` writes and `conductor leave`
   # removes: the one file conductor writes there.
@@ -230,7 +273,6 @@ commands:
       display: Contribute a token to the pool
     input:
       - {name: actor, type: conductor.operator.Actor}
-      - {name: instance, type: conductor.config.InstanceName}
       - {name: owner, type: conductor.operator.OperatorName}
       - {name: seat, type: conductor.token.Seat}
       - {name: secret, type: conductor.secret.SecretName}
@@ -248,13 +290,11 @@ commands:
         creates: conductor.token.PoolToken
         instance: token_id
         sets:
-          instance: input.instance
           owner: input.owner
           seat: input.seat
           secret: input.secret
           token_state: Ok
           limited_until: {cleared: true}
-          agent: {cleared: true}
           contributed_at: input.contributed_at
           actor: input.actor
           kind: input.kind
@@ -264,24 +304,16 @@ commands:
           conductor.token.TokenContributed:
             actor: input.actor
             token_id: {generated: true}
-            instance: input.instance
             owner: input.owner
             seat: input.seat
             secret: input.secret
             kind: input.kind
             contributed_at: input.contributed_at
-        summary: The token is in the pool, Available and Ok, with its owner, seat and kind.
+        summary: The token is in the host's pool, Available and Ok, with its owner, seat and kind.
 
-  # `conductor leave` withdraws the token (§ 5.3). Resuming the agent that held it on another
-  # token is the agent domain's reaction, not an outcome here.
-  # The event names no `agent`: a token withdrawn from Available or Limited holds none, and ess
-  # 0.90.0's interpreted target does not carry an absent Optional `{subject: agent}` after
-  # `sets: agent: {cleared: true}` while the synthesized suite expects it as `null` (an ess
-  # defect: an Optional subject field carried into a payload after a clear). Until that is fixed
-  # the event carries `token_id` and `owner`, and the agent to resume is the one whose record
-  # names the token.
-  # UNMAPPED: whether the agent domain finds that agent by the token (the design says the token's
-  # owner is named on every agent record, § 5.3, not the token) is said nowhere. Open question.
+  # `conductor leave` withdraws the token (§ 5.3). Each lease held on it is released by the
+  # implementation (`ReleaseToken`), and the agent on it resumed on another token; that
+  # resumption is the agent domain's reaction, not an outcome here.
   # Only the token's owner withdraws it (story:token-pool, decision K5). The comparison of
   # `actor.operator` with the token's `owner` is the implementation's (`not-owner`, external):
   # a `when_subject` guard on an Optional member of the actor is not one ess 0.90 compares.
@@ -312,7 +344,6 @@ commands:
         moves: conductor.token.PoolToken.withdraw
         instance: token_id
         sets:
-          agent: {cleared: true}
           actor: input.actor
         emits:
           - conductor.token.TokenWithdrawn
@@ -322,7 +353,7 @@ commands:
             token_id: input.token_id
             owner: {subject: owner}
             withdrawn_at: input.withdrawn_at
-        summary: The token is out of the pool; the agent that held it, if any, is named so it is resumed on another token.
+        summary: The token is out of the pool; the agents on its leases are resumed on another token.
       - name: wrong-state
         wrong_state: true
         error: conductor.token.TokenStateConflict
@@ -331,30 +362,25 @@ commands:
             token_id: input.token_id
         summary: The token was withdrawn already, and nothing changed.
 
-  # The `claude-code` kind leases one token per agent start (§ 5.3, § 7): the owner's own token
-  # first for an agent the owner asked for, otherwise the token with the most headroom. Which
-  # token that is, is the implementation's choice: the runtime picks it and names it in
-  # `token_id`; `preferred_owner` is the owner the agent was asked for by (or the named owner of
-  # `roles.controller.token_owner`, § 17), absent otherwise. When the pick finds no Available
-  # token in `instance`'s pool the runtime answers `none-available` before any token is read
-  # (`before_row: true`, ess/25); otherwise the token named moves from Available or Limited to Leased, and a
-  # token that is not Available is a wrong state.
-  # Why `none-available` is external: the row-set guard that says it (`when_related:
-  # {entity: PoolToken, where: [instance == input.instance, state == Available], exists: false}`)
-  # is answered after the addressed token's held state, so beside `wrong_state:` it never
-  # answered (the interpreted target answered `wrong-state`); without `wrong_state:` synthesis
-  # found no witness for it or for `leased` ("its own row set is Unknown", ESS-SYNTH-001), and
-  # every transition after a lease went unscenarioed. That the token named is in `instance`'s
-  # pool is the implementation's check: a `when_subject` guard beside a row-set guard is refused
-  # (ESS-COMMAND-009).
-  # "The token with the most headroom" (story:token-pool, decision K3) is the Available token of
-  # the pool leased the fewest times, ties broken by `token_id`; the ordering is the
-  # implementation's and no outcome checks it.
+  # The `claude-code` kind of any instance on the host leases one token per agent start (§ 5.3,
+  # § 7, story:host-token-pool): a lease of its own (`TokenLease`), so a token serves any number
+  # of agents at once. Which token, is the implementation's choice: the runtime picks it and
+  # names it in `token_id`, with its owner in `owner`; `preferred_owner` is the owner the agent
+  # was asked for by (or the named owner of `roles.controller.token_owner`, § 17), absent
+  # otherwise. When the pick finds no token with headroom in the host's pool the runtime answers
+  # `none-available` before any token is read; a token named that is not in the pool, or is
+  # withdrawn, is a state conflict.
+  # The pick (class C decision of story:host-token-pool) takes a token with headroom (`Available`,
+  # or `Limited` with `limited_until` past) with the fewest live (`Held`) leases, ties broken by
+  # `token_id`. Decision (operator, 2026-11-18): a token never holds more live leases than its
+  # kind's cap, `daemon.subscription_token_sessions` (absent 4) or `daemon.api_key_sessions`
+  # (absent 0, no cap); with every token at its cap the start is refused `none-available`, as
+  # with an empty pool; the ordering is the implementation's and no outcome checks it. With the account's
+  # headroom back (today's `auto-resume`) a Limited token is taken last, the earliest
+  # `limited_until` first. A Limited token is restored (`RestoreToken`) before it is leased.
   # A lease for a named owner (`preferred_owner`, or § 17's Remote Control controller on
-  # `roles.controller.token_owner`) whose tokens are none Available is refused `none-available`
-  # (decision K4): no other owner's token is taken.
-  # A Limited token is leased again once its `limited_until` is past, or, with a pool of one,
-  # when the account has headroom again (today's `auto-resume`); the lease sets it `Ok`.
+  # `roles.controller.token_owner`) whose tokens have none with headroom is refused
+  # `none-available` (decision K4): no other owner's token is taken.
   - name: conductor.token.LeaseToken
     naming:
       wire: lease-token
@@ -363,90 +389,109 @@ commands:
       - {name: actor, type: conductor.operator.Actor}
       - {name: instance, type: conductor.config.InstanceName}
       - {name: token_id, type: conductor.token.TokenId}
+      - {name: owner, type: conductor.operator.OperatorName}
       - {name: agent, type: conductor.agent.AgentName}
       - {name: preferred_owner, type: Optional<conductor.operator.OperatorName>}
+      - {name: runtime, type: Optional<String>}
       - {name: leased_at, type: Timestamp}
     outcomes:
       - name: none-available
-        external: the runtime's pick found no Available token in the instance's pool
+        external: the runtime's pick found no token with headroom in the host's pool
         before_row: true
         error: conductor.token.NoTokenAvailable
         payload:
           conductor.token.NoTokenAvailable:
             instance: input.instance
-        summary: The pool holds no Available token, so the agent does not start on one; nothing changed.
+        summary: The host's pool holds no token with headroom, so the agent does not start on one; nothing changed.
+      - name: unknown-token
+        when_related: {via: input.token_id, exists: false}
+        error: conductor.token.TokenStateConflict
+        payload:
+          conductor.token.TokenStateConflict:
+            token_id: input.token_id
+        summary: The token named is not in the pool; nothing changed.
+      - name: token-withdrawn
+        when_related: {via: input.token_id, predicate: {state: [Withdrawn]}}
+        error: conductor.token.TokenStateConflict
+        payload:
+          conductor.token.TokenStateConflict:
+            token_id: input.token_id
+        summary: The token named is withdrawn; nothing changed.
       - name: leased
-        moves: conductor.token.PoolToken.lease
-        instance: token_id
+        creates: conductor.token.TokenLease
+        instance: lease_id
         sets:
-          token_state: Ok
-          limited_until: {cleared: true}
+          token_id: input.token_id
           agent: input.agent
+          instance: input.instance
+          owner: input.owner
+          preferred_owner: input.preferred_owner
+          runtime: input.runtime
+          leased_at: input.leased_at
+          released_at: {cleared: true}
           actor: input.actor
         emits:
           - conductor.token.TokenLeased
         payload:
           conductor.token.TokenLeased:
             actor: input.actor
+            lease_id: {generated: true}
             token_id: input.token_id
             instance: input.instance
-            owner: {subject: owner}
-            seat: {subject: seat}
+            owner: input.owner
             agent: input.agent
             preferred_owner: input.preferred_owner
             leased_at: input.leased_at
-        summary: The agent runs on the token; the event names the token's owner and seat, so the agent's record names them.
-      - name: wrong-state
-        wrong_state: true
-        error: conductor.token.TokenStateConflict
-        payload:
-          conductor.token.TokenStateConflict:
-            token_id: input.token_id
-        summary: The token named is neither Available nor Limited (it is leased or withdrawn); nothing changed.
+        summary: The agent runs on the token under a lease of its own; the event names the token's owner, so the agent's record names them.
 
-  # The agent on the token stopped without a usage limit; the token is Available again.
+  # The agent on a lease stopped, at a usage limit or not, or its token was withdrawn: the lease
+  # is released. The token's own state does not move.
   - name: conductor.token.ReleaseToken
     naming:
       wire: release-token
-      display: Release a leased token
+      display: Release a token's lease
     input:
       - {name: actor, type: conductor.operator.Actor}
-      - {name: token_id, type: conductor.token.TokenId}
+      - {name: lease_id, type: conductor.token.TokenLeaseId}
       - {name: released_at, type: Timestamp}
     outcomes:
       - name: released
-        moves: conductor.token.PoolToken.release
-        instance: token_id
+        moves: conductor.token.TokenLease.release
+        instance: lease_id
         sets:
-          agent: {cleared: true}
+          released_at: input.released_at
           actor: input.actor
         emits:
           - conductor.token.TokenReleased
         payload:
           conductor.token.TokenReleased:
             actor: input.actor
-            token_id: input.token_id
+            lease_id: input.lease_id
+            token_id: {subject: token_id}
             agent: {subject: agent}
             released_at: input.released_at
-        summary: The token is Available again and holds no agent.
+        summary: The lease is released; its token serves its other leases and new ones as before.
       - name: wrong-state
         wrong_state: true
-        error: conductor.token.TokenStateConflict
+        error: conductor.token.LeaseStateConflict
         payload:
-          conductor.token.TokenStateConflict:
-            token_id: input.token_id
-        summary: The token is not Leased, so there is nothing to release; nothing changed.
+          conductor.token.LeaseStateConflict:
+            lease_id: input.lease_id
+        summary: The lease was released already, so there is nothing to release; nothing changed.
 
-  # The agent on the token stopped at a usage limit (§ 5.3): the token is released as limited
-  # until `limited_until`, and the event names the agent, so it is resumed on another token
-  # (today's `auto-resume`, over the pool); that resumption is the agent domain's reaction.
+  # An agent on the token stopped at a usage limit (§ 5.3): the token is Limited until
+  # `limited_until`, and the event names the agent, so it is resumed on another token (today's
+  # `auto-resume`, over the pool); that resumption is the agent domain's reaction. The runtime
+  # releases the agent's lease beside it (`ReleaseToken`). A token Limited already is limited
+  # again, until the later time given.
   - name: conductor.token.MarkTokenLimited
     naming:
       wire: mark-token-limited
-      display: Release a token as limited
+      display: Mark a token limited
     input:
       - {name: actor, type: conductor.operator.Actor}
       - {name: token_id, type: conductor.token.TokenId}
+      - {name: agent, type: Optional<conductor.agent.AgentName>}
       - {name: limited_until, type: Timestamp}
       - {name: limited_at, type: Timestamp}
     outcomes:
@@ -456,7 +501,6 @@ commands:
         sets:
           token_state: Limited
           limited_until: input.limited_until
-          agent: {cleared: true}
           actor: input.actor
         emits:
           - conductor.token.TokenLimited
@@ -465,24 +509,58 @@ commands:
             actor: input.actor
             token_id: input.token_id
             owner: {subject: owner}
-            agent: {subject: agent}
+            agent: input.agent
             limited_until: input.limited_until
             limited_at: input.limited_at
-        summary: The token is Limited until the time given and holds no agent; the agent it held is named to be resumed on another.
+        summary: The token is Limited until the time given; the agent that hit the limit is named to be resumed on another.
       - name: wrong-state
         wrong_state: true
         error: conductor.token.TokenStateConflict
         payload:
           conductor.token.TokenStateConflict:
             token_id: input.token_id
-        summary: The token is not Leased, so no agent on it hit a limit; nothing changed.
+        summary: The token is withdrawn, so no agent on it hit a limit; nothing changed.
+
+  # A Limited token is leased again (story:token-pool): once its `limited_until` is past, or,
+  # with the account's headroom back (today's `auto-resume`). The runtime restores it before the
+  # lease: `Ok` again, `limited_until` cleared.
+  - name: conductor.token.RestoreToken
+    naming:
+      wire: restore-token
+      display: Restore a limited token
+    input:
+      - {name: actor, type: conductor.operator.Actor}
+      - {name: token_id, type: conductor.token.TokenId}
+      - {name: restored_at, type: Timestamp}
+    outcomes:
+      - name: restored
+        moves: conductor.token.PoolToken.restore
+        instance: token_id
+        sets:
+          token_state: Ok
+          limited_until: {cleared: true}
+          actor: input.actor
+        emits:
+          - conductor.token.TokenRestored
+        payload:
+          conductor.token.TokenRestored:
+            actor: input.actor
+            token_id: input.token_id
+            restored_at: input.restored_at
+        summary: The token is Available and Ok again.
+      - name: wrong-state
+        wrong_state: true
+        error: conductor.token.TokenStateConflict
+        payload:
+          conductor.token.TokenStateConflict:
+            token_id: input.token_id
+        summary: The token is not Limited; nothing changed.
 
 events:
   - name: conductor.token.TokenContributed
     fields:
       - {name: actor, type: conductor.operator.Actor}
       - {name: token_id, type: conductor.token.TokenId}
-      - {name: instance, type: conductor.config.InstanceName}
       - {name: owner, type: conductor.operator.OperatorName}
       - {name: seat, type: conductor.token.Seat}
       - {name: secret, type: conductor.secret.SecretName}
@@ -499,10 +577,10 @@ events:
   - name: conductor.token.TokenLeased
     fields:
       - {name: actor, type: conductor.operator.Actor}
+      - {name: lease_id, type: conductor.token.TokenLeaseId}
       - {name: token_id, type: conductor.token.TokenId}
       - {name: instance, type: conductor.config.InstanceName}
       - {name: owner, type: conductor.operator.OperatorName}
-      - {name: seat, type: conductor.token.Seat}
       - {name: agent, type: conductor.agent.AgentName}
       - {name: preferred_owner, type: Optional<conductor.operator.OperatorName>}
       - {name: leased_at, type: Timestamp}
@@ -510,8 +588,9 @@ events:
   - name: conductor.token.TokenReleased
     fields:
       - {name: actor, type: conductor.operator.Actor}
+      - {name: lease_id, type: conductor.token.TokenLeaseId}
       - {name: token_id, type: conductor.token.TokenId}
-      - {name: agent, type: Optional<conductor.agent.AgentName>}
+      - {name: agent, type: conductor.agent.AgentName}
       - {name: released_at, type: Timestamp}
 
   - name: conductor.token.TokenLimited
@@ -523,24 +602,24 @@ events:
       - {name: limited_until, type: Timestamp}
       - {name: limited_at, type: Timestamp}
 
+  - name: conductor.token.TokenRestored
+    fields:
+      - {name: actor, type: conductor.operator.Actor}
+      - {name: token_id, type: conductor.token.TokenId}
+      - {name: restored_at, type: Timestamp}
+
 views:
-  # `GET /v1/instances/{name}/tokens` (§ 5.3): owners, seats, states and the holding agent of one
-  # instance's pool; never a value, nor the name of the secret that holds it. The instance is the
-  # route's path segment (`crates/conductor/http.yaml`).
+  # `GET /v1/tokens` (§ 5.3, story:host-token-pool): owners, seats, states and kinds of the
+  # host's pool; never a value, nor the name of the secret that holds it. The daemon also
+  # answers it at `GET /v1/instances/{name}/tokens`, the pool every instance leases from.
   - name: conductor.token.Tokens
     source: conductor.token.PoolToken
     consistency: read_your_writes
-    params:
-      - name: instance
-        type: conductor.config.InstanceName
-    filter: instance == param.instance
     fields:
       - name: token_id
         type: conductor.token.TokenId
       - name: state
         type: conductor.token.PoolToken.State
-      - name: instance
-        type: conductor.config.InstanceName
       - name: owner
         type: conductor.operator.OperatorName
       - name: seat
@@ -549,8 +628,6 @@ views:
         type: conductor.token.TokenState
       - name: limited_until
         type: Optional<Timestamp>
-      - name: agent
-        type: Optional<conductor.agent.AgentName>
       - name: contributed_at
         type: Timestamp
       - name: actor
@@ -560,3 +637,29 @@ views:
     naming:
       wire: tokens
       display: Tokens of the pool
+
+  # The leases of the host's pool (story:host-token-pool): which agent of which instance runs on
+  # which token, held or released.
+  - name: conductor.token.TokenLeases
+    source: conductor.token.TokenLease
+    consistency: read_your_writes
+    fields:
+      - name: lease_id
+        type: conductor.token.TokenLeaseId
+      - name: state
+        type: conductor.token.TokenLease.State
+      - name: token_id
+        type: conductor.token.TokenId
+      - name: agent
+        type: conductor.agent.AgentName
+      - name: instance
+        type: conductor.config.InstanceName
+      - name: owner
+        type: conductor.operator.OperatorName
+      - name: leased_at
+        type: Timestamp
+      - name: released_at
+        type: Optional<Timestamp>
+    naming:
+      wire: token-leases
+      display: Leases of the pool

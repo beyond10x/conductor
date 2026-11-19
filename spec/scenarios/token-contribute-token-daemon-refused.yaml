@@ -12,7 +12,6 @@ timeline:
     actor: conductor.token.Operator
     input:
       actor: {kind: Daemon}
-      instance: example-org
       owner: alice
       seat: alice@example-org.example
       secret: example-org-claude-alice
@@ -24,6 +23,5 @@ timeline:
 
 assert:
   - view: conductor.token.Tokens
-    params: {instance: example-org}
     excludes:
       owner: alice

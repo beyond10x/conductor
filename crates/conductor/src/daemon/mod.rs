@@ -496,9 +496,18 @@ pub fn answer_upgrade<U: units::Units>(
 /// instances' rows, the routes to their runtimes and the deployment's operators.
 fn publish<U: units::Units>(api: &api::Api, daemon: &Daemon<U>) {
     api.publish_unrecorded(daemon.holds_records());
+    let routes = daemon.routes();
+    // story:host-token-pool: the leases of a runtime start that ended are released, by the
+    // fingerprint of the token minted for the start each instance runs on now.
+    let starts: std::collections::BTreeMap<String, String> = routes
+        .iter()
+        .filter(|(_, route)| !route.token.is_empty())
+        .map(|(name, route)| (name.clone(), crate::token::runtime_tag(&route.token)))
+        .collect();
+    crate::token::reap_routes(&daemon.config().daemon.store.0, &starts);
     api.publish(
         daemon.rows(),
-        daemon.routes(),
+        routes,
         daemon.config().daemon.operators.clone(),
     );
     api.publish_host(host_roles::listed(daemon.config()), daemon.supervisor());

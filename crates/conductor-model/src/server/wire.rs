@@ -1,5 +1,5 @@
 // generated from conductor v1
-// contract digest 20ddd37e2cbb8b4d6af341870bbfad2afae45b8659a4f31603258eb2dc514f07
+// contract digest f9b97474e363529d89efb80bf5ba004e441e796a0dac65b2cc8dcd802f7432be
 // do not edit: regenerate with `ess synthesize --layout crate`
 //! Every generated declaration, as JSON, in the renderings the published wire contracts fix.
 //!
@@ -1247,6 +1247,10 @@ pub fn encode_conductor_config_daemon(value: &crate::config::Daemon, out: &mut S
     }
     json::member(out, "dial_port");
     json::push_integer(out, value.dial_port);
+    json::member(out, "subscription_token_sessions");
+    json::push_integer(out, value.subscription_token_sessions);
+    json::member(out, "api_key_sessions");
+    json::push_integer(out, value.api_key_sessions);
     out.push('}');
 }
 
@@ -1256,7 +1260,7 @@ pub fn encode_conductor_config_daemon(value: &crate::config::Daemon, out: &mut S
 ///
 /// [`json::DecodeError`] naming the path and what the declaration says belongs there.
 pub fn decode_conductor_config_daemon(value: &json::Value, at: &str) -> Result<crate::config::Daemon, json::DecodeError> {
-    json::closed_at(value, at, &["port", "loopback", "tls", "cadence", "store", "secrets", "dashboard", "operators", "upgrade_timeout", "timeout", "substrate_slots", "unattended", "address", "kubernetes", "control_token", "dial_port"])?;
+    json::closed_at(value, at, &["port", "loopback", "tls", "cadence", "store", "secrets", "dashboard", "operators", "upgrade_timeout", "timeout", "substrate_slots", "unattended", "address", "kubernetes", "control_token", "dial_port", "subscription_token_sessions", "api_key_sessions"])?;
     Ok(crate::config::Daemon {
         port: {
             let at0 = json::nested(at, "port");
@@ -1350,6 +1354,16 @@ pub fn decode_conductor_config_daemon(value: &json::Value, at: &str) -> Result<c
             let at15 = json::nested(at, "dial_port");
             let member15 = json::member_at(value, at, "dial_port")?;
             json::integer_at(member15, &at15, "an integer")?
+        },
+        subscription_token_sessions: {
+            let at16 = json::nested(at, "subscription_token_sessions");
+            let member16 = json::member_at(value, at, "subscription_token_sessions")?;
+            json::integer_at(member16, &at16, "an integer")?
+        },
+        api_key_sessions: {
+            let at17 = json::nested(at, "api_key_sessions");
+            let member17 = json::member_at(value, at, "api_key_sessions")?;
+            json::integer_at(member17, &at17, "an integer")?
         },
     })
 }
@@ -12325,7 +12339,6 @@ pub fn decode_conductor_token_leave_daemon(value: &json::Value, at: &str) -> Res
 pub fn encode_conductor_token_pool_token_state(value: &crate::token::PoolTokenState, out: &mut String) {
     match value {
         crate::token::PoolTokenState::Available => json::push_text(out, "Available"),
-        crate::token::PoolTokenState::Leased => json::push_text(out, "Leased"),
         crate::token::PoolTokenState::Limited => json::push_text(out, "Limited"),
         crate::token::PoolTokenState::Withdrawn => json::push_text(out, "Withdrawn"),
     }
@@ -12337,26 +12350,19 @@ pub fn encode_conductor_token_pool_token_state(value: &crate::token::PoolTokenSt
 ///
 /// [`json::DecodeError`] naming the path and what the declaration says belongs there.
 pub fn decode_conductor_token_pool_token_state(value: &json::Value, at: &str) -> Result<crate::token::PoolTokenState, json::DecodeError> {
-    Ok(match json::text_at(value, at, "one of `Available`, `Leased`, `Limited`, `Withdrawn`")? {
+    Ok(match json::text_at(value, at, "one of `Available`, `Limited`, `Withdrawn`")? {
         "Available" => crate::token::PoolTokenState::Available,
-        "Leased" => crate::token::PoolTokenState::Leased,
         "Limited" => crate::token::PoolTokenState::Limited,
         "Withdrawn" => crate::token::PoolTokenState::Withdrawn,
-        other => return Err(json::DecodeError { at: at.to_owned(), expected: "one of `Available`, `Leased`, `Limited`, `Withdrawn`".to_owned(), found: format!("`{other}`") }),
+        other => return Err(json::DecodeError { at: at.to_owned(), expected: "one of `Available`, `Limited`, `Withdrawn`".to_owned(), found: format!("`{other}`") }),
     })
 }
 
 /// Writes `conductor.token.RevealToken` as JSON.
 pub fn encode_conductor_token_reveal_token(value: &crate::token::RevealToken, out: &mut String) {
     out.push('{');
-    if let Some(held0) = &value.token {
-        json::member(out, "token");
-        json::push_text(out, &*held0);
-    }
-    if let Some(held0) = &value.model_token {
-        json::member(out, "model_token");
-        encode_conductor_config_instance_name(&*held0, out);
-    }
+    json::member(out, "model_token");
+    encode_conductor_config_instance_name(&value.model_token, out);
     out.push('}');
 }
 
@@ -12366,21 +12372,12 @@ pub fn encode_conductor_token_reveal_token(value: &crate::token::RevealToken, ou
 ///
 /// [`json::DecodeError`] naming the path and what the declaration says belongs there.
 pub fn decode_conductor_token_reveal_token(value: &json::Value, at: &str) -> Result<crate::token::RevealToken, json::DecodeError> {
-    json::closed_at(value, at, &["token", "model_token"])?;
+    json::closed_at(value, at, &["model_token"])?;
     Ok(crate::token::RevealToken {
-        token: match value.member("token") {
-            None | Some(json::Value::Null) => None,
-            Some(member0) => {
-                let at0 = json::nested(at, "token");
-                Some(json::text_at(member0, &at0, "a string")?.to_owned())
-            }
-        },
-        model_token: match value.member("model_token") {
-            None | Some(json::Value::Null) => None,
-            Some(member1) => {
-                let at1 = json::nested(at, "model_token");
-                Some(decode_conductor_config_instance_name(member1, &at1)?)
-            }
+        model_token: {
+            let at0 = json::nested(at, "model_token");
+            let member0 = json::member_at(value, at, "model_token")?;
+            decode_conductor_config_instance_name(member0, &at0)?
         },
     })
 }
@@ -12413,23 +12410,39 @@ pub fn decode_conductor_token_token_id(value: &json::Value, at: &str) -> Result<
     Ok(crate::token::TokenId(crate::primitives::Uuid(json::uuid_at(value, at, "a UUID")?.to_owned())))
 }
 
-/// Writes `conductor.token.TokenPool.State` as JSON.
-pub fn encode_conductor_token_token_pool_state(value: &crate::token::TokenPoolState, out: &mut String) {
+/// Writes `conductor.token.TokenLease.State` as JSON.
+pub fn encode_conductor_token_token_lease_state(value: &crate::token::TokenLeaseState, out: &mut String) {
     match value {
-        crate::token::TokenPoolState::Open => json::push_text(out, "Open"),
+        crate::token::TokenLeaseState::Held => json::push_text(out, "Held"),
+        crate::token::TokenLeaseState::Released => json::push_text(out, "Released"),
     }
 }
 
-/// Reads `conductor.token.TokenPool.State` from JSON.
+/// Reads `conductor.token.TokenLease.State` from JSON.
 ///
 /// # Errors
 ///
 /// [`json::DecodeError`] naming the path and what the declaration says belongs there.
-pub fn decode_conductor_token_token_pool_state(value: &json::Value, at: &str) -> Result<crate::token::TokenPoolState, json::DecodeError> {
-    Ok(match json::text_at(value, at, "one of `Open`")? {
-        "Open" => crate::token::TokenPoolState::Open,
-        other => return Err(json::DecodeError { at: at.to_owned(), expected: "one of `Open`".to_owned(), found: format!("`{other}`") }),
+pub fn decode_conductor_token_token_lease_state(value: &json::Value, at: &str) -> Result<crate::token::TokenLeaseState, json::DecodeError> {
+    Ok(match json::text_at(value, at, "one of `Held`, `Released`")? {
+        "Held" => crate::token::TokenLeaseState::Held,
+        "Released" => crate::token::TokenLeaseState::Released,
+        other => return Err(json::DecodeError { at: at.to_owned(), expected: "one of `Held`, `Released`".to_owned(), found: format!("`{other}`") }),
     })
+}
+
+/// Writes `conductor.token.TokenLeaseId` as JSON.
+pub fn encode_conductor_token_token_lease_id(value: &crate::token::TokenLeaseId, out: &mut String) {
+    json::push_text(out, &value.0.0);
+}
+
+/// Reads `conductor.token.TokenLeaseId` from JSON.
+///
+/// # Errors
+///
+/// [`json::DecodeError`] naming the path and what the declaration says belongs there.
+pub fn decode_conductor_token_token_lease_id(value: &json::Value, at: &str) -> Result<crate::token::TokenLeaseId, json::DecodeError> {
+    Ok(crate::token::TokenLeaseId(crate::primitives::Uuid(json::uuid_at(value, at, "a UUID")?.to_owned())))
 }
 
 /// Writes `conductor.token.TokenState` as JSON.
@@ -18065,8 +18078,6 @@ pub fn encode_event_conductor_token_token_contributed(value: &crate::token::Toke
     encode_conductor_operator_actor(&value.actor, out);
     json::member(out, "token_id");
     encode_conductor_token_token_id(&value.token_id, out);
-    json::member(out, "instance");
-    encode_conductor_config_instance_name(&value.instance, out);
     json::member(out, "owner");
     encode_conductor_operator_operator_name(&value.owner, out);
     json::member(out, "seat");
@@ -18097,35 +18108,30 @@ pub fn decode_event_conductor_token_token_contributed(value: &json::Value, at: &
             let member1 = json::member_at(value, at, "token_id")?;
             decode_conductor_token_token_id(member1, &at1)?
         },
-        instance: {
-            let at2 = json::nested(at, "instance");
-            let member2 = json::member_at(value, at, "instance")?;
-            decode_conductor_config_instance_name(member2, &at2)?
-        },
         owner: {
-            let at3 = json::nested(at, "owner");
-            let member3 = json::member_at(value, at, "owner")?;
-            decode_conductor_operator_operator_name(member3, &at3)?
+            let at2 = json::nested(at, "owner");
+            let member2 = json::member_at(value, at, "owner")?;
+            decode_conductor_operator_operator_name(member2, &at2)?
         },
         seat: {
-            let at4 = json::nested(at, "seat");
-            let member4 = json::member_at(value, at, "seat")?;
-            decode_conductor_token_seat(member4, &at4)?
+            let at3 = json::nested(at, "seat");
+            let member3 = json::member_at(value, at, "seat")?;
+            decode_conductor_token_seat(member3, &at3)?
         },
         secret: {
-            let at5 = json::nested(at, "secret");
-            let member5 = json::member_at(value, at, "secret")?;
-            decode_conductor_secret_secret_name(member5, &at5)?
+            let at4 = json::nested(at, "secret");
+            let member4 = json::member_at(value, at, "secret")?;
+            decode_conductor_secret_secret_name(member4, &at4)?
         },
         kind: {
-            let at6 = json::nested(at, "kind");
-            let member6 = json::member_at(value, at, "kind")?;
-            decode_conductor_config_model_token_kind(member6, &at6)?
+            let at5 = json::nested(at, "kind");
+            let member5 = json::member_at(value, at, "kind")?;
+            decode_conductor_config_model_token_kind(member5, &at5)?
         },
         contributed_at: {
-            let at7 = json::nested(at, "contributed_at");
-            let member7 = json::member_at(value, at, "contributed_at")?;
-            crate::primitives::Timestamp(json::timestamp_at(member7, &at7, "an RFC 3339 instant")?.to_owned())
+            let at6 = json::nested(at, "contributed_at");
+            let member6 = json::member_at(value, at, "contributed_at")?;
+            crate::primitives::Timestamp(json::timestamp_at(member6, &at6, "an RFC 3339 instant")?.to_owned())
         },
     })
 }
@@ -18135,14 +18141,14 @@ pub fn encode_event_conductor_token_token_leased(value: &crate::token::TokenLeas
     out.push('{');
     json::member(out, "actor");
     encode_conductor_operator_actor(&value.actor, out);
+    json::member(out, "lease_id");
+    encode_conductor_token_token_lease_id(&value.lease_id, out);
     json::member(out, "token_id");
     encode_conductor_token_token_id(&value.token_id, out);
     json::member(out, "instance");
     encode_conductor_config_instance_name(&value.instance, out);
     json::member(out, "owner");
     encode_conductor_operator_operator_name(&value.owner, out);
-    json::member(out, "seat");
-    encode_conductor_token_seat(&value.seat, out);
     json::member(out, "agent");
     encode_conductor_agent_agent_name(&value.agent, out);
     if let Some(held0) = &value.preferred_owner {
@@ -18166,25 +18172,25 @@ pub fn decode_event_conductor_token_token_leased(value: &json::Value, at: &str) 
             let member0 = json::member_at(value, at, "actor")?;
             decode_conductor_operator_actor(member0, &at0)?
         },
+        lease_id: {
+            let at1 = json::nested(at, "lease_id");
+            let member1 = json::member_at(value, at, "lease_id")?;
+            decode_conductor_token_token_lease_id(member1, &at1)?
+        },
         token_id: {
-            let at1 = json::nested(at, "token_id");
-            let member1 = json::member_at(value, at, "token_id")?;
-            decode_conductor_token_token_id(member1, &at1)?
+            let at2 = json::nested(at, "token_id");
+            let member2 = json::member_at(value, at, "token_id")?;
+            decode_conductor_token_token_id(member2, &at2)?
         },
         instance: {
-            let at2 = json::nested(at, "instance");
-            let member2 = json::member_at(value, at, "instance")?;
-            decode_conductor_config_instance_name(member2, &at2)?
+            let at3 = json::nested(at, "instance");
+            let member3 = json::member_at(value, at, "instance")?;
+            decode_conductor_config_instance_name(member3, &at3)?
         },
         owner: {
-            let at3 = json::nested(at, "owner");
-            let member3 = json::member_at(value, at, "owner")?;
-            decode_conductor_operator_operator_name(member3, &at3)?
-        },
-        seat: {
-            let at4 = json::nested(at, "seat");
-            let member4 = json::member_at(value, at, "seat")?;
-            decode_conductor_token_seat(member4, &at4)?
+            let at4 = json::nested(at, "owner");
+            let member4 = json::member_at(value, at, "owner")?;
+            decode_conductor_operator_operator_name(member4, &at4)?
         },
         agent: {
             let at5 = json::nested(at, "agent");
@@ -18273,12 +18279,12 @@ pub fn encode_event_conductor_token_token_released(value: &crate::token::TokenRe
     out.push('{');
     json::member(out, "actor");
     encode_conductor_operator_actor(&value.actor, out);
+    json::member(out, "lease_id");
+    encode_conductor_token_token_lease_id(&value.lease_id, out);
     json::member(out, "token_id");
     encode_conductor_token_token_id(&value.token_id, out);
-    if let Some(held0) = &value.agent {
-        json::member(out, "agent");
-        encode_conductor_agent_agent_name(&*held0, out);
-    }
+    json::member(out, "agent");
+    encode_conductor_agent_agent_name(&value.agent, out);
     json::member(out, "released_at");
     json::push_text(out, &value.released_at.0);
     out.push('}');
@@ -18296,22 +18302,62 @@ pub fn decode_event_conductor_token_token_released(value: &json::Value, at: &str
             let member0 = json::member_at(value, at, "actor")?;
             decode_conductor_operator_actor(member0, &at0)?
         },
+        lease_id: {
+            let at1 = json::nested(at, "lease_id");
+            let member1 = json::member_at(value, at, "lease_id")?;
+            decode_conductor_token_token_lease_id(member1, &at1)?
+        },
+        token_id: {
+            let at2 = json::nested(at, "token_id");
+            let member2 = json::member_at(value, at, "token_id")?;
+            decode_conductor_token_token_id(member2, &at2)?
+        },
+        agent: {
+            let at3 = json::nested(at, "agent");
+            let member3 = json::member_at(value, at, "agent")?;
+            decode_conductor_agent_agent_name(member3, &at3)?
+        },
+        released_at: {
+            let at4 = json::nested(at, "released_at");
+            let member4 = json::member_at(value, at, "released_at")?;
+            crate::primitives::Timestamp(json::timestamp_at(member4, &at4, "an RFC 3339 instant")?.to_owned())
+        },
+    })
+}
+
+/// Writes the event `conductor.token.TokenRestored` as JSON.
+pub fn encode_event_conductor_token_token_restored(value: &crate::token::TokenRestored, out: &mut String) {
+    out.push('{');
+    json::member(out, "actor");
+    encode_conductor_operator_actor(&value.actor, out);
+    json::member(out, "token_id");
+    encode_conductor_token_token_id(&value.token_id, out);
+    json::member(out, "restored_at");
+    json::push_text(out, &value.restored_at.0);
+    out.push('}');
+}
+
+/// Reads the event `conductor.token.TokenRestored` from JSON, the payload [`encode_event_conductor_token_token_restored`] writes.
+///
+/// # Errors
+///
+/// [`json::DecodeError`] naming the path and what the declaration says belongs there.
+pub fn decode_event_conductor_token_token_restored(value: &json::Value, at: &str) -> Result<crate::token::TokenRestored, json::DecodeError> {
+    Ok(crate::token::TokenRestored {
+        actor: {
+            let at0 = json::nested(at, "actor");
+            let member0 = json::member_at(value, at, "actor")?;
+            decode_conductor_operator_actor(member0, &at0)?
+        },
         token_id: {
             let at1 = json::nested(at, "token_id");
             let member1 = json::member_at(value, at, "token_id")?;
             decode_conductor_token_token_id(member1, &at1)?
         },
-        agent: match value.member("agent") {
-            None | Some(json::Value::Null) => None,
-            Some(member2) => {
-                let at2 = json::nested(at, "agent");
-                Some(decode_conductor_agent_agent_name(member2, &at2)?)
-            }
-        },
-        released_at: {
-            let at3 = json::nested(at, "released_at");
-            let member3 = json::member_at(value, at, "released_at")?;
-            crate::primitives::Timestamp(json::timestamp_at(member3, &at3, "an RFC 3339 instant")?.to_owned())
+        restored_at: {
+            let at2 = json::nested(at, "restored_at");
+            let member2 = json::member_at(value, at, "restored_at")?;
+            crate::primitives::Timestamp(json::timestamp_at(member2, &at2, "an RFC 3339 instant")?.to_owned())
         },
     })
 }
@@ -19325,6 +19371,14 @@ pub fn encode_error_conductor_store_source_missing(value: &crate::store::SourceM
     encode_conductor_config_instance_name(&value.instance, out);
     json::member(out, "source");
     json::push_text(out, &value.source);
+    out.push('}');
+}
+
+/// Writes the declared error `conductor.token.LeaseStateConflict` as JSON.
+pub fn encode_error_conductor_token_lease_state_conflict(value: &crate::token::LeaseStateConflict, out: &mut String) {
+    out.push('{');
+    json::member(out, "lease_id");
+    encode_conductor_token_token_lease_id(&value.lease_id, out);
     out.push('}');
 }
 
@@ -21177,6 +21231,30 @@ pub fn encode_view_conductor_store_version(value: &crate::store::Version, out: &
     out.push('}');
 }
 
+/// Writes one row of the view `conductor.token.TokenLeases` as JSON.
+pub fn encode_view_conductor_token_token_leases(value: &crate::token::TokenLeases, out: &mut String) {
+    out.push('{');
+    json::member(out, "lease_id");
+    encode_conductor_token_token_lease_id(&value.lease_id, out);
+    json::member(out, "state");
+    encode_conductor_token_token_lease_state(&value.state, out);
+    json::member(out, "token_id");
+    encode_conductor_token_token_id(&value.token_id, out);
+    json::member(out, "agent");
+    encode_conductor_agent_agent_name(&value.agent, out);
+    json::member(out, "instance");
+    encode_conductor_config_instance_name(&value.instance, out);
+    json::member(out, "owner");
+    encode_conductor_operator_operator_name(&value.owner, out);
+    json::member(out, "leased_at");
+    json::push_text(out, &value.leased_at.0);
+    if let Some(held0) = &value.released_at {
+        json::member(out, "released_at");
+        json::push_text(out, &(*held0).0);
+    }
+    out.push('}');
+}
+
 /// Writes one row of the view `conductor.token.Tokens` as JSON.
 pub fn encode_view_conductor_token_tokens(value: &crate::token::Tokens, out: &mut String) {
     out.push('{');
@@ -21184,8 +21262,6 @@ pub fn encode_view_conductor_token_tokens(value: &crate::token::Tokens, out: &mu
     encode_conductor_token_token_id(&value.token_id, out);
     json::member(out, "state");
     encode_conductor_token_pool_token_state(&value.state, out);
-    json::member(out, "instance");
-    encode_conductor_config_instance_name(&value.instance, out);
     json::member(out, "owner");
     encode_conductor_operator_operator_name(&value.owner, out);
     json::member(out, "seat");
@@ -21196,10 +21272,6 @@ pub fn encode_view_conductor_token_tokens(value: &crate::token::Tokens, out: &mu
         json::member(out, "limited_until");
         json::push_text(out, &(*held0).0);
     }
-    if let Some(held0) = &value.agent {
-        json::member(out, "agent");
-        encode_conductor_agent_agent_name(&*held0, out);
-    }
     json::member(out, "contributed_at");
     json::push_text(out, &value.contributed_at.0);
     json::member(out, "actor");
@@ -21209,21 +21281,6 @@ pub fn encode_view_conductor_token_tokens(value: &crate::token::Tokens, out: &mu
         encode_conductor_config_model_token_kind(&*held0, out);
     }
     out.push('}');
-}
-
-/// Reads the parameters of `conductor.token.Tokens` from an object keyed by their wire names.
-///
-/// # Errors
-///
-/// [`json::DecodeError`] naming the parameter and what the declaration says belongs there.
-pub fn decode_params_conductor_token_tokens(value: &json::Value, at: &str) -> Result<(crate::config::InstanceName,), json::DecodeError> {
-    Ok((
-        {
-            let at0 = json::nested(at, "instance");
-            let member0 = json::member_at(value, at, "instance")?;
-            decode_conductor_config_instance_name(member0, &at0)?
-        },
-    ))
 }
 
 /// Writes one row of the view `conductor.tool.ToolCalls` as JSON.
@@ -34183,8 +34240,6 @@ pub fn encode_command_conductor_token_contribute_token(value: &crate::token::Con
     out.push('{');
     json::member(out, "actor");
     encode_conductor_operator_actor(&value.actor, out);
-    json::member(out, "instance");
-    encode_conductor_config_instance_name(&value.instance, out);
     json::member(out, "owner");
     encode_conductor_operator_operator_name(&value.owner, out);
     json::member(out, "seat");
@@ -34204,42 +34259,37 @@ pub fn encode_command_conductor_token_contribute_token(value: &crate::token::Con
 ///
 /// [`json::DecodeError`] naming the path and what the declaration says belongs there.
 pub fn decode_command_conductor_token_contribute_token(value: &json::Value, at: &str) -> Result<crate::token::ContributeToken, json::DecodeError> {
-    json::closed_at(value, at, &["actor", "instance", "owner", "seat", "secret", "kind", "contributed_at"])?;
+    json::closed_at(value, at, &["actor", "owner", "seat", "secret", "kind", "contributed_at"])?;
     Ok(crate::token::ContributeToken {
         actor: {
             let at0 = json::nested(at, "actor");
             let member0 = json::member_at(value, at, "actor")?;
             decode_conductor_operator_actor(member0, &at0)?
         },
-        instance: {
-            let at1 = json::nested(at, "instance");
-            let member1 = json::member_at(value, at, "instance")?;
-            decode_conductor_config_instance_name(member1, &at1)?
-        },
         owner: {
-            let at2 = json::nested(at, "owner");
-            let member2 = json::member_at(value, at, "owner")?;
-            decode_conductor_operator_operator_name(member2, &at2)?
+            let at1 = json::nested(at, "owner");
+            let member1 = json::member_at(value, at, "owner")?;
+            decode_conductor_operator_operator_name(member1, &at1)?
         },
         seat: {
-            let at3 = json::nested(at, "seat");
-            let member3 = json::member_at(value, at, "seat")?;
-            decode_conductor_token_seat(member3, &at3)?
+            let at2 = json::nested(at, "seat");
+            let member2 = json::member_at(value, at, "seat")?;
+            decode_conductor_token_seat(member2, &at2)?
         },
         secret: {
-            let at4 = json::nested(at, "secret");
-            let member4 = json::member_at(value, at, "secret")?;
-            decode_conductor_secret_secret_name(member4, &at4)?
+            let at3 = json::nested(at, "secret");
+            let member3 = json::member_at(value, at, "secret")?;
+            decode_conductor_secret_secret_name(member3, &at3)?
         },
         kind: {
-            let at5 = json::nested(at, "kind");
-            let member5 = json::member_at(value, at, "kind")?;
-            decode_conductor_config_model_token_kind(member5, &at5)?
+            let at4 = json::nested(at, "kind");
+            let member4 = json::member_at(value, at, "kind")?;
+            decode_conductor_config_model_token_kind(member4, &at4)?
         },
         contributed_at: {
-            let at6 = json::nested(at, "contributed_at");
-            let member6 = json::member_at(value, at, "contributed_at")?;
-            crate::primitives::Timestamp(json::timestamp_at(member6, &at6, "an RFC 3339 instant")?.to_owned())
+            let at5 = json::nested(at, "contributed_at");
+            let member5 = json::member_at(value, at, "contributed_at")?;
+            crate::primitives::Timestamp(json::timestamp_at(member5, &at5, "an RFC 3339 instant")?.to_owned())
         },
     })
 }
@@ -34289,11 +34339,17 @@ pub fn encode_command_conductor_token_lease_token(value: &crate::token::LeaseTok
     encode_conductor_config_instance_name(&value.instance, out);
     json::member(out, "token_id");
     encode_conductor_token_token_id(&value.token_id, out);
+    json::member(out, "owner");
+    encode_conductor_operator_operator_name(&value.owner, out);
     json::member(out, "agent");
     encode_conductor_agent_agent_name(&value.agent, out);
     if let Some(held0) = &value.preferred_owner {
         json::member(out, "preferred_owner");
         encode_conductor_operator_operator_name(&*held0, out);
+    }
+    if let Some(held0) = &value.runtime {
+        json::member(out, "runtime");
+        json::push_text(out, &*held0);
     }
     json::member(out, "leased_at");
     json::push_text(out, &value.leased_at.0);
@@ -34306,7 +34362,7 @@ pub fn encode_command_conductor_token_lease_token(value: &crate::token::LeaseTok
 ///
 /// [`json::DecodeError`] naming the path and what the declaration says belongs there.
 pub fn decode_command_conductor_token_lease_token(value: &json::Value, at: &str) -> Result<crate::token::LeaseToken, json::DecodeError> {
-    json::closed_at(value, at, &["actor", "instance", "token_id", "agent", "preferred_owner", "leased_at"])?;
+    json::closed_at(value, at, &["actor", "instance", "token_id", "owner", "agent", "preferred_owner", "runtime", "leased_at"])?;
     Ok(crate::token::LeaseToken {
         actor: {
             let at0 = json::nested(at, "actor");
@@ -34323,22 +34379,34 @@ pub fn decode_command_conductor_token_lease_token(value: &json::Value, at: &str)
             let member2 = json::member_at(value, at, "token_id")?;
             decode_conductor_token_token_id(member2, &at2)?
         },
+        owner: {
+            let at3 = json::nested(at, "owner");
+            let member3 = json::member_at(value, at, "owner")?;
+            decode_conductor_operator_operator_name(member3, &at3)?
+        },
         agent: {
-            let at3 = json::nested(at, "agent");
-            let member3 = json::member_at(value, at, "agent")?;
-            decode_conductor_agent_agent_name(member3, &at3)?
+            let at4 = json::nested(at, "agent");
+            let member4 = json::member_at(value, at, "agent")?;
+            decode_conductor_agent_agent_name(member4, &at4)?
         },
         preferred_owner: match value.member("preferred_owner") {
             None | Some(json::Value::Null) => None,
-            Some(member4) => {
-                let at4 = json::nested(at, "preferred_owner");
-                Some(decode_conductor_operator_operator_name(member4, &at4)?)
+            Some(member5) => {
+                let at5 = json::nested(at, "preferred_owner");
+                Some(decode_conductor_operator_operator_name(member5, &at5)?)
+            }
+        },
+        runtime: match value.member("runtime") {
+            None | Some(json::Value::Null) => None,
+            Some(member6) => {
+                let at6 = json::nested(at, "runtime");
+                Some(json::text_at(member6, &at6, "a string")?.to_owned())
             }
         },
         leased_at: {
-            let at5 = json::nested(at, "leased_at");
-            let member5 = json::member_at(value, at, "leased_at")?;
-            crate::primitives::Timestamp(json::timestamp_at(member5, &at5, "an RFC 3339 instant")?.to_owned())
+            let at7 = json::nested(at, "leased_at");
+            let member7 = json::member_at(value, at, "leased_at")?;
+            crate::primitives::Timestamp(json::timestamp_at(member7, &at7, "an RFC 3339 instant")?.to_owned())
         },
     })
 }
@@ -34362,6 +34430,34 @@ pub fn encode_outcome_conductor_token_lease_token(value: &crate::token::LeaseTok
             encode_error_conductor_token_no_token_available(error, out);
             out.push('}');
         }
+        crate::token::LeaseTokenOutcome::UnknownToken { error } => {
+            json::member(out, "outcome");
+            json::push_text(out, "unknown-token");
+            json::member(out, "published");
+            out.push('[');
+            out.push(']');
+            json::member(out, "refusal");
+            out.push('{');
+            json::member(out, "error");
+            json::push_text(out, "conductor.token.TokenStateConflict");
+            json::member(out, "payload");
+            encode_error_conductor_token_token_state_conflict(error, out);
+            out.push('}');
+        }
+        crate::token::LeaseTokenOutcome::TokenWithdrawn { error } => {
+            json::member(out, "outcome");
+            json::push_text(out, "token-withdrawn");
+            json::member(out, "published");
+            out.push('[');
+            out.push(']');
+            json::member(out, "refusal");
+            out.push('{');
+            json::member(out, "error");
+            json::push_text(out, "conductor.token.TokenStateConflict");
+            json::member(out, "payload");
+            encode_error_conductor_token_token_state_conflict(error, out);
+            out.push('}');
+        }
         crate::token::LeaseTokenOutcome::Leased { token_leased } => {
             json::member(out, "outcome");
             json::push_text(out, "leased");
@@ -34375,32 +34471,6 @@ pub fn encode_outcome_conductor_token_lease_token(value: &crate::token::LeaseTok
             out.push('}');
             out.push(']');
         }
-        crate::token::LeaseTokenOutcome::WrongState { error } => {
-            json::member(out, "outcome");
-            json::push_text(out, "wrong-state");
-            json::member(out, "published");
-            out.push('[');
-            out.push(']');
-            json::member(out, "refusal");
-            out.push('{');
-            json::member(out, "error");
-            json::push_text(out, "conductor.token.TokenStateConflict");
-            json::member(out, "payload");
-            encode_error_conductor_token_token_state_conflict(error, out);
-            out.push('}');
-        }
-        crate::token::LeaseTokenOutcome::WrongStateUnknownInstance => {
-            json::member(out, "outcome");
-            json::push_text(out, "wrong-state");
-            json::member(out, "published");
-            out.push('[');
-            out.push(']');
-            json::member(out, "refusal");
-            out.push('{');
-            json::member(out, "error");
-            json::push_text(out, "conductor.token.TokenStateConflict");
-            out.push('}');
-        }
     }
     out.push('}');
 }
@@ -34412,6 +34482,10 @@ pub fn encode_command_conductor_token_mark_token_limited(value: &crate::token::M
     encode_conductor_operator_actor(&value.actor, out);
     json::member(out, "token_id");
     encode_conductor_token_token_id(&value.token_id, out);
+    if let Some(held0) = &value.agent {
+        json::member(out, "agent");
+        encode_conductor_agent_agent_name(&*held0, out);
+    }
     json::member(out, "limited_until");
     json::push_text(out, &value.limited_until.0);
     json::member(out, "limited_at");
@@ -34425,7 +34499,7 @@ pub fn encode_command_conductor_token_mark_token_limited(value: &crate::token::M
 ///
 /// [`json::DecodeError`] naming the path and what the declaration says belongs there.
 pub fn decode_command_conductor_token_mark_token_limited(value: &json::Value, at: &str) -> Result<crate::token::MarkTokenLimited, json::DecodeError> {
-    json::closed_at(value, at, &["actor", "token_id", "limited_until", "limited_at"])?;
+    json::closed_at(value, at, &["actor", "token_id", "agent", "limited_until", "limited_at"])?;
     Ok(crate::token::MarkTokenLimited {
         actor: {
             let at0 = json::nested(at, "actor");
@@ -34437,15 +34511,22 @@ pub fn decode_command_conductor_token_mark_token_limited(value: &json::Value, at
             let member1 = json::member_at(value, at, "token_id")?;
             decode_conductor_token_token_id(member1, &at1)?
         },
+        agent: match value.member("agent") {
+            None | Some(json::Value::Null) => None,
+            Some(member2) => {
+                let at2 = json::nested(at, "agent");
+                Some(decode_conductor_agent_agent_name(member2, &at2)?)
+            }
+        },
         limited_until: {
-            let at2 = json::nested(at, "limited_until");
-            let member2 = json::member_at(value, at, "limited_until")?;
-            crate::primitives::Timestamp(json::timestamp_at(member2, &at2, "an RFC 3339 instant")?.to_owned())
+            let at3 = json::nested(at, "limited_until");
+            let member3 = json::member_at(value, at, "limited_until")?;
+            crate::primitives::Timestamp(json::timestamp_at(member3, &at3, "an RFC 3339 instant")?.to_owned())
         },
         limited_at: {
-            let at3 = json::nested(at, "limited_at");
-            let member3 = json::member_at(value, at, "limited_at")?;
-            crate::primitives::Timestamp(json::timestamp_at(member3, &at3, "an RFC 3339 instant")?.to_owned())
+            let at4 = json::nested(at, "limited_at");
+            let member4 = json::member_at(value, at, "limited_at")?;
+            crate::primitives::Timestamp(json::timestamp_at(member4, &at4, "an RFC 3339 instant")?.to_owned())
         },
     })
 }
@@ -34503,8 +34584,8 @@ pub fn encode_command_conductor_token_release_token(value: &crate::token::Releas
     out.push('{');
     json::member(out, "actor");
     encode_conductor_operator_actor(&value.actor, out);
-    json::member(out, "token_id");
-    encode_conductor_token_token_id(&value.token_id, out);
+    json::member(out, "lease_id");
+    encode_conductor_token_token_lease_id(&value.lease_id, out);
     json::member(out, "released_at");
     json::push_text(out, &value.released_at.0);
     out.push('}');
@@ -34516,17 +34597,17 @@ pub fn encode_command_conductor_token_release_token(value: &crate::token::Releas
 ///
 /// [`json::DecodeError`] naming the path and what the declaration says belongs there.
 pub fn decode_command_conductor_token_release_token(value: &json::Value, at: &str) -> Result<crate::token::ReleaseToken, json::DecodeError> {
-    json::closed_at(value, at, &["actor", "token_id", "released_at"])?;
+    json::closed_at(value, at, &["actor", "lease_id", "released_at"])?;
     Ok(crate::token::ReleaseToken {
         actor: {
             let at0 = json::nested(at, "actor");
             let member0 = json::member_at(value, at, "actor")?;
             decode_conductor_operator_actor(member0, &at0)?
         },
-        token_id: {
-            let at1 = json::nested(at, "token_id");
-            let member1 = json::member_at(value, at, "token_id")?;
-            decode_conductor_token_token_id(member1, &at1)?
+        lease_id: {
+            let at1 = json::nested(at, "lease_id");
+            let member1 = json::member_at(value, at, "lease_id")?;
+            decode_conductor_token_token_lease_id(member1, &at1)?
         },
         released_at: {
             let at2 = json::nested(at, "released_at");
@@ -34563,12 +34644,98 @@ pub fn encode_outcome_conductor_token_release_token(value: &crate::token::Releas
             json::member(out, "refusal");
             out.push('{');
             json::member(out, "error");
+            json::push_text(out, "conductor.token.LeaseStateConflict");
+            json::member(out, "payload");
+            encode_error_conductor_token_lease_state_conflict(error, out);
+            out.push('}');
+        }
+        crate::token::ReleaseTokenOutcome::WrongStateUnknownInstance => {
+            json::member(out, "outcome");
+            json::push_text(out, "wrong-state");
+            json::member(out, "published");
+            out.push('[');
+            out.push(']');
+            json::member(out, "refusal");
+            out.push('{');
+            json::member(out, "error");
+            json::push_text(out, "conductor.token.LeaseStateConflict");
+            out.push('}');
+        }
+    }
+    out.push('}');
+}
+
+/// Writes the input of `conductor.token.RestoreToken` as JSON.
+pub fn encode_command_conductor_token_restore_token(value: &crate::token::RestoreToken, out: &mut String) {
+    out.push('{');
+    json::member(out, "actor");
+    encode_conductor_operator_actor(&value.actor, out);
+    json::member(out, "token_id");
+    encode_conductor_token_token_id(&value.token_id, out);
+    json::member(out, "restored_at");
+    json::push_text(out, &value.restored_at.0);
+    out.push('}');
+}
+
+/// Reads the input of `conductor.token.RestoreToken` from JSON.
+///
+/// # Errors
+///
+/// [`json::DecodeError`] naming the path and what the declaration says belongs there.
+pub fn decode_command_conductor_token_restore_token(value: &json::Value, at: &str) -> Result<crate::token::RestoreToken, json::DecodeError> {
+    json::closed_at(value, at, &["actor", "token_id", "restored_at"])?;
+    Ok(crate::token::RestoreToken {
+        actor: {
+            let at0 = json::nested(at, "actor");
+            let member0 = json::member_at(value, at, "actor")?;
+            decode_conductor_operator_actor(member0, &at0)?
+        },
+        token_id: {
+            let at1 = json::nested(at, "token_id");
+            let member1 = json::member_at(value, at, "token_id")?;
+            decode_conductor_token_token_id(member1, &at1)?
+        },
+        restored_at: {
+            let at2 = json::nested(at, "restored_at");
+            let member2 = json::member_at(value, at, "restored_at")?;
+            crate::primitives::Timestamp(json::timestamp_at(member2, &at2, "an RFC 3339 instant")?.to_owned())
+        },
+    })
+}
+
+/// Writes the outcome of `conductor.token.RestoreToken` as JSON: the branch taken, what it published, and the declared
+/// refusal it carries where it carries one.
+pub fn encode_outcome_conductor_token_restore_token(value: &crate::token::RestoreTokenOutcome, out: &mut String) {
+    out.push('{');
+    match value {
+        crate::token::RestoreTokenOutcome::Restored { token_restored } => {
+            json::member(out, "outcome");
+            json::push_text(out, "restored");
+            json::member(out, "published");
+            out.push('[');
+            out.push('{');
+            json::member(out, "event");
+            json::push_text(out, "conductor.token.TokenRestored");
+            json::member(out, "payload");
+            encode_event_conductor_token_token_restored(token_restored, out);
+            out.push('}');
+            out.push(']');
+        }
+        crate::token::RestoreTokenOutcome::WrongState { error } => {
+            json::member(out, "outcome");
+            json::push_text(out, "wrong-state");
+            json::member(out, "published");
+            out.push('[');
+            out.push(']');
+            json::member(out, "refusal");
+            out.push('{');
+            json::member(out, "error");
             json::push_text(out, "conductor.token.TokenStateConflict");
             json::member(out, "payload");
             encode_error_conductor_token_token_state_conflict(error, out);
             out.push('}');
         }
-        crate::token::ReleaseTokenOutcome::WrongStateUnknownInstance => {
+        crate::token::RestoreTokenOutcome::WrongStateUnknownInstance => {
             json::member(out, "outcome");
             json::push_text(out, "wrong-state");
             json::member(out, "published");
@@ -34944,6 +35111,7 @@ pub fn encode_system_event(value: &crate::system::SystemEvent) -> String {
         crate::system::SystemEvent::TokenLeased(event) => encode_event_conductor_token_token_leased(event, &mut out),
         crate::system::SystemEvent::TokenLimited(event) => encode_event_conductor_token_token_limited(event, &mut out),
         crate::system::SystemEvent::TokenReleased(event) => encode_event_conductor_token_token_released(event, &mut out),
+        crate::system::SystemEvent::TokenRestored(event) => encode_event_conductor_token_token_restored(event, &mut out),
         crate::system::SystemEvent::TokenWithdrawn(event) => encode_event_conductor_token_token_withdrawn(event, &mut out),
         crate::system::SystemEvent::ToolCallRecorded(event) => encode_event_conductor_tool_tool_call_recorded(event, &mut out),
     }
@@ -35074,10 +35242,11 @@ pub fn decode_system_event(value: &json::Value) -> Result<crate::system::SystemE
         "conductor.token.TokenLeased" => crate::system::SystemEvent::TokenLeased(decode_event_conductor_token_token_leased(json::member_at(value, "", "payload")?, "payload")?),
         "conductor.token.TokenLimited" => crate::system::SystemEvent::TokenLimited(decode_event_conductor_token_token_limited(json::member_at(value, "", "payload")?, "payload")?),
         "conductor.token.TokenReleased" => crate::system::SystemEvent::TokenReleased(decode_event_conductor_token_token_released(json::member_at(value, "", "payload")?, "payload")?),
+        "conductor.token.TokenRestored" => crate::system::SystemEvent::TokenRestored(decode_event_conductor_token_token_restored(json::member_at(value, "", "payload")?, "payload")?),
         "conductor.token.TokenWithdrawn" => crate::system::SystemEvent::TokenWithdrawn(decode_event_conductor_token_token_withdrawn(json::member_at(value, "", "payload")?, "payload")?),
         "conductor.tool.ToolCallRecorded" => crate::system::SystemEvent::ToolCallRecorded(decode_event_conductor_tool_tool_call_recorded(json::member_at(value, "", "payload")?, "payload")?),
         other => {
-            return Err(json::DecodeError { at: "event".to_owned(), expected: "one of `conductor.agent.AgentKindDeclared`, `conductor.agent.AgentReported`, `conductor.agent.AgentStarted`, `conductor.agent.AgentStopped`, `conductor.config.ConfigChanged`, `conductor.config.InstanceAdded`, `conductor.config.InstanceRemoved`, `conductor.config.InstanceReplaced`, `conductor.decision.DecisionRecorded`, `conductor.decision.DecisionRequested`, `conductor.decision.DecisionReversedEvent`, `conductor.decision.RequestAmended`, `conductor.decision.RequestAnswered`, `conductor.decision.RequestEscalated`, `conductor.decision.RequestWithdrawn`, `conductor.direction.GoalConfirmed`, `conductor.direction.GoalDropped`, `conductor.direction.GoalMet`, `conductor.direction.GoalProposed`, `conductor.direction.RepositoryActivated`, `conductor.direction.RepositoryDeactivated`, `conductor.direction.RepositoryMarked`, `conductor.direction.ServingAdded`, `conductor.direction.ServingRemoved`, `conductor.dispatch.CharterRevised`, `conductor.dispatch.ControllerPaused`, `conductor.dispatch.ControllerResumed`, `conductor.dispatch.ControllerStarted`, `conductor.dispatch.ControllerStopped`, `conductor.dispatch.DispatchBlocked`, `conductor.dispatch.DispatchCancelled`, `conductor.dispatch.DispatchDone`, `conductor.dispatch.DispatchFailed`, `conductor.dispatch.DispatchLinked`, `conductor.dispatch.DispatchSent`, `conductor.dispatch.DispatchStarted`, `conductor.dispatch.DispatchUnblocked`, `conductor.dispatch.GuardDecisionRecorded`, `conductor.dispatch.MessageHandled`, `conductor.dispatch.MessageReceived`, `conductor.dispatch.MessageRejected`, `conductor.dispatch.NeedRouted`, `conductor.dispatch.ResourceGranted`, `conductor.dispatch.ResourceRefused`, `conductor.dispatch.ResourceReleased`, `conductor.dispatch.ResourceRequested`, `conductor.host.DiskReclaimed`, `conductor.host.DiskRequestWithdrawn`, `conductor.host.DiskRequested`, `conductor.host.DiskReservationRefused`, `conductor.host.DiskReserved`, `conductor.host.HostGrantReleased`, `conductor.host.HostGrantTaken`, `conductor.host.PeakRecorded`, `conductor.host.ReclaimFloorNotReached`, `conductor.host.RunStarted`, `conductor.improvement.FindingClosed`, `conductor.improvement.FindingFiled`, `conductor.improvement.FindingRaised`, `conductor.improvement.FindingVerified`, `conductor.improvement.MetricDefined`, `conductor.improvement.MetricReadingJudged`, `conductor.improvement.MetricReadingRecorded`, `conductor.improvement.MetricReadingSuperseded`, `conductor.improvement.MetricTargetSet`, `conductor.improvement.ProposalApplied`, `conductor.improvement.ProposalKept`, `conductor.improvement.ProposalRefused`, `conductor.improvement.ProposalReverted`, `conductor.improvement.SettingProposed`, `conductor.instance.InstanceAnswered`, `conductor.instance.InstancePurged`, `conductor.instance.InstanceReconciled`, `conductor.instance.InstanceRestarted`, `conductor.instance.InstanceRolledBack`, `conductor.instance.InstanceStarted`, `conductor.instance.InstanceStopped`, `conductor.instance.InstanceUnreachable`, `conductor.instance.InstanceUpgrading`, `conductor.observation.BlockerRecorded`, `conductor.observation.BoardPublished`, `conductor.observation.CollectorRunRecorded`, `conductor.observation.MemberFailureRecorded`, `conductor.observation.MergedPullRequestRecorded`, `conductor.observation.PullRequestRecorded`, `conductor.observation.ReleaseRecorded`, `conductor.observation.RepositoryRecorded`, `conductor.observation.SecretSyncRecorded`, `conductor.observation.SessionRecorded`, `conductor.observation.SnapshotCompleted`, `conductor.observation.SnapshotFailed`, `conductor.observation.SnapshotStarted`, `conductor.observation.SpecificationRecorded`, `conductor.observation.UsageRecorded`, `conductor.observation.WorkflowRunRecorded`, `conductor.operator.OperatorJoined`, `conductor.operator.OperatorLeft`, `conductor.placement.BoxClosed`, `conductor.placement.BoxOpened`, `conductor.placement.BoxRefused`, `conductor.secret.SecretPut`, `conductor.secret.SecretsResolved`, `conductor.session.LeaseTaken`, `conductor.session.LeaseTakenOver`, `conductor.session.MessageDelivered`, `conductor.session.RunTickRecorded`, `conductor.store.StoreMigrated`, `conductor.token.TokenContributed`, `conductor.token.TokenLeased`, `conductor.token.TokenLimited`, `conductor.token.TokenReleased`, `conductor.token.TokenWithdrawn`, `conductor.tool.ToolCallRecorded`".to_owned(), found: format!("`{other}`") })
+            return Err(json::DecodeError { at: "event".to_owned(), expected: "one of `conductor.agent.AgentKindDeclared`, `conductor.agent.AgentReported`, `conductor.agent.AgentStarted`, `conductor.agent.AgentStopped`, `conductor.config.ConfigChanged`, `conductor.config.InstanceAdded`, `conductor.config.InstanceRemoved`, `conductor.config.InstanceReplaced`, `conductor.decision.DecisionRecorded`, `conductor.decision.DecisionRequested`, `conductor.decision.DecisionReversedEvent`, `conductor.decision.RequestAmended`, `conductor.decision.RequestAnswered`, `conductor.decision.RequestEscalated`, `conductor.decision.RequestWithdrawn`, `conductor.direction.GoalConfirmed`, `conductor.direction.GoalDropped`, `conductor.direction.GoalMet`, `conductor.direction.GoalProposed`, `conductor.direction.RepositoryActivated`, `conductor.direction.RepositoryDeactivated`, `conductor.direction.RepositoryMarked`, `conductor.direction.ServingAdded`, `conductor.direction.ServingRemoved`, `conductor.dispatch.CharterRevised`, `conductor.dispatch.ControllerPaused`, `conductor.dispatch.ControllerResumed`, `conductor.dispatch.ControllerStarted`, `conductor.dispatch.ControllerStopped`, `conductor.dispatch.DispatchBlocked`, `conductor.dispatch.DispatchCancelled`, `conductor.dispatch.DispatchDone`, `conductor.dispatch.DispatchFailed`, `conductor.dispatch.DispatchLinked`, `conductor.dispatch.DispatchSent`, `conductor.dispatch.DispatchStarted`, `conductor.dispatch.DispatchUnblocked`, `conductor.dispatch.GuardDecisionRecorded`, `conductor.dispatch.MessageHandled`, `conductor.dispatch.MessageReceived`, `conductor.dispatch.MessageRejected`, `conductor.dispatch.NeedRouted`, `conductor.dispatch.ResourceGranted`, `conductor.dispatch.ResourceRefused`, `conductor.dispatch.ResourceReleased`, `conductor.dispatch.ResourceRequested`, `conductor.host.DiskReclaimed`, `conductor.host.DiskRequestWithdrawn`, `conductor.host.DiskRequested`, `conductor.host.DiskReservationRefused`, `conductor.host.DiskReserved`, `conductor.host.HostGrantReleased`, `conductor.host.HostGrantTaken`, `conductor.host.PeakRecorded`, `conductor.host.ReclaimFloorNotReached`, `conductor.host.RunStarted`, `conductor.improvement.FindingClosed`, `conductor.improvement.FindingFiled`, `conductor.improvement.FindingRaised`, `conductor.improvement.FindingVerified`, `conductor.improvement.MetricDefined`, `conductor.improvement.MetricReadingJudged`, `conductor.improvement.MetricReadingRecorded`, `conductor.improvement.MetricReadingSuperseded`, `conductor.improvement.MetricTargetSet`, `conductor.improvement.ProposalApplied`, `conductor.improvement.ProposalKept`, `conductor.improvement.ProposalRefused`, `conductor.improvement.ProposalReverted`, `conductor.improvement.SettingProposed`, `conductor.instance.InstanceAnswered`, `conductor.instance.InstancePurged`, `conductor.instance.InstanceReconciled`, `conductor.instance.InstanceRestarted`, `conductor.instance.InstanceRolledBack`, `conductor.instance.InstanceStarted`, `conductor.instance.InstanceStopped`, `conductor.instance.InstanceUnreachable`, `conductor.instance.InstanceUpgrading`, `conductor.observation.BlockerRecorded`, `conductor.observation.BoardPublished`, `conductor.observation.CollectorRunRecorded`, `conductor.observation.MemberFailureRecorded`, `conductor.observation.MergedPullRequestRecorded`, `conductor.observation.PullRequestRecorded`, `conductor.observation.ReleaseRecorded`, `conductor.observation.RepositoryRecorded`, `conductor.observation.SecretSyncRecorded`, `conductor.observation.SessionRecorded`, `conductor.observation.SnapshotCompleted`, `conductor.observation.SnapshotFailed`, `conductor.observation.SnapshotStarted`, `conductor.observation.SpecificationRecorded`, `conductor.observation.UsageRecorded`, `conductor.observation.WorkflowRunRecorded`, `conductor.operator.OperatorJoined`, `conductor.operator.OperatorLeft`, `conductor.placement.BoxClosed`, `conductor.placement.BoxOpened`, `conductor.placement.BoxRefused`, `conductor.secret.SecretPut`, `conductor.secret.SecretsResolved`, `conductor.session.LeaseTaken`, `conductor.session.LeaseTakenOver`, `conductor.session.MessageDelivered`, `conductor.session.RunTickRecorded`, `conductor.store.StoreMigrated`, `conductor.token.TokenContributed`, `conductor.token.TokenLeased`, `conductor.token.TokenLimited`, `conductor.token.TokenReleased`, `conductor.token.TokenRestored`, `conductor.token.TokenWithdrawn`, `conductor.tool.ToolCallRecorded`".to_owned(), found: format!("`{other}`") })
         }
     })
 }

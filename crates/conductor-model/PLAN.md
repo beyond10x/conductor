@@ -1,13 +1,13 @@
 <!--
   generated from conductor v1
-  contract digest 20ddd37e2cbb8b4d6af341870bbfad2afae45b8659a4f31603258eb2dc514f07
+  contract digest f9b97474e363529d89efb80bf5ba004e441e796a0dac65b2cc8dcd802f7432be
   do not edit: regenerate with `ess synthesize --layout crate`
 -->
 # Synthesis plan — conductor v1
 
 Scope: `component-skeletons`, laid out as `crate`, planned by `ess-synth`. Regenerate with `ess synthesize --layout crate`.
 
-1028 capabilities: **1011 generated**, **17 obligations**, **0 refused**. An obligation is yours to implement against its contract; a refusal is a fact about this synthesis scope, not about the specification.
+1035 capabilities: **1019 generated**, **16 obligations**, **0 refused**. An obligation is yours to implement against its contract; a refusal is a fact about this synthesis scope, not about the specification.
 
 ## Generated
 
@@ -343,7 +343,8 @@ Scope: `component-skeletons`, laid out as `crate`, planned by `ess-synth`. Regen
 | domain type | `conductor.token.RevealToken` |
 | domain type | `conductor.token.Seat` |
 | domain type | `conductor.token.TokenId` |
-| domain type | `conductor.token.TokenPool.State` |
+| domain type | `conductor.token.TokenLease.State` |
+| domain type | `conductor.token.TokenLeaseId` |
 | domain type | `conductor.token.TokenState` |
 | domain type | `conductor.tool.Broker.State` |
 | domain type | `conductor.tool.CallAnswer` |
@@ -418,7 +419,7 @@ Scope: `component-skeletons`, laid out as `crate`, planned by `ess-synth`. Regen
 | entity lifecycle | `conductor.store.Migration` |
 | entity lifecycle | `conductor.store.Store` |
 | entity lifecycle | `conductor.token.PoolToken` |
-| entity lifecycle | `conductor.token.TokenPool` |
+| entity lifecycle | `conductor.token.TokenLease` |
 | entity lifecycle | `conductor.tool.Broker` |
 | entity lifecycle | `conductor.tool.Grant` |
 | entity lifecycle | `conductor.tool.Team` |
@@ -637,6 +638,8 @@ Scope: `component-skeletons`, laid out as `crate`, planned by `ess-synth`. Regen
 | command behaviour | `conductor.token.MarkTokenLimited` |
 | command contract | `conductor.token.ReleaseToken` |
 | command behaviour | `conductor.token.ReleaseToken` |
+| command contract | `conductor.token.RestoreToken` |
+| command behaviour | `conductor.token.RestoreToken` |
 | command contract | `conductor.token.WithdrawToken` |
 | command behaviour | `conductor.token.WithdrawToken` |
 | command contract | `conductor.tool.RecordToolCall` |
@@ -755,6 +758,7 @@ Scope: `component-skeletons`, laid out as `crate`, planned by `ess-synth`. Regen
 | event type | `conductor.token.TokenLeased` |
 | event type | `conductor.token.TokenLimited` |
 | event type | `conductor.token.TokenReleased` |
+| event type | `conductor.token.TokenRestored` |
 | event type | `conductor.token.TokenWithdrawn` |
 | event type | `conductor.tool.ToolCallRecorded` |
 | error type | `conductor.agent.AgentExists` |
@@ -867,6 +871,7 @@ Scope: `component-skeletons`, laid out as `crate`, planned by `ess-synth`. Regen
 | error type | `conductor.store.AlreadyMigrated` |
 | error type | `conductor.store.InvalidEventCount` |
 | error type | `conductor.store.SourceMissing` |
+| error type | `conductor.token.LeaseStateConflict` |
 | error type | `conductor.token.NoTokenAvailable` |
 | error type | `conductor.token.NotTokenOwner` |
 | error type | `conductor.token.TokenStateConflict` |
@@ -981,7 +986,10 @@ Scope: `component-skeletons`, laid out as `crate`, planned by `ess-synth`. Regen
 | view query | `conductor.store.StoreStatus` |
 | view type | `conductor.store.Version` |
 | view query | `conductor.store.Version` |
+| view type | `conductor.token.TokenLeases` |
+| view query | `conductor.token.TokenLeases` |
 | view type | `conductor.token.Tokens` |
+| view query | `conductor.token.Tokens` |
 | view type | `conductor.tool.ToolCalls` |
 | view query | `conductor.tool.ToolCalls` |
 | actor grants | `conductor.agent.Controller` |
@@ -1054,7 +1062,6 @@ What the specification fully determines is generated; what it cannot determine i
 | view query | `conductor.config.EffectiveSettings` | kept an obligation by a view parameter (`params:`), which a generated query does not apply | a query answering `conductor.config.EffectiveSettings` with rows projected from `conductor.config.EffectiveSetting` at `eventual` consistency, containing instances where `instance == param.instance` |
 | view query | `conductor.instance.InstanceByName` | kept an obligation by a view parameter (`params:`), which a generated query does not apply | a query answering `conductor.instance.InstanceByName` with rows projected from `conductor.instance.Instance` at `read_your_writes` consistency, containing instances where `name == param.name` |
 | view query | `conductor.secret.InstanceSecrets` | kept an obligation by a view parameter (`params:`), which a generated query does not apply | a query answering `conductor.secret.InstanceSecrets` with rows projected from `conductor.secret.InstanceSecret` at `read_your_writes` consistency, containing instances where `instance == param.instance` |
-| view query | `conductor.token.Tokens` | kept an obligation by a view parameter (`params:`), which a generated query does not apply | a query answering `conductor.token.Tokens` with rows projected from `conductor.token.PoolToken` at `read_your_writes` consistency, containing instances where `instance == param.instance` |
 
 ## Refused — not represented by this synthesis
 

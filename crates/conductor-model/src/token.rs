@@ -1,10 +1,10 @@
 // generated from conductor v1
-// contract digest 20ddd37e2cbb8b4d6af341870bbfad2afae45b8659a4f31603258eb2dc514f07
+// contract digest f9b97474e363529d89efb80bf5ba004e441e796a0dac65b2cc8dcd802f7432be
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! Token — `conductor.token`.
 //!
-//! The token pool of an instance (design docs/design/architecture-next.md § 5.3, decisions 10 and 11): an engineer who joins an instance contributes their Claude token; the pool is a set of secrets, each with its owner, its seat and its state (`ok`, or `limited until <time>`); values never leave the secrets source except as a sealed slot. The `claude-code` kind leases one token per agent start, resumes an agent on another token after a usage-limit stop, and names the token's owner on every agent record. A controller started for Remote Control on a named owner's token appears in that owner's Claude app.
+//! The token pool of a host (design docs/design/architecture-next.md § 5.3, decisions 10 and 11; story:host-token-pool): conductord's store holds one pool per host, shared by every instance it runs. An engineer who joins contributes their Claude token to it; the pool is a set of secrets, each with its owner, its seat and its state (`ok`, or `limited until <time>`); values never leave the secrets source but for the one start that leases them. The `claude-code` kind of any instance on the host leases a token per agent start (a token serves any number of agents at once, one lease each), resumes an agent on another token after a usage-limit stop, and names the token's owner on every agent record. A controller started for Remote Control on a named owner's token appears in that owner's Claude app.
 //!
 //! Everything this bounded context declares that the synthesis plan marks generated.
 
@@ -34,8 +34,6 @@ pub struct LeaveDaemon {
 pub enum PoolTokenState {
     /// `Available`.
     Available,
-    /// `Leased`.
-    Leased,
     /// `Limited`.
     Limited,
     /// `Withdrawn`.
@@ -45,10 +43,8 @@ pub enum PoolTokenState {
 /// RevealToken — `conductor.token.RevealToken`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RevealToken {
-    /// `token` — `Optional<String>`.
-    pub token: Option<String>,
-    /// `model_token` — `Optional<conductor.config.InstanceName>`.
-    pub model_token: Option<crate::config::InstanceName>,
+    /// `model_token` — `conductor.config.InstanceName`.
+    pub model_token: crate::config::InstanceName,
 }
 
 /// Seat — `conductor.token.Seat`: a distinct wrapper around `String`.
@@ -59,15 +55,21 @@ pub struct Seat(pub String);
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TokenId(pub crate::primitives::Uuid);
 
-/// The states of `conductor.token.TokenPool`, as runtime values.
+/// The states of `conductor.token.TokenLease`, as runtime values.
 ///
 /// Synthesised from the lifecycle, so the two cannot disagree. Which *moves* are legal is not
-/// carried here — it is carried by `TokenPool<S>`, where an undeclared move does not compile.
+/// carried here — it is carried by `TokenLease<S>`, where an undeclared move does not compile.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum TokenPoolState {
-    /// `Open`.
-    Open,
+pub enum TokenLeaseState {
+    /// `Held`.
+    Held,
+    /// `Released`.
+    Released,
 }
+
+/// TokenLeaseId — `conductor.token.TokenLeaseId`: a distinct wrapper around `Uuid`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TokenLeaseId(pub crate::primitives::Uuid);
 
 /// TokenState — `conductor.token.TokenState`: one of a closed set of names.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -86,10 +88,6 @@ pub enum TokenState {
 pub struct PoolTokenData {
     /// The identity: `token_id` — `conductor.token.TokenId`.
     pub token_id: TokenId,
-    /// `instance` — `conductor.config.InstanceName`.
-    ///
-    /// Carries `tokens`: `conductor.token.TokenPool` owns many `conductor.token.PoolToken`.
-    pub instance: crate::config::InstanceName,
     /// `owner` — `conductor.operator.OperatorName`.
     pub owner: crate::operator::OperatorName,
     /// `seat` — `conductor.token.Seat`.
@@ -102,10 +100,6 @@ pub struct PoolTokenData {
     pub token_state: TokenState,
     /// `limited_until` — `Optional<Timestamp>`.
     pub limited_until: Option<crate::primitives::Timestamp>,
-    /// `agent` — `Optional<conductor.agent.AgentName>`.
-    ///
-    /// Carries `agent`: `conductor.token.PoolToken` references one `conductor.agent.Agent`.
-    pub agent: Option<crate::agent::AgentName>,
     /// `contributed_at` — `Timestamp`.
     pub contributed_at: crate::primitives::Timestamp,
     /// `actor` — `conductor.operator.Actor`.
@@ -124,7 +118,6 @@ pub mod pool_token_state {
         /// Implemented only by the marker types beside this module.
         pub trait Sealed {}
         impl Sealed for super::Available {}
-        impl Sealed for super::Leased {}
         impl Sealed for super::Limited {}
         impl Sealed for super::Withdrawn {}
     }
@@ -140,13 +133,6 @@ pub mod pool_token_state {
 
     impl Marker for Available {
         const STATE: super::PoolTokenState = super::PoolTokenState::Available;
-    }
-
-    /// `Leased`.
-    pub struct Leased;
-
-    impl Marker for Leased {
-        const STATE: super::PoolTokenState = super::PoolTokenState::Leased;
     }
 
     /// `Limited`.
@@ -203,8 +189,8 @@ impl PoolToken<pool_token_state::Available> {
 }
 
 impl PoolToken<pool_token_state::Available> {
-    /// `lease` — `Available` → `Leased`. Taken by the `leased` outcome of `conductor.token.LeaseToken`.
-    pub fn lease(self) -> PoolToken<pool_token_state::Leased> {
+    /// `limit` — `Available` → `Limited`. Taken by the `limited` outcome of `conductor.token.MarkTokenLimited`.
+    pub fn limit(self) -> PoolToken<pool_token_state::Limited> {
         PoolToken {
             data: self.data,
             state: core::marker::PhantomData,
@@ -220,16 +206,8 @@ impl PoolToken<pool_token_state::Available> {
     }
 }
 
-impl PoolToken<pool_token_state::Leased> {
-    /// `release` — `Leased` → `Available`. Taken by the `released` outcome of `conductor.token.ReleaseToken`.
-    pub fn release(self) -> PoolToken<pool_token_state::Available> {
-        PoolToken {
-            data: self.data,
-            state: core::marker::PhantomData,
-        }
-    }
-
-    /// `limit` — `Leased` → `Limited`. Taken by the `limited` outcome of `conductor.token.MarkTokenLimited`.
+impl PoolToken<pool_token_state::Limited> {
+    /// `limit` — `Limited` → `Limited`. Taken by the `limited` outcome of `conductor.token.MarkTokenLimited`.
     pub fn limit(self) -> PoolToken<pool_token_state::Limited> {
         PoolToken {
             data: self.data,
@@ -237,18 +215,8 @@ impl PoolToken<pool_token_state::Leased> {
         }
     }
 
-    /// `withdraw` — `Leased` → `Withdrawn`. Taken by the `withdrawn` outcome of `conductor.token.WithdrawToken`.
-    pub fn withdraw(self) -> PoolToken<pool_token_state::Withdrawn> {
-        PoolToken {
-            data: self.data,
-            state: core::marker::PhantomData,
-        }
-    }
-}
-
-impl PoolToken<pool_token_state::Limited> {
-    /// `lease` — `Limited` → `Leased`. Taken by the `leased` outcome of `conductor.token.LeaseToken`.
-    pub fn lease(self) -> PoolToken<pool_token_state::Leased> {
+    /// `restore` — `Limited` → `Available`. Taken by the `restored` outcome of `conductor.token.RestoreToken`.
+    pub fn restore(self) -> PoolToken<pool_token_state::Available> {
         PoolToken {
             data: self.data,
             state: core::marker::PhantomData,
@@ -280,8 +248,6 @@ pub struct PoolTokenSnapshot {
 pub enum AnyPoolToken {
     /// Resting in `Available`.
     Available(PoolToken<pool_token_state::Available>),
-    /// Resting in `Leased`.
-    Leased(PoolToken<pool_token_state::Leased>),
     /// Resting in `Limited`.
     Limited(PoolToken<pool_token_state::Limited>),
     /// Resting in `Withdrawn`.
@@ -296,10 +262,6 @@ impl PoolTokenSnapshot {
     pub fn refine(self) -> AnyPoolToken {
         match self.state {
             PoolTokenState::Available => AnyPoolToken::Available(PoolToken {
-                data: self.data,
-                state: core::marker::PhantomData,
-            }),
-            PoolTokenState::Leased => AnyPoolToken::Leased(PoolToken {
                 data: self.data,
                 state: core::marker::PhantomData,
             }),
@@ -320,7 +282,6 @@ impl AnyPoolToken {
     pub fn state(&self) -> PoolTokenState {
         match self {
             Self::Available(_) => PoolTokenState::Available,
-            Self::Leased(_) => PoolTokenState::Leased,
             Self::Limited(_) => PoolTokenState::Limited,
             Self::Withdrawn(_) => PoolTokenState::Withdrawn,
         }
@@ -331,10 +292,6 @@ impl AnyPoolToken {
         match self {
             Self::Available(instance) => PoolTokenSnapshot {
                 state: PoolTokenState::Available,
-                data: instance.into_data(),
-            },
-            Self::Leased(instance) => PoolTokenSnapshot {
-                state: PoolTokenState::Leased,
                 data: instance.into_data(),
             },
             Self::Limited(instance) => PoolTokenSnapshot {
@@ -349,75 +306,105 @@ impl AnyPoolToken {
     }
 }
 
-/// What TokenPool — `conductor.token.TokenPool` — holds, apart from where it is in its lifecycle.
+/// What TokenLease — `conductor.token.TokenLease` — holds, apart from where it is in its lifecycle.
 ///
 /// The identity and every declared field. The state is deliberately not one: inside the domain it
-/// is carried by the type parameter of [`TokenPool<S>`], and at a boundary by [`TokenPoolSnapshot::state`].
+/// is carried by the type parameter of [`TokenLease<S>`], and at a boundary by [`TokenLeaseSnapshot::state`].
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TokenPoolData {
-    /// The identity: `instance` — `conductor.config.InstanceName`.
+pub struct TokenLeaseData {
+    /// The identity: `lease_id` — `conductor.token.TokenLeaseId`.
+    pub lease_id: TokenLeaseId,
+    /// `token_id` — `conductor.token.TokenId`.
     ///
-    /// Carries `instance`: `conductor.token.TokenPool` references one `conductor.instance.Instance`.
+    /// Carries `leases`: `conductor.token.PoolToken` owns many `conductor.token.TokenLease`.
+    pub token_id: TokenId,
+    /// `agent` — `conductor.agent.AgentName`.
+    ///
+    /// Carries `agent`: `conductor.token.TokenLease` references one `conductor.agent.Agent`.
+    pub agent: crate::agent::AgentName,
+    /// `instance` — `conductor.config.InstanceName`.
+    ///
+    /// Carries `instance`: `conductor.token.TokenLease` references one `conductor.instance.Instance`.
     pub instance: crate::config::InstanceName,
+    /// `owner` — `conductor.operator.OperatorName`.
+    pub owner: crate::operator::OperatorName,
+    /// `preferred_owner` — `Optional<conductor.operator.OperatorName>`.
+    pub preferred_owner: Option<crate::operator::OperatorName>,
+    /// `leased_at` — `Timestamp`.
+    pub leased_at: crate::primitives::Timestamp,
+    /// `released_at` — `Optional<Timestamp>`.
+    pub released_at: Option<crate::primitives::Timestamp>,
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
+    /// `runtime` — `Optional<String>`.
+    pub runtime: Option<String>,
 }
 
-/// The states of `conductor.token.TokenPool`, at the type level.
+/// The states of `conductor.token.TokenLease`, at the type level.
 ///
 /// One marker type per declared state, sealed: a state the lifecycle does not declare cannot
-/// implement [`Marker`](token_pool_state::Marker), so [`TokenPool<S>`](TokenPool) can only ever rest in a real state.
-pub mod token_pool_state {
+/// implement [`Marker`](token_lease_state::Marker), so [`TokenLease<S>`](TokenLease) can only ever rest in a real state.
+pub mod token_lease_state {
     /// Closes [`Marker`] over the declared states.
     mod sealed {
         /// Implemented only by the marker types beside this module.
         pub trait Sealed {}
-        impl Sealed for super::Open {}
+        impl Sealed for super::Held {}
+        impl Sealed for super::Released {}
     }
 
-    /// A declared state of `TokenPool`, as a type.
+    /// A declared state of `TokenLease`, as a type.
     pub trait Marker: sealed::Sealed {
         /// The same state, as the runtime value.
-        const STATE: super::TokenPoolState;
+        const STATE: super::TokenLeaseState;
     }
 
-    /// `Open`. Where a new instance starts.
-    pub struct Open;
+    /// `Held`. Where a new instance starts.
+    pub struct Held;
 
-    impl Marker for Open {
-        const STATE: super::TokenPoolState = super::TokenPoolState::Open;
+    impl Marker for Held {
+        const STATE: super::TokenLeaseState = super::TokenLeaseState::Held;
+    }
+
+    /// `Released`. Terminal: an instance may rest here forever.
+    pub struct Released;
+
+    impl Marker for Released {
+        const STATE: super::TokenLeaseState = super::TokenLeaseState::Released;
     }
 }
 
-/// TokenPool — `conductor.token.TokenPool` — with its lifecycle state carried by the type.
+/// TokenLease — `conductor.token.TokenLease` — with its lifecycle state carried by the type.
 ///
-/// The one constructor rests in `Open`, and the only way to change `S` is a method generated from
+/// The one constructor rests in `Held`, and the only way to change `S` is a method generated from
 /// a declared transition. A move the specification does not declare is therefore not an error
-/// case: it does not compile. Where the state is data — wire, storage — use [`TokenPoolSnapshot`]
-/// and [`TokenPoolSnapshot::refine`].
-pub struct TokenPool<S: token_pool_state::Marker> {
-    data: TokenPoolData,
+/// case: it does not compile. Where the state is data — wire, storage — use [`TokenLeaseSnapshot`]
+/// and [`TokenLeaseSnapshot::refine`].
+pub struct TokenLease<S: token_lease_state::Marker> {
+    data: TokenLeaseData,
     state: core::marker::PhantomData<S>,
 }
 
-impl<S: token_pool_state::Marker> TokenPool<S> {
+impl<S: token_lease_state::Marker> TokenLease<S> {
     /// The state this instance rests in, as the runtime value.
-    pub fn state(&self) -> TokenPoolState {
+    pub fn state(&self) -> TokenLeaseState {
         S::STATE
     }
 
     /// What it holds.
-    pub fn data(&self) -> &TokenPoolData {
+    pub fn data(&self) -> &TokenLeaseData {
         &self.data
     }
 
     /// Hands the data back, giving up the typed state.
-    pub fn into_data(self) -> TokenPoolData {
+    pub fn into_data(self) -> TokenLeaseData {
         self.data
     }
 }
 
-impl TokenPool<token_pool_state::Open> {
-    /// A new instance, resting in `Open` — the only state the lifecycle starts one in.
-    pub fn new(data: TokenPoolData) -> Self {
+impl TokenLease<token_lease_state::Held> {
+    /// A new instance, resting in `Held` — the only state the lifecycle starts one in.
+    pub fn new(data: TokenLeaseData) -> Self {
         Self {
             data,
             state: core::marker::PhantomData,
@@ -425,32 +412,48 @@ impl TokenPool<token_pool_state::Open> {
     }
 }
 
-/// `conductor.token.TokenPool` as it crosses a boundary: the state as a value beside the data.
+impl TokenLease<token_lease_state::Held> {
+    /// `release` — `Held` → `Released`. Taken by the `released` outcome of `conductor.token.ReleaseToken`.
+    pub fn release(self) -> TokenLease<token_lease_state::Released> {
+        TokenLease {
+            data: self.data,
+            state: core::marker::PhantomData,
+        }
+    }
+}
+
+/// `conductor.token.TokenLease` as it crosses a boundary: the state as a value beside the data.
 ///
-/// Wire and storage know states only at runtime; [`TokenPoolSnapshot::refine`] is the one door back
+/// Wire and storage know states only at runtime; [`TokenLeaseSnapshot::refine`] is the one door back
 /// into the typed lifecycle.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TokenPoolSnapshot {
+pub struct TokenLeaseSnapshot {
     /// Where the instance is in its lifecycle.
-    pub state: TokenPoolState,
+    pub state: TokenLeaseState,
     /// What it holds.
-    pub data: TokenPoolData,
+    pub data: TokenLeaseData,
 }
 
-/// An `TokenPool` in whichever declared state it was found.
-pub enum AnyTokenPool {
-    /// Resting in `Open`.
-    Open(TokenPool<token_pool_state::Open>),
+/// An `TokenLease` in whichever declared state it was found.
+pub enum AnyTokenLease {
+    /// Resting in `Held`.
+    Held(TokenLease<token_lease_state::Held>),
+    /// Resting in `Released`.
+    Released(TokenLease<token_lease_state::Released>),
 }
 
-impl TokenPoolSnapshot {
+impl TokenLeaseSnapshot {
     /// Refines the runtime state into the typed one.
     ///
     /// Total: every declared state has an arm, and an undeclared state cannot reach here because
-    /// `TokenPoolState` cannot spell one.
-    pub fn refine(self) -> AnyTokenPool {
+    /// `TokenLeaseState` cannot spell one.
+    pub fn refine(self) -> AnyTokenLease {
         match self.state {
-            TokenPoolState::Open => AnyTokenPool::Open(TokenPool {
+            TokenLeaseState::Held => AnyTokenLease::Held(TokenLease {
+                data: self.data,
+                state: core::marker::PhantomData,
+            }),
+            TokenLeaseState::Released => AnyTokenLease::Released(TokenLease {
                 data: self.data,
                 state: core::marker::PhantomData,
             }),
@@ -458,19 +461,24 @@ impl TokenPoolSnapshot {
     }
 }
 
-impl AnyTokenPool {
+impl AnyTokenLease {
     /// The state, as the runtime value.
-    pub fn state(&self) -> TokenPoolState {
+    pub fn state(&self) -> TokenLeaseState {
         match self {
-            Self::Open(_) => TokenPoolState::Open,
+            Self::Held(_) => TokenLeaseState::Held,
+            Self::Released(_) => TokenLeaseState::Released,
         }
     }
 
     /// Back to the boundary shape.
-    pub fn snapshot(self) -> TokenPoolSnapshot {
+    pub fn snapshot(self) -> TokenLeaseSnapshot {
         match self {
-            Self::Open(instance) => TokenPoolSnapshot {
-                state: TokenPoolState::Open,
+            Self::Held(instance) => TokenLeaseSnapshot {
+                state: TokenLeaseState::Held,
+                data: instance.into_data(),
+            },
+            Self::Released(instance) => TokenLeaseSnapshot {
+                state: TokenLeaseState::Released,
                 data: instance.into_data(),
             },
         }
@@ -484,8 +492,6 @@ impl AnyTokenPool {
 pub struct ContributeToken {
     /// `actor` — `conductor.operator.Actor`.
     pub actor: crate::operator::Actor,
-    /// `instance` — `conductor.config.InstanceName`.
-    pub instance: crate::config::InstanceName,
     /// `owner` — `conductor.operator.OperatorName`.
     pub owner: crate::operator::OperatorName,
     /// `seat` — `conductor.token.Seat`.
@@ -514,7 +520,7 @@ pub enum ContributeTokenOutcome {
     },
     /// `contributed` — otherwise.
     ///
-    /// The token is in the pool, Available and Ok, with its owner, seat and kind.
+    /// The token is in the host's pool, Available and Ok, with its owner, seat and kind.
     Contributed {
         /// The `conductor.token.TokenContributed` this outcome publishes.
         token_contributed: TokenContributed,
@@ -532,10 +538,14 @@ pub struct LeaseToken {
     pub instance: crate::config::InstanceName,
     /// `token_id` — `conductor.token.TokenId`.
     pub token_id: TokenId,
+    /// `owner` — `conductor.operator.OperatorName`.
+    pub owner: crate::operator::OperatorName,
     /// `agent` — `conductor.agent.AgentName`.
     pub agent: crate::agent::AgentName,
     /// `preferred_owner` — `Optional<conductor.operator.OperatorName>`.
     pub preferred_owner: Option<crate::operator::OperatorName>,
+    /// `runtime` — `Optional<String>`.
+    pub runtime: Option<String>,
     /// `leased_at` — `Timestamp`.
     pub leased_at: crate::primitives::Timestamp,
 }
@@ -547,35 +557,37 @@ pub struct LeaseToken {
 /// outcomes exist to prevent.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum LeaseTokenOutcome {
-    /// `none-available` — externally decided (the runtime's pick found no Available token in the instance's pool).
+    /// `none-available` — externally decided (the runtime's pick found no token with headroom in the host's pool).
     ///
-    /// The pool holds no Available token, so the agent does not start on one; nothing changed.
+    /// The host's pool holds no token with headroom, so the agent does not start on one; nothing changed.
     NoneAvailable {
         /// Why it was refused: `conductor.token.NoTokenAvailable`.
         error: NoTokenAvailable,
     },
+    /// `unknown-token` — when no `conductor.token.PoolToken` carries the identity `input.token_id` names.
+    ///
+    /// The token named is not in the pool; nothing changed.
+    UnknownToken {
+        /// Why it was refused: `conductor.token.TokenStateConflict`.
+        error: TokenStateConflict,
+    },
+    /// `token-withdrawn` — when the `conductor.token.PoolToken` that `input.token_id` names satisfies `state in [Withdrawn]`.
+    ///
+    /// The token named is withdrawn; nothing changed.
+    TokenWithdrawn {
+        /// Why it was refused: `conductor.token.TokenStateConflict`.
+        error: TokenStateConflict,
+    },
     /// `leased` — otherwise.
     ///
-    /// The agent runs on the token; the event names the token's owner and seat, so the agent's record names them.
+    /// The agent runs on the token under a lease of its own; the event names the token's owner, so the agent's record names them.
     Leased {
         /// The `conductor.token.TokenLeased` this outcome publishes.
         token_leased: TokenLeased,
     },
-    /// `wrong-state` — from a state no declared move starts in.
-    ///
-    /// The token named is neither Available nor Limited (it is leased or withdrawn); nothing changed.
-    WrongState {
-        /// Why it was refused: `conductor.token.TokenStateConflict`.
-        error: TokenStateConflict,
-    },
-    /// `wrong-state` — for an instance no record carries.
-    ///
-    /// The same declared branch and error as [`Self::WrongState`], without the error's fields: an instance
-    /// that does not exist has nothing for them to describe (`docs/design/unknown-instance-seams.md`).
-    WrongStateUnknownInstance,
 }
 
-/// Release a token as limited — the input of `conductor.token.MarkTokenLimited`.
+/// Mark a token limited — the input of `conductor.token.MarkTokenLimited`.
 ///
 /// Everything it can result in is [`MarkTokenLimitedOutcome`].
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -584,6 +596,8 @@ pub struct MarkTokenLimited {
     pub actor: crate::operator::Actor,
     /// `token_id` — `conductor.token.TokenId`.
     pub token_id: TokenId,
+    /// `agent` — `Optional<conductor.agent.AgentName>`.
+    pub agent: Option<crate::agent::AgentName>,
     /// `limited_until` — `Timestamp`.
     pub limited_until: crate::primitives::Timestamp,
     /// `limited_at` — `Timestamp`.
@@ -599,14 +613,14 @@ pub struct MarkTokenLimited {
 pub enum MarkTokenLimitedOutcome {
     /// `limited` — otherwise.
     ///
-    /// The token is Limited until the time given and holds no agent; the agent it held is named to be resumed on another.
+    /// The token is Limited until the time given; the agent that hit the limit is named to be resumed on another.
     Limited {
         /// The `conductor.token.TokenLimited` this outcome publishes.
         token_limited: TokenLimited,
     },
     /// `wrong-state` — from a state no declared move starts in.
     ///
-    /// The token is not Leased, so no agent on it hit a limit; nothing changed.
+    /// The token is withdrawn, so no agent on it hit a limit; nothing changed.
     WrongState {
         /// Why it was refused: `conductor.token.TokenStateConflict`.
         error: TokenStateConflict,
@@ -618,15 +632,15 @@ pub enum MarkTokenLimitedOutcome {
     WrongStateUnknownInstance,
 }
 
-/// Release a leased token — the input of `conductor.token.ReleaseToken`.
+/// Release a token's lease — the input of `conductor.token.ReleaseToken`.
 ///
 /// Everything it can result in is [`ReleaseTokenOutcome`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ReleaseToken {
     /// `actor` — `conductor.operator.Actor`.
     pub actor: crate::operator::Actor,
-    /// `token_id` — `conductor.token.TokenId`.
-    pub token_id: TokenId,
+    /// `lease_id` — `conductor.token.TokenLeaseId`.
+    pub lease_id: TokenLeaseId,
     /// `released_at` — `Timestamp`.
     pub released_at: crate::primitives::Timestamp,
 }
@@ -640,14 +654,55 @@ pub struct ReleaseToken {
 pub enum ReleaseTokenOutcome {
     /// `released` — otherwise.
     ///
-    /// The token is Available again and holds no agent.
+    /// The lease is released; its token serves its other leases and new ones as before.
     Released {
         /// The `conductor.token.TokenReleased` this outcome publishes.
         token_released: TokenReleased,
     },
     /// `wrong-state` — from a state no declared move starts in.
     ///
-    /// The token is not Leased, so there is nothing to release; nothing changed.
+    /// The lease was released already, so there is nothing to release; nothing changed.
+    WrongState {
+        /// Why it was refused: `conductor.token.LeaseStateConflict`.
+        error: LeaseStateConflict,
+    },
+    /// `wrong-state` — for an instance no record carries.
+    ///
+    /// The same declared branch and error as [`Self::WrongState`], without the error's fields: an instance
+    /// that does not exist has nothing for them to describe (`docs/design/unknown-instance-seams.md`).
+    WrongStateUnknownInstance,
+}
+
+/// Restore a limited token — the input of `conductor.token.RestoreToken`.
+///
+/// Everything it can result in is [`RestoreTokenOutcome`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RestoreToken {
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
+    /// `token_id` — `conductor.token.TokenId`.
+    pub token_id: TokenId,
+    /// `restored_at` — `Timestamp`.
+    pub restored_at: crate::primitives::Timestamp,
+}
+
+/// Everything `conductor.token.RestoreToken` can result in — one variant per declared outcome.
+///
+/// An infrastructure failure is deliberately not in here: a refusal is a fact about the domain,
+/// a transport fault is a fact about the run, and conflating the two is what the declared
+/// outcomes exist to prevent.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RestoreTokenOutcome {
+    /// `restored` — otherwise.
+    ///
+    /// The token is Available and Ok again.
+    Restored {
+        /// The `conductor.token.TokenRestored` this outcome publishes.
+        token_restored: TokenRestored,
+    },
+    /// `wrong-state` — from a state no declared move starts in.
+    ///
+    /// The token is not Limited; nothing changed.
     WrongState {
         /// Why it was refused: `conductor.token.TokenStateConflict`.
         error: TokenStateConflict,
@@ -695,7 +750,7 @@ pub enum WithdrawTokenOutcome {
     },
     /// `withdrawn` — otherwise.
     ///
-    /// The token is out of the pool; the agent that held it, if any, is named so it is resumed on another token.
+    /// The token is out of the pool; the agents on its leases are resumed on another token.
     Withdrawn {
         /// The `conductor.token.TokenWithdrawn` this outcome publishes.
         token_withdrawn: TokenWithdrawn,
@@ -721,8 +776,6 @@ pub struct TokenContributed {
     pub actor: crate::operator::Actor,
     /// `token_id` — `conductor.token.TokenId`.
     pub token_id: TokenId,
-    /// `instance` — `conductor.config.InstanceName`.
-    pub instance: crate::config::InstanceName,
     /// `owner` — `conductor.operator.OperatorName`.
     pub owner: crate::operator::OperatorName,
     /// `seat` — `conductor.token.Seat`.
@@ -740,14 +793,14 @@ pub struct TokenContributed {
 pub struct TokenLeased {
     /// `actor` — `conductor.operator.Actor`.
     pub actor: crate::operator::Actor,
+    /// `lease_id` — `conductor.token.TokenLeaseId`.
+    pub lease_id: TokenLeaseId,
     /// `token_id` — `conductor.token.TokenId`.
     pub token_id: TokenId,
     /// `instance` — `conductor.config.InstanceName`.
     pub instance: crate::config::InstanceName,
     /// `owner` — `conductor.operator.OperatorName`.
     pub owner: crate::operator::OperatorName,
-    /// `seat` — `conductor.token.Seat`.
-    pub seat: Seat,
     /// `agent` — `conductor.agent.AgentName`.
     pub agent: crate::agent::AgentName,
     /// `preferred_owner` — `Optional<conductor.operator.OperatorName>`.
@@ -778,12 +831,25 @@ pub struct TokenLimited {
 pub struct TokenReleased {
     /// `actor` — `conductor.operator.Actor`.
     pub actor: crate::operator::Actor,
+    /// `lease_id` — `conductor.token.TokenLeaseId`.
+    pub lease_id: TokenLeaseId,
     /// `token_id` — `conductor.token.TokenId`.
     pub token_id: TokenId,
-    /// `agent` — `Optional<conductor.agent.AgentName>`.
-    pub agent: Option<crate::agent::AgentName>,
+    /// `agent` — `conductor.agent.AgentName`.
+    pub agent: crate::agent::AgentName,
     /// `released_at` — `Timestamp`.
     pub released_at: crate::primitives::Timestamp,
+}
+
+/// TokenRestored — the event `conductor.token.TokenRestored`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TokenRestored {
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
+    /// `token_id` — `conductor.token.TokenId`.
+    pub token_id: TokenId,
+    /// `restored_at` — `Timestamp`.
+    pub restored_at: crate::primitives::Timestamp,
 }
 
 /// TokenWithdrawn — the event `conductor.token.TokenWithdrawn`.
@@ -799,9 +865,18 @@ pub struct TokenWithdrawn {
     pub withdrawn_at: crate::primitives::Timestamp,
 }
 
+/// The declared error `conductor.token.LeaseStateConflict`.
+///
+/// The lease was released already, so there is nothing to release; nothing changed.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LeaseStateConflict {
+    /// `lease_id` — `conductor.token.TokenLeaseId`.
+    pub lease_id: TokenLeaseId,
+}
+
 /// The declared error `conductor.token.NoTokenAvailable`.
 ///
-/// No token of the instance's pool is Available (every one is leased, limited or withdrawn), so no agent can start on one; nothing changed.
+/// No token of the host's pool has headroom (every one is limited or withdrawn, or the owner the start asked for has none), so the agent of the instance does not start on one; nothing changed.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NoTokenAvailable {
     /// `instance` — `conductor.config.InstanceName`.
@@ -819,26 +894,49 @@ pub struct NotTokenOwner {
 
 /// The declared error `conductor.token.TokenStateConflict`.
 ///
-/// The token is not in a state the command acts from (a lease of a token that is not Available, a release or a limit of one that is not Leased, a withdrawal of one already withdrawn); nothing changed.
+/// The token is not in a state the command acts from (a lease of a token that is withdrawn or not in the pool, a limit of one that is withdrawn, a restore of one that is not Limited, a withdrawal of one already withdrawn); nothing changed.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TokenStateConflict {
     /// `token_id` — `conductor.token.TokenId`.
     pub token_id: TokenId,
 }
 
+/// Leases of the pool — one row of the view `conductor.token.TokenLeases`.
+///
+/// Projects `conductor.token.TokenLease` at `read_your_writes` consistency.
+/// The specification fully determines every row, so its query is generated over the storage port —
+/// see the plan.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TokenLeases {
+    /// `lease_id` — `conductor.token.TokenLeaseId`.
+    pub lease_id: TokenLeaseId,
+    /// `state` — `conductor.token.TokenLease.State`.
+    pub state: TokenLeaseState,
+    /// `token_id` — `conductor.token.TokenId`.
+    pub token_id: TokenId,
+    /// `agent` — `conductor.agent.AgentName`.
+    pub agent: crate::agent::AgentName,
+    /// `instance` — `conductor.config.InstanceName`.
+    pub instance: crate::config::InstanceName,
+    /// `owner` — `conductor.operator.OperatorName`.
+    pub owner: crate::operator::OperatorName,
+    /// `leased_at` — `Timestamp`.
+    pub leased_at: crate::primitives::Timestamp,
+    /// `released_at` — `Optional<Timestamp>`.
+    pub released_at: Option<crate::primitives::Timestamp>,
+}
+
 /// Tokens of the pool — one row of the view `conductor.token.Tokens`.
 ///
-/// Projects `conductor.token.PoolToken` at `read_your_writes` consistency, containing instances where `instance == param.instance`.
-/// Serving it is an implementation obligation — see the plan — because how a projection is kept
-/// current is a storage decision the specification does not take.
+/// Projects `conductor.token.PoolToken` at `read_your_writes` consistency.
+/// The specification fully determines every row, so its query is generated over the storage port —
+/// see the plan.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Tokens {
     /// `token_id` — `conductor.token.TokenId`.
     pub token_id: TokenId,
     /// `state` — `conductor.token.PoolToken.State`.
     pub state: PoolTokenState,
-    /// `instance` — `conductor.config.InstanceName`.
-    pub instance: crate::config::InstanceName,
     /// `owner` — `conductor.operator.OperatorName`.
     pub owner: crate::operator::OperatorName,
     /// `seat` — `conductor.token.Seat`.
@@ -847,8 +945,6 @@ pub struct Tokens {
     pub token_state: TokenState,
     /// `limited_until` — `Optional<Timestamp>`.
     pub limited_until: Option<crate::primitives::Timestamp>,
-    /// `agent` — `Optional<conductor.agent.AgentName>`.
-    pub agent: Option<crate::agent::AgentName>,
     /// `contributed_at` — `Timestamp`.
     pub contributed_at: crate::primitives::Timestamp,
     /// `actor` — `conductor.operator.Actor`.
@@ -861,7 +957,6 @@ pub struct Tokens {
 ///
 /// One trait per obligation in the synthesis plan, each carrying the plan's own contract, and one
 /// per generated behaviour, which [`Generated`](crate::behaviour::Generated) implements.
-/// [`Unimplemented`](obligations::Unimplemented) satisfies every owed trait by refusing in the type system.
 pub mod obligations {
     /// The behaviour `conductor.token.ContributeToken` — generated.
     ///
@@ -907,6 +1002,17 @@ pub mod obligations {
         fn release_token(&mut self, input: super::ReleaseToken) -> Result<super::ReleaseTokenOutcome, crate::obligation::UnmetObligation>;
     }
 
+    /// The behaviour `conductor.token.RestoreToken` — generated.
+    ///
+    /// The specification fully determines it: [`crate::behaviour::Generated`] implements it
+    /// over the storage and context ports. Implement it yourself to replace that behaviour.
+    pub trait RestoreTokenBehavior {
+        /// Decides and enacts exactly one declared outcome of `conductor.token.RestoreToken`.
+        ///
+        /// `Err` is the typed refusal of a request the model declares no outcome for.
+        fn restore_token(&mut self, input: super::RestoreToken) -> Result<super::RestoreTokenOutcome, crate::obligation::UnmetObligation>;
+    }
+
     /// The behaviour `conductor.token.WithdrawToken` — generated.
     ///
     /// The specification fully determines it: [`crate::behaviour::Generated`] implements it
@@ -918,28 +1024,26 @@ pub mod obligations {
         fn withdraw_token(&mut self, input: super::WithdrawToken) -> Result<super::WithdrawTokenOutcome, crate::obligation::UnmetObligation>;
     }
 
-    /// The query `conductor.token.Tokens` — an implementation obligation.
+    /// The query `conductor.token.TokenLeases` — generated.
     ///
-    /// Why it is not generated: kept an obligation by a view parameter (`params:`), which a generated query does not apply.
+    /// The specification fully determines it: [`crate::behaviour::Generated`] implements it
+    /// over the storage port. Implement it yourself to replace that query.
+    pub trait TokenLeasesQuery {
+        /// Serves `conductor.token.TokenLeases` rows at the view's declared consistency.
+        ///
+        /// `Err` is the typed refusal of a row whose declared type cannot hold its value.
+        fn token_leases(&self) -> Result<Vec<super::TokenLeases>, crate::obligation::UnmetObligation>;
+    }
+
+    /// The query `conductor.token.Tokens` — generated.
     ///
-    /// Contract: a query answering `conductor.token.Tokens` with rows projected from `conductor.token.PoolToken` at `read_your_writes` consistency, containing instances where `instance == param.instance`.
+    /// The specification fully determines it: [`crate::behaviour::Generated`] implements it
+    /// over the storage port. Implement it yourself to replace that query.
     pub trait TokensQuery {
         /// Serves `conductor.token.Tokens` rows at the view's declared consistency.
         ///
-        /// `Err` is the typed refusal of an obligation nothing has satisfied; a satisfying
-        /// implementation never returns it.
-        fn tokens(&self, instance: crate::config::InstanceName) -> Result<Vec<super::Tokens>, crate::obligation::UnmetObligation>;
+        /// `Err` is the typed refusal of a row whose declared type cannot hold its value.
+        fn tokens(&self) -> Result<Vec<super::Tokens>, crate::obligation::UnmetObligation>;
     }
 
-    /// Every obligation of this bounded context, refused in the type system.
-    ///
-    /// Each method returns the typed refusal naming what is owed — never a panic, never a guessed
-    /// value — so a workspace built on this stub compiles and reports its own gaps.
-    pub struct Unimplemented;
-
-    impl TokensQuery for Unimplemented {
-        fn tokens(&self, _instance: crate::config::InstanceName) -> Result<Vec<super::Tokens>, crate::obligation::UnmetObligation> {
-            Err(crate::obligation::UnmetObligation { capability: "view query", source: "conductor.token.Tokens" })
-        }
-    }
 }

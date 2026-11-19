@@ -2,8 +2,8 @@
   "provenance": {
     "system": "conductor",
     "specification_version": "v1",
-    "source_digest": "ced8395a04496ca8cb2327e5c2eb8ab58e5ce6e7e29ff35c1cd721993712adbe",
-    "contract_digest": "20ddd37e2cbb8b4d6af341870bbfad2afae45b8659a4f31603258eb2dc514f07"
+    "source_digest": "74486032d7e20245cc5a91ec56a69158d7baaaad963e609f177db0fb72fca035",
+    "contract_digest": "f9b97474e363529d89efb80bf5ba004e441e796a0dac65b2cc8dcd802f7432be"
   },
   "scope": {
     "profile": "component-skeletons",
@@ -2322,7 +2322,14 @@
     },
     {
       "kind": "domain_type",
-      "source": "conductor.token.TokenPool.State",
+      "source": "conductor.token.TokenLease.State",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.token.TokenLeaseId",
       "disposition": {
         "disposition": "generated"
       }
@@ -2847,7 +2854,7 @@
     },
     {
       "kind": "entity_lifecycle",
-      "source": "conductor.token.TokenPool",
+      "source": "conductor.token.TokenLease",
       "disposition": {
         "disposition": "generated"
       }
@@ -4536,6 +4543,20 @@
     },
     {
       "kind": "command_contract",
+      "source": "conductor.token.RestoreToken",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "command_behavior",
+      "source": "conductor.token.RestoreToken",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "command_contract",
       "source": "conductor.token.WithdrawToken",
       "disposition": {
         "disposition": "generated"
@@ -5362,6 +5383,13 @@
     },
     {
       "kind": "event_type",
+      "source": "conductor.token.TokenRestored",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "event_type",
       "source": "conductor.token.TokenWithdrawn",
       "disposition": {
         "disposition": "generated"
@@ -6140,6 +6168,13 @@
     {
       "kind": "error_type",
       "source": "conductor.store.SourceMissing",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "error_type",
+      "source": "conductor.token.LeaseStateConflict",
       "disposition": {
         "disposition": "generated"
       }
@@ -6980,6 +7015,20 @@
     },
     {
       "kind": "view_type",
+      "source": "conductor.token.TokenLeases",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "view_query",
+      "source": "conductor.token.TokenLeases",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "view_type",
       "source": "conductor.token.Tokens",
       "disposition": {
         "disposition": "generated"
@@ -6989,12 +7038,7 @@
       "kind": "view_query",
       "source": "conductor.token.Tokens",
       "disposition": {
-        "disposition": "obligation",
-        "reason": {
-          "class": "undetermined",
-          "construct": "a view parameter (`params:`), which a generated query does not apply"
-        },
-        "contract": "a query answering `conductor.token.Tokens` with rows projected from `conductor.token.PoolToken` at `read_your_writes` consistency, containing instances where `instance == param.instance`"
+        "disposition": "generated"
       }
     },
     {

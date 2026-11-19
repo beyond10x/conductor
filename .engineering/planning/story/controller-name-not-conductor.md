@@ -7,7 +7,7 @@ title: A repository controller's session name never equals the conductor session
 summary: Messages to conductor reach conductor only
 relations:
 - decomposes: epic:architecture-next
-revision: 1
+revision: 2
 ---
 ## Why
 
@@ -27,3 +27,10 @@ no report reached the director.
 
 - a test that spawning a controller for a repository named `conductor` gets a name distinct from the
   conductor session, and a message to `conductor` lands in conductor's mailbox only.
+
+## Seen again (2026-11-18)
+
+A `[NEED conductor …]` the controller of the repository named `conductor` sent with
+`conductor message send --to conductor --from <prefix>-conductor` came back into that controller's own
+session as a new message: sender and addressee are one session name, so the controller cannot tell a
+relay of its own message from conductor's answer.

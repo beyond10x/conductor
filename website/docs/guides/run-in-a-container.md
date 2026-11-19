@@ -116,8 +116,8 @@ None of them is written to the image or to the config file. The image holds no t
 login, and the config file names the model token only as `secret:model-token`. Conductor puts no
 secret into the secrets directory: `conductor secret put` refuses it in one line,
 `SourceReadOnly`, and writes nothing. The one file it writes there is a pool token's:
-`conductor join` writes it, owner-only, and `conductor leave` removes it. A token in the pool of
-the instance is leased first; the model token is what an agent runs on when the pool has
+`conductor join` writes it, owner-only, and `conductor leave` removes it. A token in the host's
+pool is leased first; the model token is what an agent runs on when the pool has
 none, and only where the config file says `daemon.unattended: true`. `conductor token reveal
 --model-token` refuses an instance whose placement opens a box and prints nothing of its token.
 

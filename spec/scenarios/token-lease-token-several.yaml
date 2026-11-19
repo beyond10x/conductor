@@ -1,0 +1,84 @@
+# story:host-token-pool, class C decision: a token serves several sessions at once, one lease per
+# session, and agents of two instances lease from the one host pool.
+type: ess-scenario/1
+domain: conductor.token
+scenario: token-lease-token-several
+summary: One token of the host's pool is leased by three agent starts of two instances; each holds a lease of its own and none is refused.
+
+arrange:
+  - instance: token
+    entity: conductor.token.PoolToken
+
+timeline:
+  - at: 2026-11-08T09:00:00Z
+    command: conductor.token.ContributeToken
+    actor: conductor.token.Operator
+    input:
+      actor: {kind: Human, operator: alice}
+      owner: alice
+      seat: alice@example-org.example
+      secret: example-org-claude-alice
+      kind: SubscriptionToken
+      contributed_at: 2026-11-08T09:00:00Z
+    outcome: contributed
+    capture: {instance: token, event: conductor.token.TokenContributed, field: token_id}
+
+  - at: 2026-11-08T09:05:00Z
+    command: conductor.token.LeaseToken
+    actor: conductor.token.InstanceRuntime
+    input:
+      actor: {kind: Agent, agent: {instance: example-org, role: Lead, name: example-org-controller, kind: claude-code}}
+      instance: example-org
+      token_id: {$instance: token}
+      owner: alice
+      agent: example-org-controller
+      leased_at: 2026-11-08T09:05:00Z
+    outcome: leased
+
+  - at: 2026-11-08T09:06:00Z
+    command: conductor.token.LeaseToken
+    actor: conductor.token.InstanceRuntime
+    input:
+      actor: {kind: Agent, agent: {instance: example-org, role: Lead, name: example-org-controller, kind: claude-code}}
+      instance: example-org
+      token_id: {$instance: token}
+      owner: alice
+      agent: example-org-implementer
+      leased_at: 2026-11-08T09:06:00Z
+    outcome: leased
+
+  - at: 2026-11-08T09:07:00Z
+    command: conductor.token.LeaseToken
+    actor: conductor.token.InstanceRuntime
+    input:
+      actor: {kind: Agent, agent: {instance: example-org, role: Lead, name: example-org-controller, kind: claude-code}}
+      instance: other-org
+      token_id: {$instance: token}
+      owner: alice
+      agent: other-org-controller
+      leased_at: 2026-11-08T09:07:00Z
+    outcome: leased
+
+assert:
+  - view: conductor.token.TokenLeases
+    contains:
+      token_id: {$instance: token}
+      state: Held
+      agent: example-org-controller
+      instance: example-org
+  - view: conductor.token.TokenLeases
+    contains:
+      token_id: {$instance: token}
+      state: Held
+      agent: example-org-implementer
+      instance: example-org
+  - view: conductor.token.TokenLeases
+    contains:
+      token_id: {$instance: token}
+      state: Held
+      agent: other-org-controller
+      instance: other-org
+  - view: conductor.token.Tokens
+    contains:
+      token_id: {$instance: token}
+      state: Available

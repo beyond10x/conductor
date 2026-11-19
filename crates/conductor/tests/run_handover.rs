@@ -38,7 +38,6 @@ use conductor_cli::config;
 use conductor_cli::run::{self, Headroom, Seams};
 use conductor_cli::session::{Deliverer, Delivery};
 use conductor_model::behaviour::PoolTokenStorage;
-use conductor_model::config::InstanceName;
 use conductor_model::operator::OperatorName;
 use conductor_model::primitives::{Timestamp, Uuid};
 use conductor_model::secret::SecretName;
@@ -172,13 +171,11 @@ fn pool() {
                 state: PoolTokenState::Available,
                 data: PoolTokenData {
                     token_id: TokenId(Uuid(id.to_owned())),
-                    instance: InstanceName("example-org".to_owned()),
                     owner: OperatorName("operator".to_owned()),
                     seat: Seat("operator@example-org.example".to_owned()),
-                    secret: SecretName(format!("claude-token/example-org/{id}")),
+                    secret: SecretName(format!("claude-token/{id}")),
                     token_state: TokenState::Ok,
                     limited_until: None,
-                    agent: None,
                     contributed_at: Timestamp("2026-11-08T09:00:00Z".to_owned()),
                     actor: conductor_cli::actor::operator("operator"),
                     kind: None,

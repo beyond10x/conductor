@@ -43,10 +43,11 @@
 //!   `story:daemon-probes-and-metrics`). While the reconciler has published nothing, an answer
 //!   read from its publication (`GET /v1/instances`, the federated reads, a proxied route,
 //!   `POST /v1/ask`, `POST /v1/roles/{role}/start`) is `503` with the readiness reason.
-//! - `GET /v1/instances/{name}/tokens`, `POST .../join` and `POST .../leave`: the instance's token
-//!   pool, the daemon's own routes ([`crate::token`], `story:token-pool`); a join or a leave is a
-//!   write of the `Join` grant, refused `409` for a daemon that runs its instances as pods
-//!   ([`Api::with_pods`]).
+//! - `GET /v1/tokens`, `GET /v1/tokens/leases`, `POST /v1/join` and `POST /v1/leave`: the host's
+//!   token pool, the daemon's own routes ([`crate::token`], `story:host-token-pool`); and
+//!   `GET /v1/instances/{name}/tokens`, `POST .../join` and `POST .../leave`, the same pool, a join
+//!   or a leave also of that instance's operators. A join or a leave is a write of the `Join`
+//!   grant, refused `409` for a daemon that runs its instances as pods ([`Api::with_pods`]).
 //! - `GET /v1/instances/{name}/secrets`: for each key of the instance's mapping that names a
 //!   secret, whether the daemon's secrets source holds it, never a value; the daemon's own route,
 //!   read from its config file and its source at each call ([`crate::secret::instance_view`],
@@ -712,7 +713,19 @@ impl Api {
         }
     }
 
-    fn operators(&self) -> Vec<DaemonOperator> {
+    /// The config file and the store URL the daemon's own routes write with, if it was given
+    /// them ([`Self::with_config`]): what a pool call of a dialed runtime reads
+    /// (`story:host-token-pool`).
+    #[must_use]
+    pub fn pool_target(&self) -> Option<(PathBuf, String)> {
+        self.config
+            .as_ref()
+            .map(|target| (target.file.clone(), target.store.clone()))
+    }
+
+    /// The deployment's operators the daemon last published.
+    #[must_use]
+    pub fn operators(&self) -> Vec<DaemonOperator> {
         self.published
             .lock()
             .map(|published| published.operators.clone())
@@ -1139,6 +1152,14 @@ fn answer<S: Read + Write>(
         let (code, reason, answer) = put_config(api, &body, &operator);
         return reply(code, reason, &answer, listener);
     }
+    // story:host-token-pool: the host's token pool, the daemon's own.
+    if let Some(route) = HOST_TOKEN_ROUTES
+        .iter()
+        .find(|(at, _)| *at == path)
+        .map(|(_, route)| *route)
+    {
+        return pool(request, stream, listener, &who, api, None, route);
+    }
     if let Some(answer) = federated(request, stream, listener, &who, api) {
         return answer;
     }
@@ -1208,7 +1229,7 @@ fn answer<S: Read + Write>(
     }
     // story:token-pool: the instance's token pool is the daemon's own.
     if TOKEN_ROUTES.contains(&route) {
-        return pool(request, stream, listener, &who, api, name, route);
+        return pool(request, stream, listener, &who, api, Some(name), route);
     }
     if route == "upgrade" {
         if request.method != "POST" {
@@ -1425,27 +1446,38 @@ fn instance_secrets_said(name: &str, status: u16, why: &str) {
     eprintln!("conductor: daemon serve: GET /v1/instances/{name}/secrets answered {status}: {why}");
 }
 
-/// The routes of an instance's token pool (`story:token-pool`): `GET tokens`, `POST join` and
-/// `POST leave`.
+/// The routes of the host's token pool under `/v1/instances/{name}/` (`story:token-pool`,
+/// `story:host-token-pool`): `GET tokens`, the host's pool; `POST join` and `POST leave`, which
+/// also join or leave that instance as its operator.
 const TOKEN_ROUTES: [&str; 3] = ["tokens", "join", "leave"];
 
-/// `/v1/instances/{name}/<route>` of the token pool ([`crate::token`]): `GET tokens` reads it;
-/// `POST join` and `POST leave` are writes of the operator admitted with the `Join` grant.
+/// The host's token pool's own routes (`story:host-token-pool`), with the route each is.
+const HOST_TOKEN_ROUTES: [(&str, &str); 4] = [
+    ("/v1/tokens", "tokens"),
+    ("/v1/tokens/leases", "leases"),
+    ("/v1/join", "join"),
+    ("/v1/leave", "leave"),
+];
+
+/// A route of the host's token pool ([`crate::token`]), of the instance `name` where the path
+/// names one: `GET tokens` and `GET leases` read it; `POST join` and `POST leave` are writes of
+/// the operator admitted with the `Join` grant.
 fn pool<S: Read>(
     request: &Request,
     stream: &mut S,
     listener: Listener,
     who: &Who,
     api: &Api,
-    name: &str,
+    name: Option<&str>,
     route: &str,
 ) -> Vec<u8> {
-    let method = if route == "tokens" { "GET" } else { "POST" };
+    let read = matches!(route, "tokens" | "leases");
+    let method = if read { "GET" } else { "POST" };
     if request.method != method {
         return reply(
             405,
             "Method Not Allowed",
-            &json!({"error": format!("/v1/instances/{name}/{route} answers {method} only")}),
+            &json!({"error": format!("{} answers {method} only", request.path())}),
             listener,
         );
     }
@@ -1463,8 +1495,12 @@ fn pool<S: Read>(
         store: &target.store,
         operators: &operators,
     };
-    if route == "tokens" {
-        let (code, reason, answer) = crate::token::tokens_route(&daemon, name);
+    if read {
+        let (code, reason, answer) = if route == "tokens" {
+            crate::token::tokens_route(&daemon)
+        } else {
+            crate::token::leases_route(&daemon)
+        };
         return reply(code, reason, &answer, listener);
     }
     let operator = match admit_write(request, listener, who, route, api) {
@@ -1477,8 +1513,8 @@ fn pool<S: Read>(
             409,
             "Conflict",
             &json!({"error": format!(
-                "{route} is refused: the daemon runs {name} as a pod, on a store of its own that \
-                 does not read the daemon's token pool"
+                "{route} is refused: the daemon runs its instances as pods, on a store of their \
+                 own that does not read the host's token pool"
             )}),
             listener,
         );

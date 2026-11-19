@@ -1,0 +1,63 @@
+type: ess-scenario/1
+domain: conductor.token
+scenario: token-restore-token
+summary: A Limited token is restored before it is leased again; it is Available and Ok with no limit, and a second restore is refused as a wrong state.
+
+arrange:
+  - instance: token
+    entity: conductor.token.PoolToken
+
+timeline:
+  - at: 2026-11-08T09:00:00Z
+    command: conductor.token.ContributeToken
+    actor: conductor.token.Operator
+    input:
+      actor: {kind: Human, operator: alice}
+      owner: alice
+      seat: alice@example-org.example
+      secret: example-org-claude-alice
+      kind: SubscriptionToken
+      contributed_at: 2026-11-08T09:00:00Z
+    outcome: contributed
+    capture: {instance: token, event: conductor.token.TokenContributed, field: token_id}
+
+  - at: 2026-11-08T12:00:00Z
+    command: conductor.token.MarkTokenLimited
+    actor: conductor.token.InstanceRuntime
+    input:
+      actor: {kind: Agent, agent: {instance: example-org, role: Lead, name: example-org-controller, kind: claude-code}}
+      token_id: {$instance: token}
+      limited_until: 2026-11-08T17:00:00Z
+      limited_at: 2026-11-08T12:00:00Z
+    outcome: limited
+
+  - at: 2026-11-08T17:01:00Z
+    command: conductor.token.RestoreToken
+    actor: conductor.token.InstanceRuntime
+    input:
+      actor: {kind: Agent, agent: {instance: example-org, role: Lead, name: example-org-controller, kind: claude-code}}
+      token_id: {$instance: token}
+      restored_at: 2026-11-08T17:01:00Z
+    outcome: restored
+    events:
+      - event: conductor.token.TokenRestored
+        payload:
+          token_id: {$instance: token}
+
+  - at: 2026-11-08T17:02:00Z
+    command: conductor.token.RestoreToken
+    actor: conductor.token.InstanceRuntime
+    input:
+      actor: {kind: Agent, agent: {instance: example-org, role: Lead, name: example-org-controller, kind: claude-code}}
+      token_id: {$instance: token}
+      restored_at: 2026-11-08T17:02:00Z
+    outcome: wrong-state
+    error:
+      name: conductor.token.TokenStateConflict
+
+assert:
+  - view: conductor.token.Tokens
+    contains:
+      token_id: {$instance: token}
+      state: Available
+      token_state: Ok

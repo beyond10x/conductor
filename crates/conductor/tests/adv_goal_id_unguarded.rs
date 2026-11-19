@@ -137,6 +137,9 @@ impl Context for Ports {
     fn generate_conductor_token_token_id(&mut self) -> conductor_model::token::TokenId {
         unreachable!("AddServing and SendDispatch assign no token id")
     }
+    fn generate_conductor_token_token_lease_id(&mut self) -> conductor_model::token::TokenLeaseId {
+        unreachable!("AddServing and SendDispatch assign no token lease id")
+    }
     fn generate_string(&mut self) -> String {
         unreachable!("AddServing and SendDispatch generate no text")
     }

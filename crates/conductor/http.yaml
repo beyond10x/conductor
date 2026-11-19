@@ -1,5 +1,5 @@
 type: ess-http/1
-specification: {system: conductor, version: v1, source_digest: "sha256:ced8395a04496ca8cb2327e5c2eb8ab58e5ce6e7e29ff35c1cd721993712adbe"}
+specification: {system: conductor, version: v1, source_digest: "sha256:74486032d7e20245cc5a91ec56a69158d7baaaad963e609f177db0fb72fca035"}
 routes:
   - command: conductor.config.PutConfig
     method: put
@@ -71,9 +71,38 @@ routes:
       not-running: {status: 409}
   - view: conductor.token.Tokens
     method: get
-    path: /v1/instances/{instance}/tokens
-    parameters: {instance: param.instance}
+    path: /v1/tokens
     body: array
+  - view: conductor.token.TokenLeases
+    method: get
+    path: /v1/tokens/leases
+    body: array
+  - command: conductor.token.LeaseToken
+    method: post
+    path: /v1/tokens/leases
+    outcomes:
+      leased: {status: 201}
+      none-available: {status: 409}
+      unknown-token: {status: 409}
+      token-withdrawn: {status: 409}
+  - command: conductor.token.ReleaseToken
+    method: post
+    path: /v1/tokens/release
+    outcomes:
+      released: {status: 200}
+      wrong-state: {status: 409}
+  - command: conductor.token.MarkTokenLimited
+    method: post
+    path: /v1/tokens/limit
+    outcomes:
+      limited: {status: 200}
+      wrong-state: {status: 409}
+  - command: conductor.token.RestoreToken
+    method: post
+    path: /v1/tokens/restore
+    outcomes:
+      restored: {status: 200}
+      wrong-state: {status: 409}
   - view: conductor.secret.InstanceSecrets
     method: get
     path: /v1/instances/{instance}/secrets

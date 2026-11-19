@@ -1,5 +1,5 @@
 // generated from conductor v1
-// contract digest 20ddd37e2cbb8b4d6af341870bbfad2afae45b8659a4f31603258eb2dc514f07
+// contract digest f9b97474e363529d89efb80bf5ba004e441e796a0dac65b2cc8dcd802f7432be
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! Ephemeral stores for the generated network entry points; no durability.
@@ -761,20 +761,38 @@ impl crate::behaviour::PoolTokenStorage for MemoryPoolTokenStorage {
 fn get(&self, identity: &crate::token::TokenId) -> Option<crate::token::PoolTokenSnapshot> { let key = memory_key_329(identity); self.0.borrow().iter().find(|row| memory_key_329(&row.data.token_id) == key).cloned() }
 fn put(&mut self, snapshot: crate::token::PoolTokenSnapshot) { self.delete(&snapshot.data.token_id); let mut rows = self.0.borrow_mut(); rows.push(snapshot); rows.sort_by(|row, other| memory_key_329(&row.data.token_id).cmp(&memory_key_329(&other.data.token_id))); }
 fn delete(&mut self, identity: &crate::token::TokenId) { let key = memory_key_329(identity); self.0.borrow_mut().retain(|row| memory_key_329(&row.data.token_id) != key); }
+fn list(&self) -> Vec<crate::token::PoolTokenSnapshot> { self.0.borrow().clone() }
 }
 impl crate::behaviour::PoolTokenStorage for MemoryPorts {
 fn get(&self, identity: &crate::token::TokenId) -> Option<crate::token::PoolTokenSnapshot> { crate::behaviour::PoolTokenStorage::get(&self.pool_token_storage, identity) }
 fn put(&mut self, snapshot: crate::token::PoolTokenSnapshot) { crate::behaviour::PoolTokenStorage::put(&mut self.pool_token_storage, snapshot); }
 fn delete(&mut self, identity: &crate::token::TokenId) { crate::behaviour::PoolTokenStorage::delete(&mut self.pool_token_storage, identity); }
+fn list(&self) -> Vec<crate::token::PoolTokenSnapshot> { crate::behaviour::PoolTokenStorage::list(&self.pool_token_storage) }
+}
+
+/// Ephemeral storage of `conductor.token.TokenLease`, shared by clones.
+#[derive(Clone, Default)]
+pub struct MemoryTokenLeaseStorage(std::rc::Rc<std::cell::RefCell<Vec<crate::token::TokenLeaseSnapshot>>>);
+impl crate::behaviour::TokenLeaseStorage for MemoryTokenLeaseStorage {
+fn get(&self, identity: &crate::token::TokenLeaseId) -> Option<crate::token::TokenLeaseSnapshot> { let key = memory_key_331(identity); self.0.borrow().iter().find(|row| memory_key_331(&row.data.lease_id) == key).cloned() }
+fn put(&mut self, snapshot: crate::token::TokenLeaseSnapshot) { self.delete(&snapshot.data.lease_id); let mut rows = self.0.borrow_mut(); rows.push(snapshot); rows.sort_by(|row, other| memory_key_331(&row.data.lease_id).cmp(&memory_key_331(&other.data.lease_id))); }
+fn delete(&mut self, identity: &crate::token::TokenLeaseId) { let key = memory_key_331(identity); self.0.borrow_mut().retain(|row| memory_key_331(&row.data.lease_id) != key); }
+fn list(&self) -> Vec<crate::token::TokenLeaseSnapshot> { self.0.borrow().clone() }
+}
+impl crate::behaviour::TokenLeaseStorage for MemoryPorts {
+fn get(&self, identity: &crate::token::TokenLeaseId) -> Option<crate::token::TokenLeaseSnapshot> { crate::behaviour::TokenLeaseStorage::get(&self.token_lease_storage, identity) }
+fn put(&mut self, snapshot: crate::token::TokenLeaseSnapshot) { crate::behaviour::TokenLeaseStorage::put(&mut self.token_lease_storage, snapshot); }
+fn delete(&mut self, identity: &crate::token::TokenLeaseId) { crate::behaviour::TokenLeaseStorage::delete(&mut self.token_lease_storage, identity); }
+fn list(&self) -> Vec<crate::token::TokenLeaseSnapshot> { crate::behaviour::TokenLeaseStorage::list(&self.token_lease_storage) }
 }
 
 /// Ephemeral storage of `conductor.tool.ToolCall`, shared by clones.
 #[derive(Clone, Default)]
 pub struct MemoryToolCallStorage(std::rc::Rc<std::cell::RefCell<Vec<crate::tool::ToolCallSnapshot>>>);
 impl crate::behaviour::ToolCallStorage for MemoryToolCallStorage {
-fn get(&self, identity: &crate::tool::ToolCallId) -> Option<crate::tool::ToolCallSnapshot> { let key = memory_key_352(identity); self.0.borrow().iter().find(|row| memory_key_352(&row.data.tool_call_id) == key).cloned() }
-fn put(&mut self, snapshot: crate::tool::ToolCallSnapshot) { self.delete(&snapshot.data.tool_call_id); let mut rows = self.0.borrow_mut(); rows.push(snapshot); rows.sort_by(|row, other| memory_key_352(&row.data.tool_call_id).cmp(&memory_key_352(&other.data.tool_call_id))); }
-fn delete(&mut self, identity: &crate::tool::ToolCallId) { let key = memory_key_352(identity); self.0.borrow_mut().retain(|row| memory_key_352(&row.data.tool_call_id) != key); }
+fn get(&self, identity: &crate::tool::ToolCallId) -> Option<crate::tool::ToolCallSnapshot> { let key = memory_key_353(identity); self.0.borrow().iter().find(|row| memory_key_353(&row.data.tool_call_id) == key).cloned() }
+fn put(&mut self, snapshot: crate::tool::ToolCallSnapshot) { self.delete(&snapshot.data.tool_call_id); let mut rows = self.0.borrow_mut(); rows.push(snapshot); rows.sort_by(|row, other| memory_key_353(&row.data.tool_call_id).cmp(&memory_key_353(&other.data.tool_call_id))); }
+fn delete(&mut self, identity: &crate::tool::ToolCallId) { let key = memory_key_353(identity); self.0.borrow_mut().retain(|row| memory_key_353(&row.data.tool_call_id) != key); }
 fn list(&self) -> Vec<crate::tool::ToolCallSnapshot> { self.0.borrow().clone() }
 }
 impl crate::behaviour::ToolCallStorage for MemoryPorts {
@@ -883,6 +901,8 @@ pub migration_storage: MemoryMigrationStorage,
 pub store_storage: MemoryStoreStorage,
 /// Storage of `conductor.token.PoolToken`.
 pub pool_token_storage: MemoryPoolTokenStorage,
+/// Storage of `conductor.token.TokenLease`.
+pub token_lease_storage: MemoryTokenLeaseStorage,
 /// Storage of `conductor.tool.ToolCall`.
 pub tool_call_storage: MemoryToolCallStorage,
 }
@@ -904,6 +924,7 @@ fn try_generate_conductor_placement_refusal_reason(&mut self) -> Result<crate::p
 fn try_generate_conductor_session_delivery_id(&mut self) -> Result<crate::session::DeliveryId, crate::obligation::UnmetObligation> { Ok(crate::session::DeliveryId(crate::primitives::Uuid(uuid::Uuid::new_v4().to_string()))) }
 fn try_generate_conductor_session_tick_id(&mut self) -> Result<crate::session::TickId, crate::obligation::UnmetObligation> { Ok(crate::session::TickId(crate::primitives::Uuid(uuid::Uuid::new_v4().to_string()))) }
 fn try_generate_conductor_token_token_id(&mut self) -> Result<crate::token::TokenId, crate::obligation::UnmetObligation> { Ok(crate::token::TokenId(crate::primitives::Uuid(uuid::Uuid::new_v4().to_string()))) }
+fn try_generate_conductor_token_token_lease_id(&mut self) -> Result<crate::token::TokenLeaseId, crate::obligation::UnmetObligation> { Ok(crate::token::TokenLeaseId(crate::primitives::Uuid(uuid::Uuid::new_v4().to_string()))) }
 fn try_generate_conductor_tool_tool_call_id(&mut self) -> Result<crate::tool::ToolCallId, crate::obligation::UnmetObligation> { Ok(crate::tool::ToolCallId(crate::primitives::Uuid(uuid::Uuid::new_v4().to_string()))) }
 fn try_generate_string(&mut self) -> Result<String, crate::obligation::UnmetObligation> { Err(crate::behaviour::unmet_context("assigned value: String")) }
 fn try_external(&mut self, _command: crate::behaviour::ExternalCommand<'_>, _outcome: &'static str) -> Result<bool, crate::obligation::UnmetObligation> { Err(crate::behaviour::unmet_context("external branch answer")) }
@@ -979,7 +1000,9 @@ fn memory_key_323(value: &crate::store::StoreUrl) -> MemoryKey { let _ = value; 
 
 fn memory_key_329(value: &crate::token::TokenId) -> MemoryKey { let _ = value; MemoryKey::Text((&value.0).0.clone()) }
 
-fn memory_key_352(value: &crate::tool::ToolCallId) -> MemoryKey { let _ = value; MemoryKey::Text((&value.0).0.clone()) }
+fn memory_key_331(value: &crate::token::TokenLeaseId) -> MemoryKey { let _ = value; MemoryKey::Text((&value.0).0.clone()) }
+
+fn memory_key_353(value: &crate::tool::ToolCallId) -> MemoryKey { let _ = value; MemoryKey::Text((&value.0).0.clone()) }
 
 // A common structural order; individual specifications use only a subset of the variants.
 #[allow(dead_code)]
@@ -1043,7 +1066,4 @@ fn instance_by_name(&self, name: crate::config::InstanceName) -> Result<Vec<crat
 }
 impl crate::secret::obligations::InstanceSecretsQuery for MemoryPorts {
 fn instance_secrets(&self, instance: crate::config::InstanceName) -> Result<Vec<crate::secret::InstanceSecrets>, crate::obligation::UnmetObligation> { crate::secret::obligations::InstanceSecretsQuery::instance_secrets(&crate::secret::obligations::Unimplemented, instance) }
-}
-impl crate::token::obligations::TokensQuery for MemoryPorts {
-fn tokens(&self, instance: crate::config::InstanceName) -> Result<Vec<crate::token::Tokens>, crate::obligation::UnmetObligation> { crate::token::obligations::TokensQuery::tokens(&crate::token::obligations::Unimplemented, instance) }
 }

@@ -1,5 +1,5 @@
 // generated from conductor v1
-// contract digest 20ddd37e2cbb8b4d6af341870bbfad2afae45b8659a4f31603258eb2dc514f07
+// contract digest f9b97474e363529d89efb80bf5ba004e441e796a0dac65b2cc8dcd802f7432be
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! Config — `conductor.config`.
@@ -295,6 +295,8 @@ pub struct Controllers {
 /// Every value satisfies `substrate_slots >= 0` — declared here, enforced by whatever behaviour constructs one.
 /// Every value satisfies `dial_port >= 0` — declared here, enforced by whatever behaviour constructs one.
 /// Every value satisfies `dial_port <= 65535` — declared here, enforced by whatever behaviour constructs one.
+/// Every value satisfies `subscription_token_sessions >= 0` — declared here, enforced by whatever behaviour constructs one.
+/// Every value satisfies `api_key_sessions >= 0` — declared here, enforced by whatever behaviour constructs one.
 /// Every value satisfies `distinct operator in operators by operator.name` — declared here, enforced by whatever behaviour constructs one.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Daemon {
@@ -330,6 +332,10 @@ pub struct Daemon {
     pub control_token: Option<crate::secret::SecretName>,
     /// `dial_port` — `Integer`.
     pub dial_port: i64,
+    /// `subscription_token_sessions` — `Integer`.
+    pub subscription_token_sessions: i64,
+    /// `api_key_sessions` — `Integer`.
+    pub api_key_sessions: i64,
 }
 
 /// DaemonCadence — `conductor.config.DaemonCadence`.

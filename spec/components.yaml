@@ -391,7 +391,8 @@ components:
   # the operators of each instance and their token pools, and serves the global API `/v1/` on
   # 127.0.0.1:<daemon port> and, when configured, a TLS listener with Identity bearers. Its routes
   # are the `ess-http/1` binding `crates/conductor/http.yaml`.
-  # The token pool's lease, release and limit (`LeaseToken`, `ReleaseToken`, `MarkTokenLimited`)
+  # The token pool's lease, release, limit and restore (`LeaseToken`, `ReleaseToken`,
+  # `MarkTokenLimited`, `RestoreToken`)
   # are the instance runtime's calls, and are accepted here: ess gives a command one handler, the
   # component owning its domain (ESS-COMPONENT-004), so the runtime reaches them over this API.
   - component: conductord
@@ -430,6 +431,7 @@ components:
         - conductor.token.LeaseToken
         - conductor.token.ReleaseToken
         - conductor.token.MarkTokenLimited
+        - conductor.token.RestoreToken
         - conductor.config.PutConfig
         - conductor.config.AddInstance
         - conductor.config.PutInstance
@@ -458,6 +460,7 @@ components:
         - conductor.token.TokenLeased
         - conductor.token.TokenReleased
         - conductor.token.TokenLimited
+        - conductor.token.TokenRestored
         - conductor.config.ConfigChanged
         - conductor.config.InstanceAdded
         - conductor.config.InstanceReplaced

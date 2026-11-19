@@ -92,6 +92,9 @@ scenarios:
   - scenarios/token-withdraw-token-agent-refused.yaml
   - scenarios/token-lease-token.yaml
   - scenarios/token-lease-token-none-available.yaml
+  - scenarios/token-lease-token-several.yaml
+  - scenarios/token-lease-token-withdrawn.yaml
+  - scenarios/token-restore-token.yaml
   - scenarios/token-release-token.yaml
   - scenarios/token-mark-token-limited.yaml
   - scenarios/direction-confirm-goal-agent-actor.yaml

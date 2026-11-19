@@ -41,7 +41,7 @@ single host the Unix user), a `role` the config names, such as `owner`, and `gra
 |---|---|
 | `POST /v1/instances/<name>/answers`, `POST …/plan` | `answer-decisions` |
 | `POST /v1/instances/<name>/upgrade` (`conductor instance upgrade`) | `upgrade-instances` |
-| `POST …/join`, `POST …/leave` | `join` |
+| `POST /v1/join`, `POST /v1/leave`, `POST …/join`, `POST …/leave` | `join` |
 | `PUT …/settings`, `PUT /v1/config` (`conductor config put`), `POST …/agents/<agent>/deliver` and `restart`, `POST /v1/ask`, `POST /v1/roles/<role>/start` | `change-settings` |
 
 `start-instances`, `stop-instances` and `purge` have no route served yet. A principal that is not
@@ -139,26 +139,48 @@ and its writes are recorded as the operator's. The guard's
 
 ## The token pool
 
-An operator who joins an instance contributes a Claude token to a pool its sessions lease from.
-`join` and `leave` need the `join` grant.
+The token pool is the host's: conductord's store holds one pool, and every instance on the host
+leases from it. A token joined once serves every instance the daemon runs, and adding or removing
+one edits no config file and restarts nothing. `join` and `leave` need the `join` grant.
 
 - `conductor join [--instance <name>] [--seat <seat>] [--kind <kind>]` puts the token from
   standard input into the daemon's secrets source, and records owner, seat (default: the operator
-  name), kind (`SubscriptionToken` by default, or `ApiKey`) and state. Under the `files` source
-  the value is a file of `daemon.secrets.dir`, mode 0600, which `leave` removes.
-- `conductor leave` withdraws the caller's tokens. Only an owner withdraws. Each session on one is
-  named in `<state>/run/tokens-withdrawn.json`, and the loop resumes it on another token.
-- `GET /v1/instances/<name>/tokens` lists owners, seats and states, never a value or a secret's
-  name.
-- `spawn` and `session start` lease one token per start: the Available one leased fewest times,
-  ties by `token_id`. A controller role's `token_owner` takes that owner's tokens only, and starts
-  with `--remote-control <session name>`. With none Available it refuses `NoTokenAvailable`.
-- For an `ApiKey` token the session's settings copy names `conductor token reveal --token <id>`
-  as its `apiKeyHelper`. It prints the value of a `Leased` token and refuses any other with
-  `TokenStateConflict`. A `SubscriptionToken` is read once at the session's start and set as
-  `CLAUDE_CODE_OAUTH_TOKEN` in the harness's environment; its settings copy names no
-  `apiKeyHelper`. A token recorded before the kind existed is an `ApiKey`.
-- A usage-limit stop marks the token Limited for 5 hours. With an empty pool a start is unchanged.
+  name), kind (`SubscriptionToken` by default, or `ApiKey`) and state. It prints the instances the
+  token serves: every instance of the daemon's config file. `--instance` also makes the caller an
+  operator of that instance with the grants `daemon.operators` gives. Under the `files` source the
+  value is a file of `daemon.secrets.dir`, mode 0600, which `leave` removes.
+- `conductor leave [--instance <name>]` withdraws every token the caller contributed to the
+  host's pool. Only an owner withdraws. Each lease on a withdrawn token is released, its session
+  named in its instance's `<state>/run/tokens-withdrawn.json`, and that instance's loop resumes it
+  on another token.
+- `GET /v1/tokens` (also at `GET /v1/instances/<name>/tokens`) lists owners, seats, states, kinds
+  and live leases, never a value or a secret's name. `GET /v1/tokens/leases` lists which session
+  of which instance holds which token.
+- `spawn` and `session start` of any instance lease one token per session. A token serves several
+  sessions at once, each with a lease of its own: the pick takes the token with headroom with the
+  fewest live leases, ties by `token_id`. A token never serves more sessions at once than its
+  kind's cap, `daemon.subscription_token_sessions` (4 by default) or `daemon.api_key_sessions` (no
+  cap by default). A controller role's `token_owner` takes that owner's tokens only, and starts
+  with `--remote-control <session name>`. With no token with headroom the start is refused
+  `NoTokenAvailable`, as with an empty pool.
+- The value reaches the harness once, at its start, in the harness process's own environment:
+  `CLAUDE_CODE_OAUTH_TOKEN` for a `SubscriptionToken`, `ANTHROPIC_API_KEY` for an `ApiKey`. The
+  session's settings copy names no `apiKeyHelper`. No command prints a pool token, and no log,
+  record, argument, settings file or box spec carries it. A token recorded before the kind
+  existed is an `ApiKey`.
+- A runtime in a box mounts no daemon database. It leases, releases and marks limited through
+  conductord, over the `conductord` aperture it already dials (`daemon.dial_port`), on a
+  connection opened with its instance's name and the token the daemon minted for its start.
+  conductord acts on that instance's leases only, whatever the request names. The lease answer
+  carries the token's value once; the runtime keeps it in memory for that one start. Nothing of it
+  is in the box's spec or the environment the box starts with.
+- Each lease names the runtime start that took it. Once an instance runs on a new start,
+  conductord releases the leases of the one that ended.
+- A usage-limit stop marks the token Limited until the reset the limit names, else for 5 hours,
+  never longer than a week and an hour, and releases that session's lease. With an empty pool a
+  start is unchanged: an instance that names a `model_token` runs on it.
+- `conductor store migrate` keeps the tokens of an older store: each token of a per-instance pool
+  joins the host's pool as it is.
 
 ## Secrets
 

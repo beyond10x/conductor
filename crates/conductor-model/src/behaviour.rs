@@ -1,5 +1,5 @@
 // generated from conductor v1
-// contract digest 20ddd37e2cbb8b4d6af341870bbfad2afae45b8659a4f31603258eb2dc514f07
+// contract digest f9b97474e363529d89efb80bf5ba004e441e796a0dac65b2cc8dcd802f7432be
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! What the specification fully determines, generated: the behaviour of every command the plan
@@ -873,6 +873,28 @@ pub trait PoolTokenStorage {
 
     /// Removes the instance with this identity.
     fn delete(&mut self, identity: &crate::token::TokenId);
+
+    /// Every stored instance, in the order the store keeps them: the order a generated query
+    /// answers an unordered view in.
+    fn list(&self) -> Vec<crate::token::PoolTokenSnapshot>;
+}
+
+/// Where `conductor.token.TokenLease` is stored — a port the implementor provides.
+///
+/// Keyed by the identity `lease_id`. Generated network entries supply an ephemeral implementation; durable storage remains a port.
+pub trait TokenLeaseStorage {
+    /// The instance with this identity, or `None` where none is stored.
+    fn get(&self, identity: &crate::token::TokenLeaseId) -> Option<crate::token::TokenLeaseSnapshot>;
+
+    /// Stores this instance under its identity, replacing what was held.
+    fn put(&mut self, snapshot: crate::token::TokenLeaseSnapshot);
+
+    /// Removes the instance with this identity.
+    fn delete(&mut self, identity: &crate::token::TokenLeaseId);
+
+    /// Every stored instance, in the order the store keeps them: the order a generated query
+    /// answers an unordered view in.
+    fn list(&self) -> Vec<crate::token::TokenLeaseSnapshot>;
 }
 
 /// Where `conductor.tool.ToolCall` is stored — a port the implementor provides.
@@ -1010,6 +1032,10 @@ pub trait Context {
     /// `{generated: true}` value, or an event field the model leaves undetermined.
     fn generate_conductor_token_token_id(&mut self) -> crate::token::TokenId;
 
+    /// A new `conductor.token.TokenLeaseId`, which the model says the implementation assigns — a created identity, a
+    /// `{generated: true}` value, or an event field the model leaves undetermined.
+    fn generate_conductor_token_token_lease_id(&mut self) -> crate::token::TokenLeaseId;
+
     /// A new `conductor.tool.ToolCallId`, which the model says the implementation assigns — a created identity, a
     /// `{generated: true}` value, or an event field the model leaves undetermined.
     fn generate_conductor_tool_tool_call_id(&mut self) -> crate::tool::ToolCallId;
@@ -1062,6 +1088,8 @@ fn try_generate_conductor_session_tick_id(&mut self) -> Result<crate::session::T
 /// Assigns the value, or names the unavailable answer.
 fn try_generate_conductor_token_token_id(&mut self) -> Result<crate::token::TokenId, UnmetObligation>;
 /// Assigns the value, or names the unavailable answer.
+fn try_generate_conductor_token_token_lease_id(&mut self) -> Result<crate::token::TokenLeaseId, UnmetObligation>;
+/// Assigns the value, or names the unavailable answer.
 fn try_generate_conductor_tool_tool_call_id(&mut self) -> Result<crate::tool::ToolCallId, UnmetObligation>;
 /// Assigns the value, or names the unavailable answer.
 fn try_generate_string(&mut self) -> Result<String, UnmetObligation>;
@@ -1086,6 +1114,7 @@ fn try_generate_conductor_placement_refusal_reason(&mut self) -> Result<crate::p
 fn try_generate_conductor_session_delivery_id(&mut self) -> Result<crate::session::DeliveryId, UnmetObligation> { Ok(Context::generate_conductor_session_delivery_id(self)) }
 fn try_generate_conductor_session_tick_id(&mut self) -> Result<crate::session::TickId, UnmetObligation> { Ok(Context::generate_conductor_session_tick_id(self)) }
 fn try_generate_conductor_token_token_id(&mut self) -> Result<crate::token::TokenId, UnmetObligation> { Ok(Context::generate_conductor_token_token_id(self)) }
+fn try_generate_conductor_token_token_lease_id(&mut self) -> Result<crate::token::TokenLeaseId, UnmetObligation> { Ok(Context::generate_conductor_token_token_lease_id(self)) }
 fn try_generate_conductor_tool_tool_call_id(&mut self) -> Result<crate::tool::ToolCallId, UnmetObligation> { Ok(Context::generate_conductor_tool_tool_call_id(self)) }
 fn try_generate_string(&mut self) -> Result<String, UnmetObligation> { Ok(Context::generate_string(self)) }
 fn try_external(&mut self, command: ExternalCommand<'_>, outcome: &'static str) -> Result<bool, UnmetObligation> { Ok(Context::external(self, command, outcome)) }
@@ -4963,18 +4992,16 @@ where
         let identity: crate::token::TokenId = self.ports.try_generate_conductor_token_token_id()?;
         let data = crate::token::PoolTokenData {
             token_id: identity.clone(),
-            instance: input.instance.clone(),
             owner: input.owner.clone(),
             seat: input.seat.clone(),
             secret: input.secret.clone(),
             token_state: crate::token::TokenState::Ok,
             limited_until: None,
-            agent: None,
             contributed_at: input.contributed_at.clone(),
             actor: input.actor.clone(),
             kind: Some(input.kind.clone()),
         };
-        let answer = crate::token::ContributeTokenOutcome::Contributed { token_contributed: crate::token::TokenContributed { actor: input.actor.clone(), token_id: identity.clone(), instance: input.instance.clone(), owner: input.owner.clone(), seat: input.seat.clone(), secret: input.secret.clone(), kind: input.kind.clone(), contributed_at: input.contributed_at.clone() } };
+        let answer = crate::token::ContributeTokenOutcome::Contributed { token_contributed: crate::token::TokenContributed { actor: input.actor.clone(), token_id: identity.clone(), owner: input.owner.clone(), seat: input.seat.clone(), secret: input.secret.clone(), kind: input.kind.clone(), contributed_at: input.contributed_at.clone() } };
         PoolTokenStorage::put(&mut self.ports, crate::token::AnyPoolToken::Available(crate::token::PoolToken::new(data)).snapshot());
         return Ok(answer);
     }
@@ -4983,7 +5010,7 @@ where
 /// `conductor.token.LeaseToken`, generated: every outcome is one the specification fully determines.
 impl<P> crate::token::obligations::LeaseTokenBehavior for Generated<P>
 where
-    P: TryContext + PoolTokenStorage,
+    P: TryContext + PoolTokenStorage + TokenLeaseStorage,
 {
     fn lease_token(&mut self, input: crate::token::LeaseToken) -> Result<crate::token::LeaseTokenOutcome, UnmetObligation> {
         let _ = &input;
@@ -4991,24 +5018,41 @@ where
         if self.ports.try_external(ExternalCommand::ConductorTokenLeaseToken(&input), "none-available")? {
             return Ok(crate::token::LeaseTokenOutcome::NoneAvailable { error: crate::token::NoTokenAvailable { instance: input.instance.clone() } });
         }
+        // `when_related:` reads the `conductor.token.PoolToken` row `input.token_id` names, through its storage port; an absent
+        // reference reads no row and selects no related branch.
+        let reference = Some(&input.token_id);
+        let related = reference.and_then(|identity| PoolTokenStorage::get(&self.ports, identity));
+        let _ = &related;
+        // The addressed row's existence and held state, for the branch the request selects
+        // before any present related row's refusal.
+        {
+        }
+        // `unknown-token`: the reference names an identity no row carries.
+        if reference.is_some() && related.is_none() {
+            return Ok(crate::token::LeaseTokenOutcome::UnknownToken { error: crate::token::TokenStateConflict { token_id: input.token_id.clone() } });
+        }
+        // `token-withdrawn`: a present related row's refusal, before every accepting branch.
+        if let Some(related) = &related {
+        if decided(any(&[equal(Some(&related.state).map(|value| match value { crate::token::PoolTokenState::Available => "Available", crate::token::PoolTokenState::Limited => "Limited", crate::token::PoolTokenState::Withdrawn => "Withdrawn" }.to_owned()), Some("Withdrawn".to_owned()))]), "conductor.token.LeaseToken")? {
+            return Ok(crate::token::LeaseTokenOutcome::TokenWithdrawn { error: crate::token::TokenStateConflict { token_id: input.token_id.clone() } });
+        }
+        }
         // `leased`: the default.
-        let Some(held) = PoolTokenStorage::get(&self.ports, &input.token_id) else {
-            return Ok(crate::token::LeaseTokenOutcome::WrongStateUnknownInstance);
+        let identity: crate::token::TokenLeaseId = self.ports.try_generate_conductor_token_token_lease_id()?;
+        let data = crate::token::TokenLeaseData {
+            lease_id: identity.clone(),
+            token_id: input.token_id.clone(),
+            agent: input.agent.clone(),
+            instance: input.instance.clone(),
+            owner: input.owner.clone(),
+            preferred_owner: input.preferred_owner.clone(),
+            leased_at: input.leased_at.clone(),
+            released_at: None,
+            actor: input.actor.clone(),
+            runtime: input.runtime.clone(),
         };
-        let _ = &held;
-        let before = held.data.clone();
-        let moved = match held.refine() {
-            crate::token::AnyPoolToken::Available(instance) => crate::token::AnyPoolToken::Leased(instance.lease()),
-            crate::token::AnyPoolToken::Limited(instance) => crate::token::AnyPoolToken::Leased(instance.lease()),
-            _ => return Ok(crate::token::LeaseTokenOutcome::WrongState { error: crate::token::TokenStateConflict { token_id: input.token_id.clone() } }),
-        };
-        let mut next = moved.snapshot();
-        next.data.token_state = crate::token::TokenState::Ok;
-        next.data.limited_until = None;
-        next.data.agent = Some(input.agent.clone());
-        next.data.actor = input.actor.clone();
-        let answer = crate::token::LeaseTokenOutcome::Leased { token_leased: crate::token::TokenLeased { actor: input.actor.clone(), token_id: input.token_id.clone(), instance: input.instance.clone(), owner: before.owner.clone(), seat: before.seat.clone(), agent: input.agent.clone(), preferred_owner: input.preferred_owner.clone(), leased_at: input.leased_at.clone() } };
-        PoolTokenStorage::put(&mut self.ports, next);
+        let answer = crate::token::LeaseTokenOutcome::Leased { token_leased: crate::token::TokenLeased { actor: input.actor.clone(), lease_id: identity.clone(), token_id: input.token_id.clone(), instance: input.instance.clone(), owner: input.owner.clone(), agent: input.agent.clone(), preferred_owner: input.preferred_owner.clone(), leased_at: input.leased_at.clone() } };
+        TokenLeaseStorage::put(&mut self.ports, crate::token::AnyTokenLease::Held(crate::token::TokenLease::new(data)).snapshot());
         return Ok(answer);
     }
 }
@@ -5027,15 +5071,15 @@ where
         let _ = &held;
         let before = held.data.clone();
         let moved = match held.refine() {
-            crate::token::AnyPoolToken::Leased(instance) => crate::token::AnyPoolToken::Limited(instance.limit()),
+            crate::token::AnyPoolToken::Available(instance) => crate::token::AnyPoolToken::Limited(instance.limit()),
+            crate::token::AnyPoolToken::Limited(instance) => crate::token::AnyPoolToken::Limited(instance.limit()),
             _ => return Ok(crate::token::MarkTokenLimitedOutcome::WrongState { error: crate::token::TokenStateConflict { token_id: input.token_id.clone() } }),
         };
         let mut next = moved.snapshot();
         next.data.token_state = crate::token::TokenState::Limited;
         next.data.limited_until = Some(input.limited_until.clone());
-        next.data.agent = None;
         next.data.actor = input.actor.clone();
-        let answer = crate::token::MarkTokenLimitedOutcome::Limited { token_limited: crate::token::TokenLimited { actor: input.actor.clone(), token_id: input.token_id.clone(), owner: before.owner.clone(), agent: before.agent.clone(), limited_until: input.limited_until.clone(), limited_at: input.limited_at.clone() } };
+        let answer = crate::token::MarkTokenLimitedOutcome::Limited { token_limited: crate::token::TokenLimited { actor: input.actor.clone(), token_id: input.token_id.clone(), owner: before.owner.clone(), agent: input.agent.clone(), limited_until: input.limited_until.clone(), limited_at: input.limited_at.clone() } };
         PoolTokenStorage::put(&mut self.ports, next);
         return Ok(answer);
     }
@@ -5044,24 +5088,50 @@ where
 /// `conductor.token.ReleaseToken`, generated: every outcome is one the specification fully determines.
 impl<P> crate::token::obligations::ReleaseTokenBehavior for Generated<P>
 where
-    P: PoolTokenStorage,
+    P: TokenLeaseStorage,
 {
     fn release_token(&mut self, input: crate::token::ReleaseToken) -> Result<crate::token::ReleaseTokenOutcome, UnmetObligation> {
         let _ = &input;
         // `released`: the default.
-        let Some(held) = PoolTokenStorage::get(&self.ports, &input.token_id) else {
+        let Some(held) = TokenLeaseStorage::get(&self.ports, &input.lease_id) else {
             return Ok(crate::token::ReleaseTokenOutcome::WrongStateUnknownInstance);
         };
         let _ = &held;
         let before = held.data.clone();
         let moved = match held.refine() {
-            crate::token::AnyPoolToken::Leased(instance) => crate::token::AnyPoolToken::Available(instance.release()),
-            _ => return Ok(crate::token::ReleaseTokenOutcome::WrongState { error: crate::token::TokenStateConflict { token_id: input.token_id.clone() } }),
+            crate::token::AnyTokenLease::Held(instance) => crate::token::AnyTokenLease::Released(instance.release()),
+            _ => return Ok(crate::token::ReleaseTokenOutcome::WrongState { error: crate::token::LeaseStateConflict { lease_id: input.lease_id.clone() } }),
         };
         let mut next = moved.snapshot();
-        next.data.agent = None;
+        next.data.released_at = Some(input.released_at.clone());
         next.data.actor = input.actor.clone();
-        let answer = crate::token::ReleaseTokenOutcome::Released { token_released: crate::token::TokenReleased { actor: input.actor.clone(), token_id: input.token_id.clone(), agent: before.agent.clone(), released_at: input.released_at.clone() } };
+        let answer = crate::token::ReleaseTokenOutcome::Released { token_released: crate::token::TokenReleased { actor: input.actor.clone(), lease_id: input.lease_id.clone(), token_id: before.token_id.clone(), agent: before.agent.clone(), released_at: input.released_at.clone() } };
+        TokenLeaseStorage::put(&mut self.ports, next);
+        return Ok(answer);
+    }
+}
+
+/// `conductor.token.RestoreToken`, generated: every outcome is one the specification fully determines.
+impl<P> crate::token::obligations::RestoreTokenBehavior for Generated<P>
+where
+    P: PoolTokenStorage,
+{
+    fn restore_token(&mut self, input: crate::token::RestoreToken) -> Result<crate::token::RestoreTokenOutcome, UnmetObligation> {
+        let _ = &input;
+        // `restored`: the default.
+        let Some(held) = PoolTokenStorage::get(&self.ports, &input.token_id) else {
+            return Ok(crate::token::RestoreTokenOutcome::WrongStateUnknownInstance);
+        };
+        let _ = &held;
+        let moved = match held.refine() {
+            crate::token::AnyPoolToken::Limited(instance) => crate::token::AnyPoolToken::Available(instance.restore()),
+            _ => return Ok(crate::token::RestoreTokenOutcome::WrongState { error: crate::token::TokenStateConflict { token_id: input.token_id.clone() } }),
+        };
+        let mut next = moved.snapshot();
+        next.data.token_state = crate::token::TokenState::Ok;
+        next.data.limited_until = None;
+        next.data.actor = input.actor.clone();
+        let answer = crate::token::RestoreTokenOutcome::Restored { token_restored: crate::token::TokenRestored { actor: input.actor.clone(), token_id: input.token_id.clone(), restored_at: input.restored_at.clone() } };
         PoolTokenStorage::put(&mut self.ports, next);
         return Ok(answer);
     }
@@ -5090,12 +5160,10 @@ where
         let before = held.data.clone();
         let moved = match held.refine() {
             crate::token::AnyPoolToken::Available(instance) => crate::token::AnyPoolToken::Withdrawn(instance.withdraw()),
-            crate::token::AnyPoolToken::Leased(instance) => crate::token::AnyPoolToken::Withdrawn(instance.withdraw()),
             crate::token::AnyPoolToken::Limited(instance) => crate::token::AnyPoolToken::Withdrawn(instance.withdraw()),
             _ => return Ok(crate::token::WithdrawTokenOutcome::WrongState { error: crate::token::TokenStateConflict { token_id: input.token_id.clone() } }),
         };
         let mut next = moved.snapshot();
-        next.data.agent = None;
         next.data.actor = input.actor.clone();
         let answer = crate::token::WithdrawTokenOutcome::Withdrawn { token_withdrawn: crate::token::TokenWithdrawn { actor: input.actor.clone(), token_id: input.token_id.clone(), owner: before.owner.clone(), withdrawn_at: input.withdrawn_at.clone() } };
         PoolTokenStorage::put(&mut self.ports, next);
@@ -6387,9 +6455,50 @@ where
     }
 }
 
-impl<P: crate::token::obligations::TokensQuery> crate::token::obligations::TokensQuery for Generated<P> {
-    fn tokens(&self, instance: crate::config::InstanceName) -> Result<Vec<crate::token::Tokens>, UnmetObligation> {
-        crate::token::obligations::TokensQuery::tokens(&self.ports, instance)
+/// `conductor.token.TokenLeases`, generated: every row is one the specification fully determines from the stored `conductor.token.TokenLease`s.
+impl<P> crate::token::obligations::TokenLeasesQuery for Generated<P>
+where
+    P: TokenLeaseStorage,
+{
+    fn token_leases(&self) -> Result<Vec<crate::token::TokenLeases>, UnmetObligation> {
+        let admitted = TokenLeaseStorage::list(&self.ports);
+        Ok(admitted
+            .into_iter()
+            .map(|held| crate::token::TokenLeases {
+                lease_id: held.data.lease_id,
+                state: held.state,
+                token_id: held.data.token_id,
+                agent: held.data.agent,
+                instance: held.data.instance,
+                owner: held.data.owner,
+                leased_at: held.data.leased_at,
+                released_at: held.data.released_at,
+            })
+            .collect())
+    }
+}
+
+/// `conductor.token.Tokens`, generated: every row is one the specification fully determines from the stored `conductor.token.PoolToken`s.
+impl<P> crate::token::obligations::TokensQuery for Generated<P>
+where
+    P: PoolTokenStorage,
+{
+    fn tokens(&self) -> Result<Vec<crate::token::Tokens>, UnmetObligation> {
+        let admitted = PoolTokenStorage::list(&self.ports);
+        Ok(admitted
+            .into_iter()
+            .map(|held| crate::token::Tokens {
+                token_id: held.data.token_id,
+                state: held.state,
+                owner: held.data.owner,
+                seat: held.data.seat,
+                token_state: held.data.token_state,
+                limited_until: held.data.limited_until,
+                contributed_at: held.data.contributed_at,
+                actor: held.data.actor,
+                kind: held.data.kind,
+            })
+            .collect())
     }
 }
 

@@ -1,5 +1,5 @@
 // generated from conductor v1
-// contract digest 20ddd37e2cbb8b4d6af341870bbfad2afae45b8659a4f31603258eb2dc514f07
+// contract digest f9b97474e363529d89efb80bf5ba004e441e796a0dac65b2cc8dcd802f7432be
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! Every actor the specification declares, and the commands each may invoke — as data.
@@ -372,6 +372,7 @@ pub fn may(actor: Actor) -> &'static [&'static str] {
             "conductor.token.LeaseToken",
             "conductor.token.MarkTokenLimited",
             "conductor.token.ReleaseToken",
+            "conductor.token.RestoreToken",
         ],
         Actor::TokenOperator => &[
             "conductor.token.ContributeToken",
