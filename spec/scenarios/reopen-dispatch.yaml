@@ -1,0 +1,66 @@
+type: ess-scenario/1
+domain: conductor.dispatch
+scenario: reopen-dispatch
+summary: >
+  A dispatch a controller's done closed in error is reopened by the operator and worked again; an
+  agent is refused, and only a done dispatch is reopened (issue #202).
+
+timeline:
+  - at: 2026-11-19T09:00:00Z
+    command: conductor.dispatch.SendDispatch
+    actor: conductor.dispatch.Conductor
+    input:
+      actor: {kind: ControlPlane}
+      dispatch_id: DSP-reopen
+      repository: cortex
+      brief: Fix the login redirect
+      sent_at: 2026-11-19T09:00:00Z
+      priority: 0
+      reference: WI-2002
+    outcome: sent-for-reference
+
+  - at: 2026-11-19T09:05:00Z
+    command: conductor.dispatch.ReportDone
+    actor: conductor.dispatch.Conductor
+    input:
+      actor: {kind: Daemon}
+      dispatch_id: DSP-reopen
+      evidence: the evidence of an older goal
+    outcome: done
+
+  - at: 2026-11-19T09:10:00Z
+    command: conductor.dispatch.ReopenDispatch
+    actor: conductor.dispatch.Conductor
+    input:
+      actor: {kind: Agent, agent: {instance: example-org, role: controller, name: ex-cortex, kind: claude-code}}
+      dispatch_id: DSP-reopen
+      reason: the done named the old goal
+    outcome: agent-actor
+    error:
+      name: conductor.dispatch.ReopenByAgent
+
+  - at: 2026-11-19T09:15:00Z
+    command: conductor.dispatch.ReopenDispatch
+    actor: conductor.dispatch.Conductor
+    input:
+      actor: {kind: Human, operator: example-operator}
+      dispatch_id: DSP-reopen
+      reason: the done named the old goal
+    outcome: reopened
+
+  - at: 2026-11-19T09:20:00Z
+    command: conductor.dispatch.ReopenDispatch
+    actor: conductor.dispatch.Conductor
+    input:
+      actor: {kind: Human, operator: example-operator}
+      dispatch_id: DSP-reopen
+      reason: twice
+    outcome: wrong-state
+    error:
+      name: conductor.dispatch.DispatchStateConflict
+
+assert:
+  - view: conductor.dispatch.Dispatches
+    contains:
+      dispatch_id: DSP-reopen
+      state: Started

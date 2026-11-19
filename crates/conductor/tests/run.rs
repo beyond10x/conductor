@@ -4953,3 +4953,168 @@ fn the_pipeline_of_a_merge_in_an_inactive_repository_is_read() {
         "alpha is not Active: {calls}"
     );
 }
+
+/// `<at>` as the instant the controller session of alpha was resumed from its transcript, as
+/// `spawn::resume` keeps it in `<state>/sessions/ex-alpha.resumed`.
+fn resumed_at(case: &Case, at: OffsetDateTime) {
+    write(
+        &case.state().join("sessions/ex-alpha.resumed"),
+        &format!("{}\n", at.format(&Rfc3339).expect("an instant")),
+    );
+}
+
+/// The text of each delivery kept in `pending.json`.
+fn kept_texts(case: &Case) -> Vec<String> {
+    kept(case)
+        .iter()
+        .filter_map(|item| item["text"].as_str().map(str::to_owned))
+        .collect()
+}
+
+/// Issue #202: a controller resumed a minute ago reports `started` and then `done` on its
+/// dispatch, as one did with an older goal's evidence: the `done` is held, not taken. The
+/// dispatch stays `Started`, the log holds `done-held` with the evidence and `resumed`, and the
+/// controller is answered with its dispatch's id and brief. Once the window has passed, a `done`
+/// closes it.
+#[test]
+fn a_done_right_after_a_resume_is_held_and_leaves_the_dispatch_open() {
+    let case = Case::new("done-held-resumed");
+    let id = case.dispatch("alpha");
+    case.mail("0001", &format!("[REPORT alpha {id}] started\n"));
+    case.tick(&[]);
+    resumed_at(
+        &case,
+        OffsetDateTime::now_utc() - time::Duration::minutes(1),
+    );
+    case.mail(
+        "0002",
+        &format!("[REPORT alpha {id}] started; reading state on origin/main\n"),
+    );
+    case.mail(
+        "0003",
+        &format!("[REPORT alpha {id}] done the older goal's proof\n"),
+    );
+    let tick = case.tick(&[]);
+    assert_eq!(case.dispatch_state(&id), "Started", "{tick}");
+    assert_eq!(actions(&tick), ["done-held"], "{tick}");
+    let held = case
+        .log()
+        .into_iter()
+        .find(|line| line["event"] == "done-held")
+        .expect("a done-held line");
+    assert_eq!(held["id"], id.as_str(), "{held}");
+    assert_eq!(held["evidence"], "the older goal's proof", "{held}");
+    assert!(
+        held["reason"]
+            .as_str()
+            .is_some_and(|reason| reason.starts_with("resumed ")),
+        "{held}"
+    );
+    let texts = kept_texts(&case);
+    assert_eq!(texts.len(), 1, "one answer, kept for alpha: {texts:?}");
+    for said in [
+        format!("[REPORT alpha {id}] done held: resumed "),
+        format!("Your dispatch: {id}, goal G1"),
+        "Keep main green".to_owned(),
+        "dispatch report-done".to_owned(),
+    ] {
+        assert!(texts[0].contains(&said), "names {said:?}: {}", texts[0]);
+    }
+
+    resumed_at(
+        &case,
+        OffsetDateTime::now_utc() - time::Duration::minutes(11),
+    );
+    case.mail("0004", &format!("[REPORT alpha {id}] done PR 12 merged\n"));
+    case.tick(&[]);
+    assert_eq!(case.dispatch_state(&id), "Done");
+}
+
+/// Issue #202: a `done` on a `Blocked` dispatch with no `unblocked` since is held; after
+/// `unblocked` the `done` closes it.
+#[test]
+fn a_done_on_a_blocked_dispatch_is_held_until_unblocked() {
+    let case = Case::new("done-held-blocked");
+    let id = case.dispatch("alpha");
+    case.mail("0001", &format!("[REPORT alpha {id}] started\n"));
+    case.mail("0002", &format!("[REPORT alpha {id}] blocked on a need\n"));
+    case.mail("0003", &format!("[REPORT alpha {id}] done PR 12 merged\n"));
+    let tick = case.tick(&[]);
+    assert_eq!(case.dispatch_state(&id), "Blocked", "{tick}");
+    assert_eq!(
+        events_of(&case, &id),
+        ["sent", "started", "blocked", "done-held"]
+    );
+    let held = case
+        .log()
+        .into_iter()
+        .find(|line| line["event"] == "done-held")
+        .expect("a done-held line");
+    assert_eq!(held["reason"], "blocked", "{held}");
+    assert!(
+        kept_texts(&case)
+            .iter()
+            .any(|text| text.contains("Report `unblocked` first")),
+        "{:?}",
+        kept_texts(&case)
+    );
+
+    case.mail("0004", &format!("[REPORT alpha {id}] unblocked\n"));
+    case.mail("0005", &format!("[REPORT alpha {id}] done PR 12 merged\n"));
+    case.tick(&[]);
+    assert_eq!(case.dispatch_state(&id), "Done");
+}
+
+/// Issue #202: a controller withdraws its own `done` before the next cycle starts, and the loop
+/// reopens the dispatch (`reopened`); once a cycle has started after the `done`, the withdrawal
+/// is refused, and the answer names the operator's `dispatch reopen-dispatch`.
+#[test]
+fn a_withdrawn_done_before_the_next_cycle_reopens_the_dispatch() {
+    let case = Case::new("done-withdrawn");
+    let id = case.dispatch("alpha");
+    case.mail("0001", &format!("[REPORT alpha {id}] started\n"));
+    case.mail("0002", &format!("[REPORT alpha {id}] done PR 12 merged\n"));
+    case.mail(
+        "0003",
+        &format!("[REPORT alpha {id}] withdrawn read the old charter\n"),
+    );
+    let tick = case.tick(&[]);
+    assert_eq!(case.dispatch_state(&id), "Started", "{tick}");
+    assert_eq!(
+        events_of(&case, &id),
+        ["sent", "started", "done", "reopened"]
+    );
+    let reopened = case
+        .log()
+        .into_iter()
+        .find(|line| line["event"] == "reopened")
+        .expect("a reopened line");
+    assert_eq!(
+        reopened["reason"], "withdrawn by the controller: read the old charter",
+        "{reopened}"
+    );
+    assert!(kept_texts(&case).is_empty(), "{:?}", kept_texts(&case));
+
+    case.mail("0004", &format!("[REPORT alpha {id}] done PR 13 merged\n"));
+    case.tick(&[]);
+    assert_eq!(case.dispatch_state(&id), "Done");
+    write(
+        &case.state().join("run/cycle.last"),
+        &format!(
+            "{}\n",
+            (OffsetDateTime::now_utc() + time::Duration::seconds(1))
+                .format(&Rfc3339)
+                .expect("an instant")
+        ),
+    );
+    case.mail("0005", &format!("[REPORT alpha {id}] withdrawn too late\n"));
+    case.tick(&[]);
+    assert_eq!(case.dispatch_state(&id), "Done", "a cycle ran since");
+    let texts = kept_texts(&case);
+    assert!(
+        texts
+            .iter()
+            .any(|text| text.contains("refused") && text.contains("reopen-dispatch")),
+        "{texts:?}"
+    );
+}

@@ -1,5 +1,5 @@
 // generated from conductor v1
-// contract digest 446c14272eda471e83f2d056112185680e3dcc9fe99dea205f60f54332491604
+// contract digest 8b0bee8be14247f0bf21e16bf0667486cea95ad8d77ee074bf46a40cfb4412bb
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! Dispatch — `conductor.dispatch`.
@@ -134,6 +134,10 @@ pub enum DispatchLogEvent {
     StartRefused,
     /// `Waiting`.
     Waiting,
+    /// `DoneHeld`.
+    DoneHeld,
+    /// `Reopened`.
+    Reopened,
 }
 
 /// DispatchLogLine — `conductor.dispatch.DispatchLogLine`.
@@ -932,6 +936,16 @@ impl Dispatch<dispatch_state::Blocked> {
 
     /// `cancel` — `Blocked` → `Cancelled`. Taken by the `cancelled` outcome of `conductor.dispatch.CancelDispatch`.
     pub fn cancel(self) -> Dispatch<dispatch_state::Cancelled> {
+        Dispatch {
+            data: self.data,
+            state: core::marker::PhantomData,
+        }
+    }
+}
+
+impl Dispatch<dispatch_state::Done> {
+    /// `reopen` — `Done` → `Started`. Taken by the `reopened` outcome of `conductor.dispatch.ReopenDispatch`.
+    pub fn reopen(self) -> Dispatch<dispatch_state::Started> {
         Dispatch {
             data: self.data,
             state: core::marker::PhantomData,
@@ -2202,6 +2216,54 @@ pub enum ReleaseResourceOutcome {
     },
 }
 
+/// Reopen a done dispatch — the input of `conductor.dispatch.ReopenDispatch`.
+///
+/// Everything it can result in is [`ReopenDispatchOutcome`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ReopenDispatch {
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
+    /// `dispatch_id` — `conductor.dispatch.DispatchId`.
+    pub dispatch_id: DispatchId,
+    /// `reason` — `String`.
+    pub reason: String,
+}
+
+/// Everything `conductor.dispatch.ReopenDispatch` can result in — one variant per declared outcome.
+///
+/// An infrastructure failure is deliberately not in here: a refusal is a fact about the domain,
+/// a transport fault is a fact about the run, and conflating the two is what the declared
+/// outcomes exist to prevent.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ReopenDispatchOutcome {
+    /// `agent-actor` — when `actor.kind == Agent`.
+    ///
+    /// An agent does not reopen a dispatch; nothing moved.
+    AgentActor {
+        /// Why it was refused: `conductor.dispatch.ReopenByAgent`.
+        error: ReopenByAgent,
+    },
+    /// `reopened` — otherwise.
+    ///
+    /// The dispatch closed in error is worked again.
+    Reopened {
+        /// The `conductor.dispatch.DispatchReopened` this outcome publishes.
+        dispatch_reopened: DispatchReopened,
+    },
+    /// `no-such-dispatch` — for an identity no record carries.
+    NoSuchDispatch {
+        /// Why it was refused: `conductor.dispatch.DispatchNotFound`.
+        error: DispatchNotFound,
+    },
+    /// `wrong-state` — from a state no declared move starts in.
+    ///
+    /// Only a done dispatch is reopened.
+    WrongState {
+        /// Why it was refused: `conductor.dispatch.DispatchStateConflict`.
+        error: DispatchStateConflict,
+    },
+}
+
 /// Report a dispatch blocked — the input of `conductor.dispatch.ReportBlocked`.
 ///
 /// Everything it can result in is [`ReportBlockedOutcome`].
@@ -2876,6 +2938,17 @@ pub struct DispatchLinked {
     pub link: String,
 }
 
+/// DispatchReopened — the event `conductor.dispatch.DispatchReopened`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DispatchReopened {
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
+    /// `dispatch_id` — `conductor.dispatch.DispatchId`.
+    pub dispatch_id: DispatchId,
+    /// `reason` — `String`.
+    pub reason: String,
+}
+
 /// DispatchSent — the event `conductor.dispatch.DispatchSent`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DispatchSent {
@@ -3252,6 +3325,15 @@ pub struct ReferenceHeld {
     pub reference: String,
 }
 
+/// The declared error `conductor.dispatch.ReopenByAgent`.
+///
+/// An agent does not reopen a dispatch: the operator does, or the loop on a controller's withdrawal of its own `done`; nothing moved.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ReopenByAgent {
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
+}
+
 /// The declared error `conductor.dispatch.RepositoryBusy`.
 ///
 /// The repository has an open dispatch (sent, started or blocked) of another reference or of none, so a dispatch with a reference was not sent.
@@ -3583,6 +3665,17 @@ pub mod obligations {
         ///
         /// `Err` is the typed refusal of a request the model declares no outcome for.
         fn release_resource(&mut self, input: super::ReleaseResource) -> Result<super::ReleaseResourceOutcome, crate::obligation::UnmetObligation>;
+    }
+
+    /// The behaviour `conductor.dispatch.ReopenDispatch` — generated.
+    ///
+    /// The specification fully determines it: [`crate::behaviour::Generated`] implements it
+    /// over the storage and context ports. Implement it yourself to replace that behaviour.
+    pub trait ReopenDispatchBehavior {
+        /// Decides and enacts exactly one declared outcome of `conductor.dispatch.ReopenDispatch`.
+        ///
+        /// `Err` is the typed refusal of a request the model declares no outcome for.
+        fn reopen_dispatch(&mut self, input: super::ReopenDispatch) -> Result<super::ReopenDispatchOutcome, crate::obligation::UnmetObligation>;
     }
 
     /// The behaviour `conductor.dispatch.ReportBlocked` — generated.

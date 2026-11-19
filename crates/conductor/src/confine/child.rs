@@ -34,7 +34,8 @@
 //! the guard, the dashboard) sees them; `status` is `busy` from a message replayed to the
 //! output until the turn's `result`, `idle` after it. A stop ([`stop`]) sends `SIGTERM` to the
 //! session's process group, `SIGKILL` after [`STOP_WAIT`](super::STOP_WAIT), and removes its
-//! files; a resume starts `claude -p --resume <id>` the same way, with no prompt.
+//! files; a resume starts `claude -p --resume <id>` the same way, its first message the
+//! dispatch the session holds now (issue #202).
 //!
 //! The provider is chosen by `confinement.provider: child`, and in place of `none` wherever this
 //! process may not create a Unix socket ([`unix_sockets_refused`]), as in a substrate box.
@@ -766,12 +767,17 @@ impl Provider for Child {
         stop(id)
     }
 
-    fn resume(&mut self, session: &StartedSession, launch: &Launch) -> Result<StartedSession> {
+    fn resume(
+        &mut self,
+        session: &StartedSession,
+        launch: &Launch,
+        first: &str,
+    ) -> Result<StartedSession> {
         let id = session
             .session_id
             .as_deref()
             .ok_or_else(|| anyhow!("the session {} has no id", session.session_name.0))?;
-        run(launch, id, true, None)?;
+        run(launch, id, true, Some(first))?;
         Ok(StartedSession {
             provider: self.name(),
             unit: None,

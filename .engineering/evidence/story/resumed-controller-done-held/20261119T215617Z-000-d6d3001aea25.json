@@ -1,0 +1,12 @@
+{
+  "at": "2026-11-19T21:56:17Z",
+  "actor": "human:unknown",
+  "artifact": "story:resumed-controller-done-held",
+  "kind": "story",
+  "revision": 8,
+  "change": {
+    "change": "evidence",
+    "kind": "test_result",
+    "source": "cargo test -p conductor-cli: dispatch 16/16, run hold/withdraw 3/3, spawn a_resumed_controller_is_told_its_open_dispatch_first and the fake-provider cases, cli_tree, records_log, message_read, roles, no_organization, confine, lib; the new tests failed on 1.17.0; ess conform 733/733; clippy -D warnings clean; socket-bound spawn and run cases need CI"
+  }
+}

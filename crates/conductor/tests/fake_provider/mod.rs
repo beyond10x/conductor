@@ -164,8 +164,13 @@ impl Provider for Fake {
         self.fails("stop")
     }
 
-    fn resume(&mut self, session: &StartedSession, _launch: &Launch) -> Result<StartedSession> {
-        self.log(json!({"call": "resume", "provider": self.name}));
+    fn resume(
+        &mut self,
+        session: &StartedSession,
+        _launch: &Launch,
+        first: &str,
+    ) -> Result<StartedSession> {
+        self.log(json!({"call": "resume", "provider": self.name, "first": first}));
         Ok(session.clone())
     }
 

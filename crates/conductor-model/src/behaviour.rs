@@ -1,5 +1,5 @@
 // generated from conductor v1
-// contract digest 446c14272eda471e83f2d056112185680e3dcc9fe99dea205f60f54332491604
+// contract digest 8b0bee8be14247f0bf21e16bf0667486cea95ad8d77ee074bf46a40cfb4412bb
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! What the specification fully determines, generated: the behaviour of every command the plan
@@ -2580,6 +2580,41 @@ where
         }
         let answer = crate::dispatch::ReleaseResourceOutcome::Released { resource_released: crate::dispatch::ResourceReleased { actor: input.actor.clone(), resource_request_id: input.resource_request_id.clone() } };
         ResourceRequestStorage::put(&mut self.ports, next);
+        return Ok(answer);
+    }
+}
+
+/// `conductor.dispatch.ReopenDispatch`, generated: every outcome is one the specification fully determines.
+impl<P> crate::dispatch::obligations::ReopenDispatchBehavior for Generated<P>
+where
+    P: DispatchStorage,
+{
+    fn reopen_dispatch(&mut self, input: crate::dispatch::ReopenDispatch) -> Result<crate::dispatch::ReopenDispatchOutcome, UnmetObligation> {
+        let _ = &input;
+        // `agent-actor`: an input-guarded refusal, before the addressed subject is loaded.
+        if decided(equal(Some(&input.actor).map(|value| &value.kind).map(|value| match value { crate::operator::ActorKind::ControlPlane => "ControlPlane", crate::operator::ActorKind::Human => "Human", crate::operator::ActorKind::Agent => "Agent", crate::operator::ActorKind::Daemon => "Daemon" }.to_owned()), Some("Agent".to_owned())), "conductor.dispatch.ReopenDispatch")? {
+            return Ok(crate::dispatch::ReopenDispatchOutcome::AgentActor { error: crate::dispatch::ReopenByAgent { actor: input.actor.clone() } });
+        }
+        // The addressed row's existence, at step 2 of the one precedence rule.
+        if DispatchStorage::get(&self.ports, &input.dispatch_id).is_none() {
+            return Ok(crate::dispatch::ReopenDispatchOutcome::NoSuchDispatch { error: crate::dispatch::DispatchNotFound { dispatch_id: input.dispatch_id.clone() } });
+        }
+        // `reopened`: the default.
+        let Some(held) = DispatchStorage::get(&self.ports, &input.dispatch_id) else {
+            return Ok(crate::dispatch::ReopenDispatchOutcome::NoSuchDispatch { error: crate::dispatch::DispatchNotFound { dispatch_id: input.dispatch_id.clone() } });
+        };
+        let _ = &held;
+        let moved = match held.refine() {
+            crate::dispatch::AnyDispatch::Done(instance) => crate::dispatch::AnyDispatch::Started(instance.reopen()),
+            _ => return Ok(crate::dispatch::ReopenDispatchOutcome::WrongState { error: crate::dispatch::DispatchStateConflict { dispatch_id: input.dispatch_id.clone() } }),
+        };
+        let next = moved.snapshot();
+        if let Some(broken) = next.data.broken_invariant() {
+            let capability = "entity invariant";
+            return Err(UnmetObligation { capability, source: broken });
+        }
+        let answer = crate::dispatch::ReopenDispatchOutcome::Reopened { dispatch_reopened: crate::dispatch::DispatchReopened { actor: input.actor.clone(), dispatch_id: input.dispatch_id.clone(), reason: input.reason.clone() } };
+        DispatchStorage::put(&mut self.ports, next);
         return Ok(answer);
     }
 }

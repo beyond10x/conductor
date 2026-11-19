@@ -399,6 +399,7 @@ impl Cli {
                 DispatchCommand::ReportDone(args) => dispatch::report_done(state, args),
                 DispatchCommand::ReportFailed(args) => dispatch::report_failed(state, args),
                 DispatchCommand::CancelDispatch(args) => dispatch::cancel_dispatch(state, args),
+                DispatchCommand::ReopenDispatch(args) => dispatch::reopen_dispatch(state, args),
                 DispatchCommand::RecordDispatchLink(args) => dispatch::record_link(state, args),
                 DispatchCommand::RecordDispatchWaiting(args) => {
                     dispatch::record_waiting(state, args)
@@ -939,6 +940,7 @@ pub const LEAVES: &[(&[&str], Access)] = &[
     (&["dispatch", "cancel-dispatch"], Access::Writes),
     (&["dispatch", "record-link"], Access::Writes),
     (&["dispatch", "record-waiting"], Access::Writes),
+    (&["dispatch", "reopen-dispatch"], Access::Writes),
     (&["dispatch", "report-blocked"], Access::Writes),
     (&["dispatch", "report-done"], Access::Writes),
     (&["dispatch", "report-failed"], Access::Writes),
@@ -1623,6 +1625,10 @@ pub enum DispatchCommand {
     /// Record why a dispatch waits
     #[command(name = "record-waiting")]
     RecordDispatchWaiting(RecordDispatchWaitingArgs),
+
+    /// Reopen a done dispatch
+    #[command(name = "reopen-dispatch")]
+    ReopenDispatch(ReopenDispatchArgs),
 
     /// Report a dispatch blocked
     #[command(name = "report-blocked")]
@@ -4587,6 +4593,27 @@ pub struct ReportFailedArgs {
 /// The input of `conductor.dispatch.CancelDispatch`.
 #[derive(Debug, Clone, Args)]
 pub struct CancelDispatchArgs {
+    /// DispatchId, starting with `DSP-`
+    #[arg(long, value_parser = prefixed("DSP-"))]
+    pub dispatch_id: Option<String>,
+    /// string
+    #[arg(long)]
+    pub reason: Option<String>,
+    /// Actor, as the records print it (`human:<name>`, `agent:<instance>/<role>/<name>`, `daemon`)
+    /// or one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`,
+    /// `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`;
+    /// default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the
+    /// operator
+    #[arg(long, value_parser = actor)]
+    pub actor: Option<String>,
+    /// Read the input fields from standard input, as one JSON object
+    #[arg(long, value_enum)]
+    pub input_json: Option<JsonInput>,
+}
+
+/// The input of `conductor.dispatch.ReopenDispatch`.
+#[derive(Debug, Clone, Args)]
+pub struct ReopenDispatchArgs {
     /// DispatchId, starting with `DSP-`
     #[arg(long, value_parser = prefixed("DSP-"))]
     pub dispatch_id: Option<String>,

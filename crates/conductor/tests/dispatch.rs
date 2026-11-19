@@ -459,6 +459,67 @@ fn report_done_closes_a_sent_and_a_blocked_dispatch_and_refuses_a_done_or_cancel
     case.kept_under_the_state_dir();
 }
 
+/// `owned` as the argument list [`Case::run`] takes.
+fn args(owned: &[String]) -> Vec<&str> {
+    owned.iter().map(String::as_str).collect()
+}
+
+/// Issue #202: `dispatch reopen-dispatch` moves a dispatch a wrong `done` closed back to
+/// `Started`, for the operator; an agent actor is refused `ReopenByAgent` and an open dispatch
+/// `DispatchStateConflict`, and neither refusal moves anything.
+#[test]
+fn reopen_dispatch_moves_a_done_dispatch_back_to_started_and_refuses_an_agent() {
+    let case = Case::new("reopen-done");
+    case.propose("G9");
+    let id = case.send("cortex", "G9", SENT_AT, &[]);
+    case.ok(&done(&id));
+    assert_eq!(case.dispatch(&id)["state"], "Done");
+
+    let reopen = |actor: Option<&str>| {
+        let mut args = vec![
+            "dispatch",
+            "reopen-dispatch",
+            "--dispatch-id",
+            id.as_str(),
+            "--reason",
+            "the done named an older goal",
+        ];
+        if let Some(actor) = actor {
+            args.extend(["--actor", actor]);
+        }
+        args.into_iter().map(str::to_owned).collect::<Vec<String>>()
+    };
+
+    let agent = reopen(Some("agent:example-org/controller/ex-cortex"));
+    case.declined(&args(&agent), "ReopenByAgent");
+    assert_eq!(
+        case.dispatch(&id)["state"],
+        "Done",
+        "an agent moved nothing"
+    );
+
+    case.ok(&args(&reopen(None)));
+    assert_eq!(
+        case.dispatch(&id)["state"],
+        "Started",
+        "the operator reopened it"
+    );
+    case.declined(&args(&reopen(None)), "DispatchStateConflict");
+    case.refused(&args(&reopen(None)), "only a done dispatch is reopened");
+    case.declined(
+        &[
+            "dispatch",
+            "reopen-dispatch",
+            "--dispatch-id",
+            "DSP-20261007-99",
+            "--reason",
+            "none",
+        ],
+        "DispatchNotFound",
+    );
+    case.kept_under_the_state_dir();
+}
+
 /// The specification's other refusals of `send-dispatch`: a negative priority, a dispatch that
 /// waits on itself, and a goal that is met.
 #[test]

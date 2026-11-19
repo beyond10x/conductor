@@ -1,13 +1,13 @@
 <!--
   generated from conductor v1
-  contract digest 446c14272eda471e83f2d056112185680e3dcc9fe99dea205f60f54332491604
+  contract digest 8b0bee8be14247f0bf21e16bf0667486cea95ad8d77ee074bf46a40cfb4412bb
   do not edit: regenerate with `ess synthesize --layout crate`
 -->
 # Synthesis plan — conductor v1
 
 Scope: `component-skeletons`, laid out as `crate`, planned by `ess-synth`. Regenerate with `ess synthesize --layout crate`.
 
-1039 capabilities: **1023 generated**, **16 obligations**, **0 refused**. An obligation is yours to implement against its contract; a refusal is a fact about this synthesis scope, not about the specification.
+1043 capabilities: **1027 generated**, **16 obligations**, **0 refused**. An obligation is yours to implement against its contract; a refusal is a fact about this synthesis scope, not about the specification.
 
 ## Generated
 
@@ -506,6 +506,8 @@ Scope: `component-skeletons`, laid out as `crate`, planned by `ess-synth`. Regen
 | command behaviour | `conductor.dispatch.RejectMessage` |
 | command contract | `conductor.dispatch.ReleaseResource` |
 | command behaviour | `conductor.dispatch.ReleaseResource` |
+| command contract | `conductor.dispatch.ReopenDispatch` |
+| command behaviour | `conductor.dispatch.ReopenDispatch` |
 | command contract | `conductor.dispatch.ReportBlocked` |
 | command behaviour | `conductor.dispatch.ReportBlocked` |
 | command contract | `conductor.dispatch.ReportDone` |
@@ -681,6 +683,7 @@ Scope: `component-skeletons`, laid out as `crate`, planned by `ess-synth`. Regen
 | event type | `conductor.dispatch.DispatchDone` |
 | event type | `conductor.dispatch.DispatchFailed` |
 | event type | `conductor.dispatch.DispatchLinked` |
+| event type | `conductor.dispatch.DispatchReopened` |
 | event type | `conductor.dispatch.DispatchSent` |
 | event type | `conductor.dispatch.DispatchStarted` |
 | event type | `conductor.dispatch.DispatchUnblocked` |
@@ -823,6 +826,7 @@ Scope: `component-skeletons`, laid out as `crate`, planned by `ess-synth`. Regen
 | error type | `conductor.dispatch.NeedNotRouted` |
 | error type | `conductor.dispatch.NotANeed` |
 | error type | `conductor.dispatch.ReferenceHeld` |
+| error type | `conductor.dispatch.ReopenByAgent` |
 | error type | `conductor.dispatch.RepositoryBusy` |
 | error type | `conductor.dispatch.ResourceRequestNotFound` |
 | error type | `conductor.dispatch.ResourceRequestStateConflict` |

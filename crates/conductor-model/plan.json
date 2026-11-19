@@ -2,8 +2,8 @@
   "provenance": {
     "system": "conductor",
     "specification_version": "v1",
-    "source_digest": "5d0cd0b2c252ebe62c141fb81023f9764578c2fb364145dc17a74c64ba579b3d",
-    "contract_digest": "446c14272eda471e83f2d056112185680e3dcc9fe99dea205f60f54332491604"
+    "source_digest": "4a374aa1507ad533d5a27ec3a98a4a72f19d7308386ba2ba5ede9de2270bcda3",
+    "contract_digest": "8b0bee8be14247f0bf21e16bf0667486cea95ad8d77ee074bf46a40cfb4412bb"
   },
   "scope": {
     "profile": "component-skeletons",
@@ -3523,6 +3523,20 @@
     },
     {
       "kind": "command_contract",
+      "source": "conductor.dispatch.ReopenDispatch",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "command_behavior",
+      "source": "conductor.dispatch.ReopenDispatch",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "command_contract",
       "source": "conductor.dispatch.ReportBlocked",
       "disposition": {
         "disposition": "generated"
@@ -4844,6 +4858,13 @@
     },
     {
       "kind": "event_type",
+      "source": "conductor.dispatch.DispatchReopened",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "event_type",
       "source": "conductor.dispatch.DispatchSent",
       "disposition": {
         "disposition": "generated"
@@ -5832,6 +5853,13 @@
     {
       "kind": "error_type",
       "source": "conductor.dispatch.ReferenceHeld",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "error_type",
+      "source": "conductor.dispatch.ReopenByAgent",
       "disposition": {
         "disposition": "generated"
       }
