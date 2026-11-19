@@ -492,3 +492,12 @@ Open, not fixed in this release:
   daemon ends on the box row as well as the login (`story:setup-prints-box-row`);
 - the late install of `substrate-daemon` of v1.3.0 and v1.4.0 did not recur: both sessions
   installed it at step 4. Step 4 did not change, so one round does not close it.
+
+## v1.17.0
+
+No onboarding run was made for this release, by the operator's decision. Of what onboarding runs,
+1.17.0 changes only `conductor doctor`, by two informational lines (a `disk_low` above half the
+filesystem at `disk_path`, and a boxed instance with no director session); neither line fails
+doctor, and its verdict and exit are unchanged. `SETUP.md`, `conductor setup`, the install path and
+the prerequisites are unchanged. The two runs of this record need a GitHub and a self-hosted GitLab
+scratch origin, which the release host does not have; they are made again when those are provided.
