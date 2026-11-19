@@ -165,7 +165,8 @@ one background Bash that exits on it.
    "Which decisions are yours" table; a controller whose request waits is idle, and the loop does
    not answer for you.
    Host checks in the same step: the daemon's page answering 200 (`curl -s -o /dev/null -w
-   '%{http_code}' http://127.0.0.1:<daemon.port>/`); the `usage.watcher` unit active and its newest journal
+   '%{http_code}' http://127.0.0.1:<daemon.port>/`); the host's `conductor --version` equal to each
+   instance's `binary_version` in `/v1/instances`; the `usage.watcher` unit active and its newest journal
    lines naming an account with headroom; free disk at or above `thresholds.disk_low`;
    `context: <session> <n>k tokens` lines in each run journal against
    `thresholds.context_handover`; a `Usage limit reached` banner in any session's `claude logs`
@@ -205,8 +206,10 @@ one background Bash that exits on it.
    maintainer pushes the branch and opens or updates its pull request before anything else; a
    release follows a green pull request within the K5 target.
    Do not wait for the loop's cycle (`cadence.cycle`, a snapshot first, which can take tens of
-   minutes): start a missing controller now with `CONDUCTOR_INSTANCE=<name> conductor spawn
-   --repository <repo>` (refused while one of that name runs). Do not restart a loop in the middle
+   minutes): start a missing controller now. At `placement: none`: `CONDUCTOR_INSTANCE=<name>
+   conductor spawn --repository <repo>` (refused while one of that name runs). At any other, where
+   `spawn` on the host refuses `OutsideBox`: `CONDUCTOR_INSTANCE=<name> conductor instance cycle`,
+   then check the controller is `Running` in `conductor controller controllers`. Do not restart a loop in the middle
    of a cycle: the cycle's work is lost. Restart one only when `conductor session run-ticks` shows
    its last `cycle` tick followed by `watch` ticks.
 4. Use sub-agents for parallel work (one per instance or per independent job); do not do serially

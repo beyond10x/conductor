@@ -170,19 +170,45 @@ fn the_supervisor_refuses_a_permission_prompt_with_escape() {
     }
 }
 
+/// Issue #218: the supervisor starts a missing controller with `spawn` only at `placement: none`;
+/// at any other placement through a cycle of the instance, then checks it runs; and it compares
+/// the host's CLI version with each instance's `binary_version`.
+#[test]
+fn the_supervisor_starts_a_boxed_controller_through_a_cycle() {
+    let text = profile("supervisor.md");
+    for phrase in [
+        "At `placement: none`: `CONDUCTOR_INSTANCE=<name>\n   conductor spawn --repository <repo>`",
+        "At any other, where\n   `spawn` on the host refuses `OutsideBox`: `CONDUCTOR_INSTANCE=<name> \
+         conductor instance cycle`,\n   then check the controller is `Running` in `conductor \
+         controller controllers`",
+        "the host's `conductor --version` equal to each\n   instance's `binary_version` in \
+         `/v1/instances`",
+    ] {
+        assert!(text.contains(phrase), "supervisor.md: holds {phrase:?}");
+    }
+    assert!(
+        !text.contains(
+            "start a missing controller now with `CONDUCTOR_INSTANCE=<name> conductor spawn"
+        ),
+        "supervisor.md: still spawns every missing controller"
+    );
+}
+
 /// `story:controller-profile-for-run`, acceptance 1 and 3: the controller profile fits in 120
 /// lines and the maintainer's in 60. The host supervisor's and teacher's are held at their size
 /// when they became one source, so a later rule replaces a line instead of adding one. The
 /// supervisor's cap rose from 458 to 460 with `story:roles-in-the-binary`: its two answers to a
 /// permission prompt (`send-keys 2`, and `Down` then `Enter`) both approved the call on a
 /// three-option prompt, and the rule that replaces them (refuse with `Escape`, then check the pane
-/// that the prompt is gone) is two wrapped lines longer.
+/// that the prompt is gone) is two wrapped lines longer. It rose to 463 with issue #218: a missing
+/// controller of a boxed instance is started through `conductor instance cycle`, since `spawn` on
+/// the host refuses it, and the host's CLI version is compared with each instance's binary.
 #[test]
 fn each_profile_stays_under_its_line_cap() {
     for (name, cap) in [
         ("controller.md", 120),
         ("maintainer.md", 60),
-        ("supervisor.md", 460),
+        ("supervisor.md", 463),
         ("teacher.md", 178),
     ] {
         let path = agents().join(name);
