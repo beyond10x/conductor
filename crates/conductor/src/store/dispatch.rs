@@ -93,7 +93,7 @@ impl DispatchStorage for Store {
 
 fn encode_dispatch(dispatch: &DispatchSnapshot) -> Value {
     let data = &dispatch.data;
-    json!({
+    let mut body = json!({
         "actor": crate::actor::to_json(&data.actor),
         "state": dispatch_state_name(dispatch.state),
         "dispatch_id": data.dispatch_id.0,
@@ -107,7 +107,12 @@ fn encode_dispatch(dispatch: &DispatchSnapshot) -> Value {
         "start_ref": data.start_ref,
         "issue": data.issue,
         "links": data.links,
-    })
+    });
+    // Kept only while it holds a reason, so a dispatch that never waited keeps the bytes it had.
+    if let Some(waiting) = &data.waiting {
+        body["waiting"] = json!(waiting);
+    }
+    body
 }
 
 fn decode_dispatch(body: &Value) -> Result<DispatchSnapshot, String> {
@@ -131,6 +136,7 @@ fn decode_dispatch(body: &Value) -> Result<DispatchSnapshot, String> {
             start_ref: added_text(body, "start_ref")?,
             issue: added_text(body, "issue")?,
             links: added_texts(body, "links")?,
+            waiting: added_text(body, "waiting")?,
         },
     })
 }

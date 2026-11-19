@@ -1,5 +1,5 @@
 // generated from conductor v1
-// contract digest 64aee187d1d520e67700aff5512c55340b1b4251c879b9eddfac8a9586b70786
+// contract digest f83017a2b1547ffe433fb36ace7fc15a0642089bbb79d7bd80c1038f423d74e1
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! Every actor the specification declares, and the commands each may invoke — as data.
@@ -239,6 +239,7 @@ pub fn may(actor: Actor) -> &'static [&'static str] {
             "conductor.dispatch.PauseController",
             "conductor.dispatch.ReceiveMessage",
             "conductor.dispatch.RecordDispatchLink",
+            "conductor.dispatch.RecordDispatchWaiting",
             "conductor.dispatch.RefuseResource",
             "conductor.dispatch.RejectMessage",
             "conductor.dispatch.ReportBlocked",

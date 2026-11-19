@@ -2,8 +2,8 @@
   "provenance": {
     "system": "conductor",
     "specification_version": "v1",
-    "source_digest": "4794e740ce0678182d3cdb0dd4e7fb4fb130d2e4f32b21a3a3779b843dfce517",
-    "contract_digest": "64aee187d1d520e67700aff5512c55340b1b4251c879b9eddfac8a9586b70786"
+    "source_digest": "ee0598c1ca541944efdfd211f2b4858908bcfaabf65ef7da0dff368ea2664ab2",
+    "contract_digest": "f83017a2b1547ffe433fb36ace7fc15a0642089bbb79d7bd80c1038f423d74e1"
   },
   "scope": {
     "profile": "component-skeletons",
@@ -3453,6 +3453,20 @@
     },
     {
       "kind": "command_contract",
+      "source": "conductor.dispatch.RecordDispatchWaiting",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "command_behavior",
+      "source": "conductor.dispatch.RecordDispatchWaiting",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "command_contract",
       "source": "conductor.dispatch.RecordGuardDecision",
       "disposition": {
         "disposition": "generated"
@@ -4851,6 +4865,13 @@
     },
     {
       "kind": "event_type",
+      "source": "conductor.dispatch.DispatchWaitingRecorded",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "event_type",
       "source": "conductor.dispatch.GuardDecisionRecorded",
       "disposition": {
         "disposition": "generated"
@@ -5748,6 +5769,13 @@
     {
       "kind": "error_type",
       "source": "conductor.dispatch.InvalidReference",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "error_type",
+      "source": "conductor.dispatch.InvalidWaitingReason",
       "disposition": {
         "disposition": "generated"
       }

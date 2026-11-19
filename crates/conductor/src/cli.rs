@@ -400,6 +400,9 @@ impl Cli {
                 DispatchCommand::ReportFailed(args) => dispatch::report_failed(state, args),
                 DispatchCommand::CancelDispatch(args) => dispatch::cancel_dispatch(state, args),
                 DispatchCommand::RecordDispatchLink(args) => dispatch::record_link(state, args),
+                DispatchCommand::RecordDispatchWaiting(args) => {
+                    dispatch::record_waiting(state, args)
+                }
                 DispatchCommand::Dispatches(view) => dispatch::dispatches(state, view),
             },
             Group::Message(command) => match command {
@@ -935,6 +938,7 @@ pub const LEAVES: &[(&[&str], Access)] = &[
     (&["controller", "controllers"], Access::Reads),
     (&["dispatch", "cancel-dispatch"], Access::Writes),
     (&["dispatch", "record-link"], Access::Writes),
+    (&["dispatch", "record-waiting"], Access::Writes),
     (&["dispatch", "report-blocked"], Access::Writes),
     (&["dispatch", "report-done"], Access::Writes),
     (&["dispatch", "report-failed"], Access::Writes),
@@ -1615,6 +1619,10 @@ pub enum DispatchCommand {
     /// Record a link on a dispatch
     #[command(name = "record-link")]
     RecordDispatchLink(RecordDispatchLinkArgs),
+
+    /// Record why a dispatch waits
+    #[command(name = "record-waiting")]
+    RecordDispatchWaiting(RecordDispatchWaitingArgs),
 
     /// Report a dispatch blocked
     #[command(name = "report-blocked")]
@@ -4604,6 +4612,27 @@ pub struct RecordDispatchLinkArgs {
     /// string
     #[arg(long)]
     pub link: Option<String>,
+    /// Actor, as the records print it (`human:<name>`, `agent:<instance>/<role>/<name>`, `daemon`)
+    /// or one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`,
+    /// `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`;
+    /// default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the
+    /// operator
+    #[arg(long, value_parser = actor)]
+    pub actor: Option<String>,
+    /// Read the input fields from standard input, as one JSON object
+    #[arg(long, value_enum)]
+    pub input_json: Option<JsonInput>,
+}
+
+/// The input of `conductor.dispatch.RecordDispatchWaiting`.
+#[derive(Debug, Clone, Args)]
+pub struct RecordDispatchWaitingArgs {
+    /// DispatchId, starting with `DSP-`
+    #[arg(long, value_parser = prefixed("DSP-"))]
+    pub dispatch_id: Option<String>,
+    /// string; absent clears the reason the dispatch holds
+    #[arg(long)]
+    pub reason: Option<String>,
     /// Actor, as the records print it (`human:<name>`, `agent:<instance>/<role>/<name>`, `daemon`)
     /// or one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`,
     /// `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`;

@@ -40,10 +40,15 @@
 //! skip the `merge: human` review cap below: the work call is the control plane telling the
 //! instance to work the unit. A repository whose charter has the line `merge: human` and that has
 //! at least `controllers.max_open_reviews` pull requests waiting for review in the newest complete
-//! snapshot (as the board counts them, [`crate::status::waiting_in`]) waits. One `cycle` line
-//! names what each step did: `snapshot ok`, `board ok`, `records check ok` or how each ended, then
-//! each controller stopped for a place, `spawned <repos>` (or `spawned none`) and each repository
-//! that waits, with why.
+//! snapshot (as the board counts them, [`crate::status::waiting_in`]) waits. Each open dispatch
+//! whose repository then runs no controller carries why (`story:dispatch-waiting-reason`): no
+//! complete snapshot, not observed in it, Inactive, no charter, the default charter, the review
+//! cap, `max_working` reached, a usage limit, a refused start with its error, or its starts
+//! failed and it is tried no more; recorded through `dispatch record-waiting`'s code when it changes, one `waiting` line
+//! with the tick's id each time, and cleared once a controller of its repository runs
+//! ([`record_waiting`]). One `cycle` line names what each step did: `snapshot ok`, `board ok`,
+//! `records check ok` or how each ended, then each controller stopped for a place, `spawned
+//! <repos>` (or `spawned none`) and each repository that waits, with why, Active or not.
 //!
 //! **Daily.** `metric compute --day <the previous UTC day>`, then `status`, and the brief
 //! `<records>/REPORT.md`: the day, each reading that misses its target, each reading that could not
@@ -60,7 +65,7 @@ use std::time::Duration;
 use anyhow::{Context as _, Result};
 use conductor_model::behaviour::{ControllerStorage, DispatchStorage, SnapshotStorage};
 use conductor_model::direction::Activity;
-use conductor_model::dispatch::{ControllerState, DispatchLogEvent, DispatchState};
+use conductor_model::dispatch::{ControllerState, DispatchId, DispatchLogEvent, DispatchState};
 use conductor_model::primitives::Timestamp;
 use conductor_model::session::TickKind;
 use time::OffsetDateTime;
@@ -299,6 +304,8 @@ const WAITING: &str = "waiting.json";
 struct Read {
     /// Each repository of `repository activity`, and whether it is Active.
     rows: Vec<(String, bool)>,
+    /// Whether a complete snapshot is kept.
+    complete: bool,
     /// The repositories with a `Running` or `Paused` controller.
     controlled: Vec<String>,
     /// The `merge: human` review count of each repository at its cap.
@@ -349,6 +356,7 @@ fn read(tick: &Tick<'_, '_>) -> Result<Read> {
         .collect();
     let snapshots = SnapshotStorage::list(&store);
     let newest = crate::status::newest_complete(&snapshots, None);
+    let complete = newest.is_some();
     let full = newest.map_or_else(Default::default, |held| {
         crate::status::review_full(
             &crate::status::waiting_in(&store, held),
@@ -360,6 +368,7 @@ fn read(tick: &Tick<'_, '_>) -> Result<Read> {
         .context("read the repositories and controllers")?;
     Ok(Read {
         rows,
+        complete,
         controlled,
         full,
         units,
@@ -383,11 +392,30 @@ fn earlier(one: Option<OffsetDateTime>, other: Option<OffsetDateTime>) -> Option
     }
 }
 
+/// What the cycle says of the repositories it did not start, and why each open dispatch waits
+/// (`story:dispatch-waiting-reason`).
+#[derive(Default)]
+struct Waits {
+    /// The parts of the `cycle` line, `<repo> waits: <why>` and the like, in order.
+    said: Vec<String>,
+    /// Why each repository's open dispatches wait, the first reason found.
+    why: BTreeMap<String, String>,
+}
+
+impl Waits {
+    /// `repo` waits for `why`: said in the `cycle` line, and kept for its open dispatches.
+    fn wait(&mut self, repo: &str, why: String) {
+        self.said.push(format!("{repo} waits: {why}"));
+        self.why.entry(repo.to_owned()).or_insert(why);
+    }
+}
+
 /// Dispatch v1, as the module documentation says; what it did, as the `cycle` line says it.
 fn dispatch_v1(tick: &mut Tick<'_, '_>) -> Result<String> {
     let instance = tick.instance();
     let Read {
         rows,
+        complete,
         mut controlled,
         full,
         units,
@@ -395,12 +423,12 @@ fn dispatch_v1(tick: &mut Tick<'_, '_>) -> Result<String> {
     } = read(tick)?;
     let limit = instance.controllers.max_open_reviews;
     let mut spawned = Vec::new();
-    let mut waits = Vec::new();
+    let mut waits = Waits::default();
     // A repository whose controller waits for its usage limit's reset is resumed then, not
     // started afresh (story:limit-resume-at-reset).
     for (repo, at) in waiting_at_limit(tick) {
         if !controlled.contains(&repo) {
-            waits.push(format!("{repo} waits: usage limit until {at}"));
+            waits.wait(&repo, format!("usage limit until {at}"));
             controlled.push(repo);
         }
     }
@@ -415,6 +443,12 @@ fn dispatch_v1(tick: &mut Tick<'_, '_>) -> Result<String> {
         controlled.push(repo.clone());
         let failed = crate::dispatch::failed_starts(records, sent_at, repo, id)?;
         if failed >= crate::dispatch::FAILED_STARTS_MOST {
+            waits.why.entry(repo.clone()).or_insert_with(|| {
+                format!(
+                    "{} starts of it failed; the loop tries it no more",
+                    crate::dispatch::FAILED_STARTS_MOST
+                )
+            });
             continue;
         }
         tick.make_room(repo)?;
@@ -427,14 +461,14 @@ fn dispatch_v1(tick: &mut Tick<'_, '_>) -> Result<String> {
                 let mut line = super::start_refused_line(repo, id, refusal, &detail)?;
                 line.tick_id = Some(tick.id.clone());
                 tick.write(&line)?;
-                waits.push(format!(
-                    "{repo} waits: {}: {detail}",
-                    super::work_refusal_name(refusal)
-                ));
+                waits.wait(
+                    repo,
+                    format!("{}: {detail}", super::work_refusal_name(refusal)),
+                );
                 if crate::dispatch::failed_starts(records, sent_at, repo, id)?
                     >= crate::dispatch::FAILED_STARTS_MOST
                 {
-                    waits.push(format!(
+                    waits.said.push(format!(
                         "{id} of {repo} is left to the operator: {} starts of it failed, and the \
                          loop tries it no more",
                         crate::dispatch::FAILED_STARTS_MOST
@@ -462,16 +496,19 @@ fn dispatch_v1(tick: &mut Tick<'_, '_>) -> Result<String> {
     for (_, repo) in &order {
         let repo = repo.as_str();
         if !tick.charter(repo).is_file() {
+            if open_since.contains_key(repo) {
+                waits.wait(repo, "no charter".to_owned());
+            }
             continue;
         }
         if merge_human(&tick.charter(repo))
             && let Some(waiting) = full.get(repo)
         {
-            waits.push(format!("{repo} waits: {waiting}/{limit} pull requests"));
+            waits.wait(repo, format!("{waiting}/{limit} pull requests"));
             continue;
         }
         if let Some(skip) = tick.part_done(repo)? {
-            waits.push(format!("{repo} {skip}"));
+            waits.said.push(format!("{repo} {skip}"));
             continue;
         }
         match tick.spawn(repo)? {
@@ -480,7 +517,7 @@ fn dispatch_v1(tick: &mut Tick<'_, '_>) -> Result<String> {
                 if why.starts_with("max_working ") {
                     at_place.push(repo.to_owned());
                 }
-                waits.push(format!("{repo} waits: {why}"));
+                waits.wait(repo, why);
             }
         }
     }
@@ -500,21 +537,102 @@ fn dispatch_v1(tick: &mut Tick<'_, '_>) -> Result<String> {
             tick.note(WAITING, &error);
         }
     }
-    let mut said = tick
-        .yielded
-        .drain(..)
-        .map(|stopped| format!("{stopped}; "))
-        .collect::<String>();
+    // Each repository with an open dispatch that is not Active says why
+    // (story:dispatch-waiting-reason).
+    for repo in open_since.keys() {
+        if controlled.contains(repo) || spawned.contains(repo) || waits.why.contains_key(repo) {
+            continue;
+        }
+        let why = match rows.iter().find(|(row, _)| row == repo) {
+            Some((_, false)) => "repository Inactive",
+            Some((_, true)) => continue,
+            None if complete => "not observed in the newest snapshot",
+            None => "no complete snapshot",
+        };
+        waits.wait(repo, why.to_owned());
+    }
+    record_waiting(tick, &waits.why)?;
+    let mut said = String::new();
+    for stopped in tick.yielded.drain(..) {
+        said.push_str(&stopped);
+        said.push_str("; ");
+    }
     said.push_str(&if spawned.is_empty() {
         "spawned none".to_owned()
     } else {
         format!("spawned {}", spawned.join(", "))
     });
-    for wait in waits {
+    for wait in waits.said {
         said.push_str("; ");
         said.push_str(&wait);
     }
     Ok(said)
+}
+
+/// Records on each open dispatch why it waits (`story:dispatch-waiting-reason`): the reason `why`
+/// keeps for its repository while the repository runs no `Running` or `Paused` controller, none
+/// once one runs; through `dispatch record-waiting`'s code ([`crate::dispatch::wait`]), and only
+/// where the dispatch holds another, so a `waiting` line, with the tick's id, is written once per
+/// change. A dispatch whose repository runs none and that no reason was found for keeps its own.
+///
+/// # Errors
+///
+/// The store does not open, or a reason is not kept or its line not written.
+fn record_waiting(tick: &mut Tick<'_, '_>, why: &BTreeMap<String, String>) -> Result<()> {
+    let (open_now, controlled) = {
+        let store = crate::state::open(tick.state)?;
+        let open_now: Vec<(String, String, Option<String>)> = DispatchStorage::list(&store)
+            .into_iter()
+            .filter(|held| open(held.state))
+            .map(|held| {
+                (
+                    held.data.dispatch_id.0,
+                    held.data.repository.0,
+                    held.data.waiting,
+                )
+            })
+            .collect();
+        let controlled: Vec<String> = ControllerStorage::list(&store)
+            .into_iter()
+            .filter(|held| {
+                matches!(
+                    held.state,
+                    ControllerState::Running | ControllerState::Paused
+                )
+            })
+            .map(|held| held.data.repository.0)
+            .collect();
+        store.check().context("read the open dispatches")?;
+        (open_now, controlled)
+    };
+    for (id, repo, held) in open_now {
+        let wanted = if controlled.contains(&repo) {
+            None
+        } else if let Some(reason) = why.get(&repo) {
+            Some(reason.split_whitespace().collect::<Vec<_>>().join(" "))
+        } else {
+            continue;
+        };
+        if wanted == held || wanted.as_deref() == Some("") {
+            continue;
+        }
+        let some = wanted.is_some();
+        match crate::dispatch::wait(
+            tick.state,
+            DispatchId(id.clone()),
+            wanted,
+            crate::actor::chosen(),
+            Some(&tick.id),
+        )? {
+            crate::dispatch::Waiting::Recorded if some => tick.wrote(DispatchLogEvent::Waiting),
+            crate::dispatch::Waiting::Recorded | crate::dispatch::Waiting::Held => {}
+            crate::dispatch::Waiting::Refused { error, detail } => tick.note(
+                &format!("record why {id} waits"),
+                &anyhow::anyhow!("{error}: {detail}"),
+            ),
+        }
+    }
+    Ok(())
 }
 
 /// Whether the charter `file` has the line `merge: human`.

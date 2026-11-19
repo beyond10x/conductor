@@ -4058,6 +4058,104 @@ fn repositories_waiting_for_a_place_are_taken_oldest_first_not_by_name() {
     assert!(said.contains("beta waits: max_working 1 reached"), "{said}");
 }
 
+/// `story:dispatch-waiting-reason`: the `waiting` lines of the dispatch `id`, their reasons in
+/// order.
+fn waiting_of(case: &Case, id: &str) -> Vec<String> {
+    case.log()
+        .into_iter()
+        .filter(|line| line["event"] == "waiting" && line["id"] == id)
+        .map(|line| line["reason"].as_str().unwrap_or_default().to_owned())
+        .collect()
+}
+
+/// The `waiting` field of the dispatch `id` in `dispatch dispatches`.
+fn waiting_shown(case: &Case, id: &str) -> Value {
+    case.view(&["dispatch", "dispatches"])
+        .into_iter()
+        .find(|row| row["dispatch_id"] == id)
+        .map(|row| row["waiting"].clone())
+        .expect("the dispatch's row")
+}
+
+/// An open dispatch whose repository is not Active, with no complete snapshot taken, gets no
+/// controller and says why: one `waiting` line with the tick's id, the dispatch's row, and the
+/// `cycle` line.
+#[test]
+fn an_open_dispatch_with_no_complete_snapshot_says_why_no_controller_started() {
+    let case = Case::new("waiting-no-snapshot");
+    let id = case.dispatch("alpha");
+    let tick = cycle(&case);
+    assert!(case.launched().is_empty(), "{:?}", case.launched());
+    assert_eq!(waiting_of(&case, &id), ["no complete snapshot"]);
+    let line = case
+        .lines_of(&tick)
+        .into_iter()
+        .find(|line| line["event"] == "waiting")
+        .expect("the waiting line carries the tick's id");
+    assert_eq!(line["repo"], "alpha");
+    assert_eq!(waiting_shown(&case, &id), "no complete snapshot");
+    let said = cycle_said(&case, &tick);
+    assert!(said.contains("alpha waits: no complete snapshot"), "{said}");
+}
+
+/// An open dispatch of an Active repository at `controllers.max_working` carries that reason.
+#[test]
+fn an_open_dispatch_at_max_working_says_so_on_the_dispatch() {
+    let case = Case::new("waiting-at-limit");
+    case.configure("{provider: none}", "{max_working: 1}");
+    write(
+        &case.charter("beta"),
+        "# Charter: beta\n\nKeep main green.\n",
+    );
+    case.spawn("alpha", FIRST);
+    let id = case.dispatch("beta");
+    mark_active(&case, "beta");
+    cycle(&case);
+    assert_eq!(waiting_of(&case, &id), ["max_working 1 reached"]);
+    assert_eq!(waiting_shown(&case, &id), "max_working 1 reached");
+}
+
+/// An open dispatch of an Active repository without a charter carries `no charter`.
+#[test]
+fn an_open_dispatch_without_a_charter_says_so_on_the_dispatch() {
+    let case = Case::new("waiting-no-charter");
+    let id = case.dispatch("gamma");
+    mark_active(&case, "gamma");
+    let tick = cycle(&case);
+    assert_eq!(waiting_of(&case, &id), ["no charter"]);
+    assert_eq!(waiting_shown(&case, &id), "no charter");
+    let said = cycle_said(&case, &tick);
+    assert!(said.contains("gamma waits: no charter"), "{said}");
+}
+
+/// The same reason is written once; another is written when it changes.
+#[test]
+fn the_waiting_reason_is_written_once_until_it_changes() {
+    let case = Case::new("waiting-once");
+    let id = case.dispatch("alpha");
+    cycle(&case);
+    cycle(&case);
+    assert_eq!(waiting_of(&case, &id), ["no complete snapshot"]);
+    case.ok(&[
+        "repository",
+        "mark-repository",
+        "--repository",
+        "alpha",
+        "--activity",
+        "Inactive",
+        "--marked-by",
+        "Operator",
+        "--reason",
+        "paused",
+    ]);
+    cycle(&case);
+    assert_eq!(
+        waiting_of(&case, &id),
+        ["no complete snapshot", "repository Inactive"]
+    );
+    assert_eq!(waiting_shown(&case, &id), "repository Inactive");
+}
+
 /// The daily tick computes the previous day's metrics and writes `REPORT.md` with deviations
 /// only.
 #[test]

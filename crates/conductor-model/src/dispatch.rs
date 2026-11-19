@@ -1,5 +1,5 @@
 // generated from conductor v1
-// contract digest 64aee187d1d520e67700aff5512c55340b1b4251c879b9eddfac8a9586b70786
+// contract digest f83017a2b1547ffe433fb36ace7fc15a0642089bbb79d7bd80c1038f423d74e1
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! Dispatch — `conductor.dispatch`.
@@ -132,6 +132,8 @@ pub enum DispatchLogEvent {
     RecordsCommitRefused,
     /// `StartRefused`.
     StartRefused,
+    /// `Waiting`.
+    Waiting,
 }
 
 /// DispatchLogLine — `conductor.dispatch.DispatchLogLine`.
@@ -775,6 +777,8 @@ pub struct DispatchData {
     pub issue: Option<String>,
     /// `links` — `List<String>`.
     pub links: Vec<String>,
+    /// `waiting` — `Optional<String>`.
+    pub waiting: Option<String>,
 }
 
 impl DispatchData {
@@ -1982,6 +1986,58 @@ pub enum RecordDispatchLinkOutcome {
     },
 }
 
+/// Record why a dispatch waits — the input of `conductor.dispatch.RecordDispatchWaiting`.
+///
+/// Everything it can result in is [`RecordDispatchWaitingOutcome`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RecordDispatchWaiting {
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
+    /// `dispatch_id` — `conductor.dispatch.DispatchId`.
+    pub dispatch_id: DispatchId,
+    /// `reason` — `Optional<String>`.
+    pub reason: Option<String>,
+}
+
+/// Everything `conductor.dispatch.RecordDispatchWaiting` can result in — one variant per declared outcome.
+///
+/// An infrastructure failure is deliberately not in here: a refusal is a fact about the domain,
+/// a transport fault is a fact about the run, and conflating the two is what the declared
+/// outcomes exist to prevent.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RecordDispatchWaitingOutcome {
+    /// `invalid-reason` — when `(defined(reason) and (reason == "" or reason contains "\n" or reason contains "\r" or reason contains "\t"))`.
+    ///
+    /// A reason is one line that is not empty; nothing was recorded.
+    InvalidReason {
+        /// Why it was refused: `conductor.dispatch.InvalidWaitingReason`.
+        error: InvalidWaitingReason,
+    },
+    /// `no-such-dispatch` — for an identity no record carries.
+    NoSuchDispatch {
+        /// Why it was refused: `conductor.dispatch.DispatchNotFound`.
+        error: DispatchNotFound,
+    },
+    /// `unchanged` — when the existing subject's stored fields satisfy `((not (defined(waiting)) and not (defined(input.reason))) or (defined(waiting) and defined(input.reason) and waiting == input.reason))`.
+    ///
+    /// The dispatch holds that reason, or none and none was given; it is unchanged.
+    Unchanged,
+    /// `cleared` — when `not (defined(reason))`.
+    ///
+    /// The dispatch holds no reason.
+    Cleared {
+        /// The `conductor.dispatch.DispatchWaitingRecorded` this outcome publishes.
+        dispatch_waiting_recorded: DispatchWaitingRecorded,
+    },
+    /// `waiting` — otherwise.
+    ///
+    /// The reason is the dispatch's.
+    Waiting {
+        /// The `conductor.dispatch.DispatchWaitingRecorded` this outcome publishes.
+        dispatch_waiting_recorded: DispatchWaitingRecorded,
+    },
+}
+
 /// Record a guard decision — the input of `conductor.dispatch.RecordGuardDecision`.
 ///
 /// Everything it can result in is [`RecordGuardDecisionOutcome`].
@@ -2849,6 +2905,17 @@ pub struct DispatchUnblocked {
     pub dispatch_id: DispatchId,
 }
 
+/// DispatchWaitingRecorded — the event `conductor.dispatch.DispatchWaitingRecorded`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DispatchWaitingRecorded {
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
+    /// `dispatch_id` — `conductor.dispatch.DispatchId`.
+    pub dispatch_id: DispatchId,
+    /// `reason` — `Optional<String>`.
+    pub reason: Option<String>,
+}
+
 /// GuardDecisionRecorded — the event `conductor.dispatch.GuardDecisionRecorded`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GuardDecisionRecorded {
@@ -3096,6 +3163,15 @@ pub struct InvalidReference {
     pub reference: String,
 }
 
+/// The declared error `conductor.dispatch.InvalidWaitingReason`.
+///
+/// A waiting reason is one line that is not empty, so it was not recorded.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InvalidWaitingReason {
+    /// `dispatch_id` — `conductor.dispatch.DispatchId`.
+    pub dispatch_id: DispatchId,
+}
+
 /// The declared error `conductor.dispatch.InvalidWorkRequest`.
 ///
 /// The body of the work call is no `WorkRequest`: no JSON object, a member it does not declare, or one it declares missing or of another type, or a `start_ref` or an `issue` a dispatch does not take; nothing was sent. `dispatch send-dispatch` refuses such a `--start-ref` or `--issue` by this name too.
@@ -3291,6 +3367,8 @@ pub struct Dispatches {
     pub issue: Option<String>,
     /// `links` — `List<String>`.
     pub links: Vec<String>,
+    /// `waiting` — `Optional<String>`.
+    pub waiting: Option<String>,
 }
 
 /// Guard decisions — one row of the view `conductor.dispatch.GuardDecisions`.
@@ -3446,6 +3524,17 @@ pub mod obligations {
         /// `Err` is the typed refusal of an obligation nothing has satisfied; a satisfying
         /// implementation never returns it.
         fn record_dispatch_link(&mut self, input: super::RecordDispatchLink) -> Result<super::RecordDispatchLinkOutcome, crate::obligation::UnmetObligation>;
+    }
+
+    /// The behaviour `conductor.dispatch.RecordDispatchWaiting` — generated.
+    ///
+    /// The specification fully determines it: [`crate::behaviour::Generated`] implements it
+    /// over the storage and context ports. Implement it yourself to replace that behaviour.
+    pub trait RecordDispatchWaitingBehavior {
+        /// Decides and enacts exactly one declared outcome of `conductor.dispatch.RecordDispatchWaiting`.
+        ///
+        /// `Err` is the typed refusal of a request the model declares no outcome for.
+        fn record_dispatch_waiting(&mut self, input: super::RecordDispatchWaiting) -> Result<super::RecordDispatchWaitingOutcome, crate::obligation::UnmetObligation>;
     }
 
     /// The behaviour `conductor.dispatch.RecordGuardDecision` — generated.

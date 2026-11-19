@@ -1,5 +1,5 @@
 // generated from conductor v1
-// contract digest 64aee187d1d520e67700aff5512c55340b1b4251c879b9eddfac8a9586b70786
+// contract digest f83017a2b1547ffe433fb36ace7fc15a0642089bbb79d7bd80c1038f423d74e1
 // do not edit: regenerate with `ess synthesize --layout crate`
 //! Every generated declaration, as JSON, in the renderings the published wire contracts fix.
 //!
@@ -6427,6 +6427,7 @@ pub fn encode_conductor_dispatch_dispatch_log_event(value: &crate::dispatch::Dis
         crate::dispatch::DispatchLogEvent::RecordsCommitted => json::push_text(out, "RecordsCommitted"),
         crate::dispatch::DispatchLogEvent::RecordsCommitRefused => json::push_text(out, "RecordsCommitRefused"),
         crate::dispatch::DispatchLogEvent::StartRefused => json::push_text(out, "StartRefused"),
+        crate::dispatch::DispatchLogEvent::Waiting => json::push_text(out, "Waiting"),
     }
 }
 
@@ -6436,7 +6437,7 @@ pub fn encode_conductor_dispatch_dispatch_log_event(value: &crate::dispatch::Dis
 ///
 /// [`json::DecodeError`] naming the path and what the declaration says belongs there.
 pub fn decode_conductor_dispatch_dispatch_log_event(value: &json::Value, at: &str) -> Result<crate::dispatch::DispatchLogEvent, json::DecodeError> {
-    Ok(match json::text_at(value, at, "one of `Sent`, `Started`, `Blocked`, `Unblocked`, `Done`, `Failed`, `Cancelled`, `Linked`, `MessageReceived`, `ResourceGranted`, `ResourceRefused`, `CharterRevised`, `Delivered`, `HandoverSent`, `Handover`, `ControllerRestarted`, `UsageLimit`, `Resumed`, `Relayed`, `RedCi`, `Stalled`, `Cleanup`, `DecisionSent`, `Cycle`, `RecordsCommitted`, `RecordsCommitRefused`, `StartRefused`")? {
+    Ok(match json::text_at(value, at, "one of `Sent`, `Started`, `Blocked`, `Unblocked`, `Done`, `Failed`, `Cancelled`, `Linked`, `MessageReceived`, `ResourceGranted`, `ResourceRefused`, `CharterRevised`, `Delivered`, `HandoverSent`, `Handover`, `ControllerRestarted`, `UsageLimit`, `Resumed`, `Relayed`, `RedCi`, `Stalled`, `Cleanup`, `DecisionSent`, `Cycle`, `RecordsCommitted`, `RecordsCommitRefused`, `StartRefused`, `Waiting`")? {
         "Sent" => crate::dispatch::DispatchLogEvent::Sent,
         "Started" => crate::dispatch::DispatchLogEvent::Started,
         "Blocked" => crate::dispatch::DispatchLogEvent::Blocked,
@@ -6464,7 +6465,8 @@ pub fn decode_conductor_dispatch_dispatch_log_event(value: &json::Value, at: &st
         "RecordsCommitted" => crate::dispatch::DispatchLogEvent::RecordsCommitted,
         "RecordsCommitRefused" => crate::dispatch::DispatchLogEvent::RecordsCommitRefused,
         "StartRefused" => crate::dispatch::DispatchLogEvent::StartRefused,
-        other => return Err(json::DecodeError { at: at.to_owned(), expected: "one of `Sent`, `Started`, `Blocked`, `Unblocked`, `Done`, `Failed`, `Cancelled`, `Linked`, `MessageReceived`, `ResourceGranted`, `ResourceRefused`, `CharterRevised`, `Delivered`, `HandoverSent`, `Handover`, `ControllerRestarted`, `UsageLimit`, `Resumed`, `Relayed`, `RedCi`, `Stalled`, `Cleanup`, `DecisionSent`, `Cycle`, `RecordsCommitted`, `RecordsCommitRefused`, `StartRefused`".to_owned(), found: format!("`{other}`") }),
+        "Waiting" => crate::dispatch::DispatchLogEvent::Waiting,
+        other => return Err(json::DecodeError { at: at.to_owned(), expected: "one of `Sent`, `Started`, `Blocked`, `Unblocked`, `Done`, `Failed`, `Cancelled`, `Linked`, `MessageReceived`, `ResourceGranted`, `ResourceRefused`, `CharterRevised`, `Delivered`, `HandoverSent`, `Handover`, `ControllerRestarted`, `UsageLimit`, `Resumed`, `Relayed`, `RedCi`, `Stalled`, `Cleanup`, `DecisionSent`, `Cycle`, `RecordsCommitted`, `RecordsCommitRefused`, `StartRefused`, `Waiting`".to_owned(), found: format!("`{other}`") }),
     })
 }
 
@@ -14835,6 +14837,47 @@ pub fn decode_event_conductor_dispatch_dispatch_unblocked(value: &json::Value, a
     })
 }
 
+/// Writes the event `conductor.dispatch.DispatchWaitingRecorded` as JSON.
+pub fn encode_event_conductor_dispatch_dispatch_waiting_recorded(value: &crate::dispatch::DispatchWaitingRecorded, out: &mut String) {
+    out.push('{');
+    json::member(out, "actor");
+    encode_conductor_operator_actor(&value.actor, out);
+    json::member(out, "dispatch_id");
+    encode_conductor_dispatch_dispatch_id(&value.dispatch_id, out);
+    if let Some(held0) = &value.reason {
+        json::member(out, "reason");
+        json::push_text(out, &*held0);
+    }
+    out.push('}');
+}
+
+/// Reads the event `conductor.dispatch.DispatchWaitingRecorded` from JSON, the payload [`encode_event_conductor_dispatch_dispatch_waiting_recorded`] writes.
+///
+/// # Errors
+///
+/// [`json::DecodeError`] naming the path and what the declaration says belongs there.
+pub fn decode_event_conductor_dispatch_dispatch_waiting_recorded(value: &json::Value, at: &str) -> Result<crate::dispatch::DispatchWaitingRecorded, json::DecodeError> {
+    Ok(crate::dispatch::DispatchWaitingRecorded {
+        actor: {
+            let at0 = json::nested(at, "actor");
+            let member0 = json::member_at(value, at, "actor")?;
+            decode_conductor_operator_actor(member0, &at0)?
+        },
+        dispatch_id: {
+            let at1 = json::nested(at, "dispatch_id");
+            let member1 = json::member_at(value, at, "dispatch_id")?;
+            decode_conductor_dispatch_dispatch_id(member1, &at1)?
+        },
+        reason: match value.member("reason") {
+            None | Some(json::Value::Null) => None,
+            Some(member2) => {
+                let at2 = json::nested(at, "reason");
+                Some(json::text_at(member2, &at2, "a string")?.to_owned())
+            }
+        },
+    })
+}
+
 /// Writes the event `conductor.dispatch.GuardDecisionRecorded` as JSON.
 pub fn encode_event_conductor_dispatch_guard_decision_recorded(value: &crate::dispatch::GuardDecisionRecorded, out: &mut String) {
     out.push('{');
@@ -18887,6 +18930,14 @@ pub fn encode_error_conductor_dispatch_invalid_reference(value: &crate::dispatch
     out.push('}');
 }
 
+/// Writes the declared error `conductor.dispatch.InvalidWaitingReason` as JSON.
+pub fn encode_error_conductor_dispatch_invalid_waiting_reason(value: &crate::dispatch::InvalidWaitingReason, out: &mut String) {
+    out.push('{');
+    json::member(out, "dispatch_id");
+    encode_conductor_dispatch_dispatch_id(&value.dispatch_id, out);
+    out.push('}');
+}
+
 /// Writes the declared error `conductor.dispatch.InvalidWorkRequest` as JSON.
 pub fn encode_error_conductor_dispatch_invalid_work_request(value: &crate::dispatch::InvalidWorkRequest, out: &mut String) {
     out.push('{');
@@ -19932,6 +19983,10 @@ pub fn encode_view_conductor_dispatch_dispatches(value: &crate::dispatch::Dispat
         json::push_text(out, &*item0);
     }
     out.push(']');
+    if let Some(held0) = &value.waiting {
+        json::member(out, "waiting");
+        json::push_text(out, &*held0);
+    }
     out.push('}');
 }
 
@@ -25863,6 +25918,118 @@ pub fn encode_outcome_conductor_dispatch_record_dispatch_link(value: &crate::dis
             json::push_text(out, "conductor.dispatch.DispatchLinked");
             json::member(out, "payload");
             encode_event_conductor_dispatch_dispatch_linked(dispatch_linked, out);
+            out.push('}');
+            out.push(']');
+        }
+    }
+    out.push('}');
+}
+
+/// Writes the input of `conductor.dispatch.RecordDispatchWaiting` as JSON.
+pub fn encode_command_conductor_dispatch_record_dispatch_waiting(value: &crate::dispatch::RecordDispatchWaiting, out: &mut String) {
+    out.push('{');
+    json::member(out, "actor");
+    encode_conductor_operator_actor(&value.actor, out);
+    json::member(out, "dispatch_id");
+    encode_conductor_dispatch_dispatch_id(&value.dispatch_id, out);
+    if let Some(held0) = &value.reason {
+        json::member(out, "reason");
+        json::push_text(out, &*held0);
+    }
+    out.push('}');
+}
+
+/// Reads the input of `conductor.dispatch.RecordDispatchWaiting` from JSON.
+///
+/// # Errors
+///
+/// [`json::DecodeError`] naming the path and what the declaration says belongs there.
+pub fn decode_command_conductor_dispatch_record_dispatch_waiting(value: &json::Value, at: &str) -> Result<crate::dispatch::RecordDispatchWaiting, json::DecodeError> {
+    json::closed_at(value, at, &["actor", "dispatch_id", "reason"])?;
+    Ok(crate::dispatch::RecordDispatchWaiting {
+        actor: {
+            let at0 = json::nested(at, "actor");
+            let member0 = json::member_at(value, at, "actor")?;
+            decode_conductor_operator_actor(member0, &at0)?
+        },
+        dispatch_id: {
+            let at1 = json::nested(at, "dispatch_id");
+            let member1 = json::member_at(value, at, "dispatch_id")?;
+            decode_conductor_dispatch_dispatch_id(member1, &at1)?
+        },
+        reason: match value.member("reason") {
+            None | Some(json::Value::Null) => None,
+            Some(member2) => {
+                let at2 = json::nested(at, "reason");
+                Some(json::text_at(member2, &at2, "a string")?.to_owned())
+            }
+        },
+    })
+}
+
+/// Writes the outcome of `conductor.dispatch.RecordDispatchWaiting` as JSON: the branch taken, what it published, and the declared
+/// refusal it carries where it carries one.
+pub fn encode_outcome_conductor_dispatch_record_dispatch_waiting(value: &crate::dispatch::RecordDispatchWaitingOutcome, out: &mut String) {
+    out.push('{');
+    match value {
+        crate::dispatch::RecordDispatchWaitingOutcome::InvalidReason { error } => {
+            json::member(out, "outcome");
+            json::push_text(out, "invalid-reason");
+            json::member(out, "published");
+            out.push('[');
+            out.push(']');
+            json::member(out, "refusal");
+            out.push('{');
+            json::member(out, "error");
+            json::push_text(out, "conductor.dispatch.InvalidWaitingReason");
+            json::member(out, "payload");
+            encode_error_conductor_dispatch_invalid_waiting_reason(error, out);
+            out.push('}');
+        }
+        crate::dispatch::RecordDispatchWaitingOutcome::NoSuchDispatch { error } => {
+            json::member(out, "outcome");
+            json::push_text(out, "no-such-dispatch");
+            json::member(out, "published");
+            out.push('[');
+            out.push(']');
+            json::member(out, "refusal");
+            out.push('{');
+            json::member(out, "error");
+            json::push_text(out, "conductor.dispatch.DispatchNotFound");
+            json::member(out, "payload");
+            encode_error_conductor_dispatch_dispatch_not_found(error, out);
+            out.push('}');
+        }
+        crate::dispatch::RecordDispatchWaitingOutcome::Unchanged => {
+            json::member(out, "outcome");
+            json::push_text(out, "unchanged");
+            json::member(out, "published");
+            out.push('[');
+            out.push(']');
+        }
+        crate::dispatch::RecordDispatchWaitingOutcome::Cleared { dispatch_waiting_recorded } => {
+            json::member(out, "outcome");
+            json::push_text(out, "cleared");
+            json::member(out, "published");
+            out.push('[');
+            out.push('{');
+            json::member(out, "event");
+            json::push_text(out, "conductor.dispatch.DispatchWaitingRecorded");
+            json::member(out, "payload");
+            encode_event_conductor_dispatch_dispatch_waiting_recorded(dispatch_waiting_recorded, out);
+            out.push('}');
+            out.push(']');
+        }
+        crate::dispatch::RecordDispatchWaitingOutcome::Waiting { dispatch_waiting_recorded } => {
+            json::member(out, "outcome");
+            json::push_text(out, "waiting");
+            json::member(out, "published");
+            out.push('[');
+            out.push('{');
+            json::member(out, "event");
+            json::push_text(out, "conductor.dispatch.DispatchWaitingRecorded");
+            json::member(out, "payload");
+            encode_event_conductor_dispatch_dispatch_waiting_recorded(dispatch_waiting_recorded, out);
             out.push('}');
             out.push(']');
         }
