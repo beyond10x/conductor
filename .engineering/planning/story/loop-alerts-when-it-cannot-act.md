@@ -2,7 +2,7 @@
 format: aep.planning-md/3
 id: story:loop-alerts-when-it-cannot-act
 kind: story
-status: active
+status: implemented
 title: The loop alerts the operator once when it cannot act
 summary: One alert route (crate::alert, an alert line, the operator's notifier), deduplicated by condition and subject; first condition a unit left to the operator
 refs:
@@ -31,10 +31,11 @@ scope:
   path: spec/domains/dispatch.yaml
 - confidence: inferred
   path: website/docs/reference
-revision: 7
+revision: 8
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-19T19:24:57Z", actor: "human:unknown", revision: 6}
 - {from: "proposed", to: "active", at: "2026-11-19T19:24:57Z", actor: "human:unknown", revision: 7}
+- {from: "active", to: "implemented", at: "2026-11-19T23:23:19Z", actor: "human:unknown", revision: 8, decided_on: {"recorded":{"test_result":1}}}
 ---
 ## Why
 

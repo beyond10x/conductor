@@ -501,3 +501,9 @@ filesystem at `disk_path`, and a boxed instance with no director session); neith
 doctor, and its verdict and exit are unchanged. `SETUP.md`, `conductor setup`, the install path and
 the prerequisites are unchanged. The two runs of this record need a GitHub and a self-hosted GitLab
 scratch origin, which the release host does not have; they are made again when those are provided.
+
+## v1.18.0
+
+No onboarding run is due: 1.18.0 changes nothing onboarding runs. `SETUP.md`, `conductor setup`,
+`conductor doctor`, the install path and the prerequisites are as in 1.17.0; the release adds the
+loop's alerts and the held `done` of a resumed controller, with `dispatch reopen-dispatch`.
