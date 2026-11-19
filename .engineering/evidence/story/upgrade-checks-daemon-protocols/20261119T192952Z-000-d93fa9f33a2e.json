@@ -1,0 +1,12 @@
+{
+  "at": "2026-11-19T19:29:52Z",
+  "actor": "human:unknown",
+  "artifact": "story:upgrade-checks-daemon-protocols",
+  "kind": "story",
+  "revision": 4,
+  "change": {
+    "change": "evidence",
+    "kind": "test_result",
+    "source": "cargo test -p conductor-cli --test instance_upgrade (15 ok) --test box_upgrade (5 ok) --test daemon_version (3 ok); new box_upgrade tests failed first on main; api_parity, token_pool, daemon_probes need CI (AF_UNIX)"
+  }
+}

@@ -33,7 +33,9 @@
 //! `controllers.max_open_reviews` pull requests waiting for review in the newest complete snapshot
 //! (as the board counts them, [`crate::status::waiting_in`]) waits. One `cycle` line names what
 //! each step did: `snapshot ok`, `board ok`, `records check ok` or how each ended, then `spawned
-//! <repos>` (or `spawned none`) and each repository that waits, with why.
+//! <repos>` (or `spawned none`) and each repository that waits, with why; the same words, with
+//! the tick's id, go to standard error, the runtime's log. A stopped mark with no reset ahead
+//! keeps no repository waiting ([`waiting_at_limit`]).
 //!
 //! **Daily.** `metric compute --day <the previous UTC day>`, then `status`, and the brief
 //! `<records>/REPORT.md`: the day, each reading that misses its target, each reading that could not
@@ -102,7 +104,11 @@ pub fn cycle_tick(
         }
     }
     let mut line = tick.line(DispatchLogEvent::Cycle, "-")?;
-    line.line = Some(parts.join("; "));
+    let said = parts.join("; ");
+    // Issue #219: also on standard error, the runtime's log or the unit's journal, so a cycle
+    // that spawns nothing is seen where the runtime's other lines are.
+    eprintln!("conductor run: cycle {}: {said}", tick.id);
+    line.line = Some(said);
     tick.write(&line)?;
     tick.finish()
 }
@@ -266,20 +272,56 @@ fn lives_or_waits(listed: &[Value], session: &str) -> bool {
 }
 
 /// The repositories whose controller the cycle recorded stopped at a usage limit, waiting to be
-/// resumed at their reset ([`reconcile`]), each with that reset.
+/// resumed at their reset ([`reconcile`]), each with that reset. A stopped mark with no reset that
+/// reads, or whose reset passed [`crate::token::LIMIT_WINDOW`] ago with nothing resumed, waits no
+/// more: it is taken out of [`handlers::LIMITED`], and its repository is started as any other in
+/// this cycle (issue #219, [`waiting_in`]).
 fn waiting_at_limit(tick: &Tick<'_, '_>) -> Vec<(String, String)> {
-    super::read_json(&tick.dir, handlers::LIMITED, json!({}))
-        .as_object()
-        .into_iter()
-        .flatten()
-        .filter(|(_, entry)| entry["stopped"] == true)
-        .filter_map(|(_, entry)| {
-            Some((
-                entry["repo"].as_str()?.to_owned(),
-                entry["resets_at"].as_str().unwrap_or("-").to_owned(),
-            ))
-        })
-        .collect()
+    let mut limited = super::read_json(&tick.dir, handlers::LIMITED, json!({}));
+    let (waiting, expired) = waiting_in(&limited, OffsetDateTime::now_utc());
+    if !expired.is_empty()
+        && let Some(marks) = limited.as_object_mut()
+    {
+        for session in &expired {
+            marks.remove(session);
+        }
+        if let Err(error) = super::write_json(&tick.dir, handlers::LIMITED, &limited) {
+            tick.note(handlers::LIMITED, &error);
+        }
+        tick.note(
+            handlers::LIMITED,
+            &anyhow::anyhow!(
+                "a stopped mark with no reset ahead waits no more: {}",
+                expired.join(", ")
+            ),
+        );
+    }
+    waiting
+}
+
+/// Of the marks `limited` holds ([`handlers::LIMITED`]) at `now`: the repositories whose stopped
+/// controller waits for its reset, each with it, and the sessions whose stopped mark waits no
+/// more: no reset that reads, or one more than [`crate::token::LIMIT_WINDOW`] past.
+fn waiting_in(limited: &Value, now: OffsetDateTime) -> (Vec<(String, String)>, Vec<String>) {
+    let mut waiting = Vec::new();
+    let mut expired = Vec::new();
+    for (session, entry) in limited.as_object().into_iter().flatten() {
+        if entry["stopped"] != true {
+            continue;
+        }
+        let reset = entry["resets_at"].as_str().and_then(|at| {
+            OffsetDateTime::parse(at, &Rfc3339)
+                .ok()
+                .map(|parsed| (at, parsed))
+        });
+        match (entry["repo"].as_str(), reset) {
+            (Some(repo), Some((at, parsed))) if parsed + crate::token::LIMIT_WINDOW > now => {
+                waiting.push((repo.to_owned(), at.to_owned()));
+            }
+            _ => expired.push(session.clone()),
+        }
+    }
+    (waiting, expired)
 }
 
 /// Dispatch v1, as the module documentation says; what it did, as the `cycle` line says it.
@@ -501,4 +543,33 @@ pub fn daily_tick(
         tick.write(&line)?;
     }
     tick.finish()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Issue #219: a mark recorded stopped with no reset kept its repository waiting "until -"
+    /// for ever; it waits no more, nor does one whose reset passed a whole limit window ago.
+    #[test]
+    fn a_stopped_mark_with_no_reset_ahead_waits_no_more() {
+        let now = OffsetDateTime::parse("2026-11-19T15:00:00Z", &Rfc3339).expect("now");
+        let limited = json!({
+            "ex-alpha": {"repo": "alpha", "stopped": true},
+            "ex-beta": {"repo": "beta", "stopped": true, "resets_at": "2026-11-19T17:00:00Z"},
+            "ex-gamma": {"repo": "gamma", "stopped": true, "resets_at": "2026-11-19T14:00:00Z"},
+            "ex-delta": {"repo": "delta", "stopped": true, "resets_at": "2026-11-19T08:00:00Z"},
+            "ex-eps": {"repo": "eps", "resets_at": "2026-11-19T17:00:00Z"},
+            "ex-zeta": {"repo": "zeta", "stopped": true, "resets_at": "soon"},
+        });
+        let (waiting, expired) = waiting_in(&limited, now);
+        assert_eq!(
+            waiting,
+            [
+                ("beta".to_owned(), "2026-11-19T17:00:00Z".to_owned()),
+                ("gamma".to_owned(), "2026-11-19T14:00:00Z".to_owned()),
+            ]
+        );
+        assert_eq!(expired, ["ex-alpha", "ex-delta", "ex-zeta"]);
+    }
 }

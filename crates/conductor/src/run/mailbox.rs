@@ -81,10 +81,16 @@ fn read_all(tick: &mut Tick<'_, '_>) -> Result<()> {
         .lines()
         .map(str::to_owned)
         .collect();
-    let mut now_handled = Vec::new();
+    // Issue #219: every name handled before is kept whole each time the file is written, not
+    // only those that sort before the file handled now, so none is acted on again after a
+    // restart or an upgrade.
+    let mut now_handled: BTreeSet<String> = names
+        .iter()
+        .filter(|name| handled.contains(*name))
+        .cloned()
+        .collect();
     for name in &names {
         if handled.contains(name) {
-            now_handled.push(name.clone());
             continue;
         }
         let file = dir.join(name);
@@ -98,7 +104,7 @@ fn read_all(tick: &mut Tick<'_, '_>) -> Result<()> {
                 }
             }
         }
-        now_handled.push(name.clone());
+        now_handled.insert(name.clone());
         let text: String = now_handled.iter().map(|name| format!("{name}\n")).collect();
         write_file(&handled_file, &text)?;
     }

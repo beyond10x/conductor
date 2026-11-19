@@ -1,0 +1,12 @@
+{
+  "at": "2026-11-19T19:29:53Z",
+  "actor": "human:unknown",
+  "artifact": "story:limit-mark-expires-mailbox-kept",
+  "kind": "story",
+  "revision": 4,
+  "change": {
+    "change": "evidence",
+    "kind": "test_result",
+    "source": "cargo test -p conductor-cli --lib (155 ok, incl. a_stopped_mark_with_no_reset_ahead_waits_no_more) --test run the_mailbox_keeps_every_handled_name (ok, failed first on main); run.rs spawn-based cases need CI (box start)"
+  }
+}

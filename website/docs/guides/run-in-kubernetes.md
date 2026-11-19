@@ -407,7 +407,7 @@ What each call answered on a cluster:
 
 | call | status | body |
 |---|---|---|
-| `GET /v1/version` | `200` | `[{"config":"conductor.config/2","version":"<version>"}]`, one row, also before the first pass published |
+| `GET /v1/version` | `200` | `[{"config":"conductor.config/2","protocols":["CONDUCTOR-DIAL/1","CONDUCTOR-POOL/1"],"version":"<version>"}]`, one row, also before the first pass published |
 | `GET /v1/instances` | `200` | a list of rows, `[]` before the first add |
 | `POST /v1/instances` | `201` | `{"actor":"control-plane","commit":"","name":"alpha","revision":"<id>"}` |
 | `GET /v1/instances/alpha` | `200` | one row, below |

@@ -84,6 +84,13 @@ entities:
       # The config format the binary reads: `conductor.config/2`.
       - name: config
         type: String
+      # The protocols between an instance runtime and the daemon this binary serves
+      # (`story:upgrade-checks-daemon-protocols`), each the first word of the line a runtime
+      # opens a connection with: `CONDUCTOR-DIAL/1`, `CONDUCTOR-POOL/1`. A runtime that needs
+      # one the daemon does not name is not installed under it (`conductor instance upgrade`
+      # refuses); a daemon older than this field names none.
+      - name: protocols
+        type: List<String>
     lifecycle:
       initial: Built
       states: [Built]
@@ -299,6 +306,8 @@ views:
         type: conductor.store.BinaryVersion
       - name: config
         type: String
+      - name: protocols
+        type: List<String>
     naming:
       wire: version
       display: Version
