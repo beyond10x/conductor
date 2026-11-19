@@ -1,0 +1,13 @@
+{
+  "at": "2026-11-19T23:33:29Z",
+  "actor": "human:unknown",
+  "artifact": "story:need-starts-unit-of-work",
+  "kind": "story",
+  "revision": 8,
+  "change": {
+    "change": "evidence",
+    "kind": "test_result",
+    "source": "cargo test -p conductor-cli --test mailbox: 21 passed; default-charter case failed first on 93a1f5b5; clippy -D warnings clean; ess specify validate valid",
+    "reference": "94e32b85"
+  }
+}

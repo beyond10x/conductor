@@ -260,7 +260,9 @@ types:
   # of work whose start failed at the launch three times, which the cycle tries no more;
   # `box-not-recreated`, written by the daemon into the instance's records, a box the daemon
   # opened anew for an instance whose stored box substrate answered as gone whose start failed
-  # as well (story:failing-start-recreates-box).
+  # as well (story:failing-start-recreates-box); `need-unroutable`, a `[NEED]` whose
+  # `<other-repo>` field names no repository of the instance, its subject `<repo> <request-id>`
+  # (story:need-starts-unit-of-work).
   - name: conductor.dispatch.DispatchLogEvent
     kind: enum
     variants:
@@ -351,9 +353,10 @@ types:
   # - `records-commit-refused`: `reason` (`records check`, `repository`, `commit` or `push`), `line`
   #   (what `records check` printed, or the last line the bot route or git printed) and `commit`
   #   when the commit was made and its push refused;
-  # - `alert`: `condition` (`unit-left-to-operator`, `box-not-recreated`), `reason` (what the
-  #   loop or the daemon cannot do, one line), and `id`, the dispatch, when the subject is one;
-  #   `repo` is the repository, or the instance's name for a condition of the instance.
+  # - `alert`: `condition` (`unit-left-to-operator`, `box-not-recreated`, `need-unroutable`),
+  #   `reason` (what the loop or the daemon cannot do, one line), and `id`, the subject when it is
+  #   no repository: the dispatch, or a need's `<repo> <request-id>`; `repo` is the repository, or
+  #   the instance's name for a condition of the instance.
   # `conductor run --once --commit-records` writes its line with no `tick_id`: it runs no tick.
   - name: conductor.dispatch.DispatchLogLine
     kind: struct
@@ -2157,7 +2160,11 @@ commands:
         summary: The message was already handled or rejected.
 
   # A `[NEED]` from one controller becomes a dispatch to the controller of the repository it names
-  # (design § 3). Conductor sends that dispatch first, then routes the message to it.
+  # (design § 3). Conductor sends that dispatch first, then routes the message to it. The loop's
+  # mailbox does so for a repository with no charter (none, an empty one or the default one), no
+  # running controller and no open dispatch (story:need-starts-unit-of-work): one unit of work
+  # (`WorkRequest`), its brief the need's whole text, its reference `need-<repo>-<request-id>` in
+  # the characters a reference takes, cut to 64.
   - name: conductor.dispatch.RouteNeed
     naming:
       wire: route-need

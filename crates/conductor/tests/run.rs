@@ -2723,20 +2723,21 @@ fn a_mailbox_handover_is_recorded_as_a_report() {
 }
 
 /// A `[NEED]` is delivered to the live controller of the repository it asks; with none it is
-/// kept, and delivered once that repository's controller has started.
+/// kept, and delivered once that repository's controller has started. The repository has a
+/// charter: one with none gets a unit of work instead (story:need-starts-unit-of-work).
 #[test]
 fn a_mailbox_need_waits_for_the_other_repository_s_controller() {
     let case = Case::new("mail-need");
+    write(
+        &case.charter("beta"),
+        "# Charter: beta\n\nExport the store id.\n",
+    );
     let need = "[NEED alpha N-20261017-01] beta export the store id\n\nalpha reads it on start.\n";
     case.mail("0001", need);
     let first = case.tick(&[]);
     assert!(case.deliveries().is_empty(), "beta has no controller");
     assert_eq!(first["lines_handled"], 1);
 
-    write(
-        &case.charter("beta"),
-        "# Charter: beta\n\nExport the store id.\n",
-    );
     case.spawn("beta", FIRST);
     let second = case.tick(&[]);
     assert_eq!(actions(&second), ["relayed"]);
@@ -2751,7 +2752,8 @@ fn a_mailbox_need_waits_for_the_other_repository_s_controller() {
 /// of its form, read as that field's leading run of name characters, so `beta:`, `beta,`, `beta.`
 /// and `e2e-tests:` name `beta` and `e2e-tests`; no word of the text after the field is read as
 /// one (`gamma`). Each is kept under that name while no controller of it runs, and delivered
-/// whole once one does.
+/// whole once one does. Each has a charter: one with none gets a unit of work instead
+/// (story:need-starts-unit-of-work).
 #[test]
 fn a_mailbox_need_names_its_repository_without_trailing_punctuation() {
     let case = Case::new("mail-need-punctuation");
@@ -2759,6 +2761,12 @@ fn a_mailbox_need_names_its_repository_without_trailing_punctuation() {
         &case.checkout("e2e-tests").join(".git/HEAD"),
         "ref: refs/heads/main\n",
     );
+    for repo in ["beta", "e2e-tests"] {
+        write(
+            &case.charter(repo),
+            &format!("# Charter: {repo}\n\nTest it.\n"),
+        );
+    }
     let needs = [
         (
             "0001",
@@ -2794,10 +2802,6 @@ fn a_mailbox_need_names_its_repository_without_trailing_punctuation() {
         .collect();
     assert_eq!(named, needs.map(|(_, _, repo)| repo), "{waiting:?}");
 
-    write(
-        &case.charter("beta"),
-        "# Charter: beta\n\nExport the store id.\n",
-    );
     case.spawn("beta", FIRST);
     let second = case.tick(&[]);
     let delivered: Vec<(String, String)> = needs
@@ -2966,7 +2970,8 @@ fn adv2_a_need_for_conductor_with_a_dot_is_the_supervisor_s_and_punctuation_is_n
 
 /// Adversary 2, wave 51 U1. A repository of the instance really named `conductor` (a checkout
 /// under the checkouts root) takes the `[NEED]` that names it: it is kept for its controller's
-/// next start, and the sender is told nothing.
+/// next start, and the sender is told nothing. It has a charter: one with none gets a unit of
+/// work instead (story:need-starts-unit-of-work).
 #[test]
 fn adv2_a_need_for_a_checkout_named_conductor_is_kept_for_it() {
     let case = Case::new("adv2-mail-need-checkout-conductor");
@@ -2974,6 +2979,10 @@ fn adv2_a_need_for_a_checkout_named_conductor_is_kept_for_it() {
     write(
         &case.checkout("conductor").join(".git/HEAD"),
         "ref: refs/heads/main\n",
+    );
+    write(
+        &case.charter("conductor"),
+        "# Charter: conductor\n\nKeep main green.\n",
     );
     case.mail(
         "0001",

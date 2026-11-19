@@ -536,3 +536,245 @@ fn the_first_line_the_log_holds_of_a_report_is_at_most_300_characters() {
         describe(&output)
     );
 }
+
+// ---------------------------------------------------------------------------------------------
+// The loop's mailbox pass (story:need-starts-unit-of-work)
+// ---------------------------------------------------------------------------------------------
+
+/// The variable that holds a child run's config file: the child runs one watch tick of the loop
+/// over no watch line, which reads the mailbox ([`child`]).
+const CHILD: &str = "CONDUCTOR_TEST_MAILBOX_CHILD";
+
+/// The deliverer of a child run: no controller runs in these cases, so nothing is delivered.
+struct Nobody;
+
+impl conductor_cli::session::Deliverer for Nobody {
+    fn deliver(&self, name: &str, _: &str) -> anyhow::Result<conductor_cli::session::Delivery> {
+        anyhow::bail!("no session {name} runs in this case")
+    }
+}
+
+/// The child run of this test binary ([`Case::tick`]); a plain run of the suite passes at once.
+/// It fixes the case's config file as the process's instance and runs one watch tick, which reads
+/// conductor's mailbox, then exits 0, or names the error and exits 1.
+#[test]
+fn child() {
+    let Some(file) = std::env::var_os(CHILD) else {
+        return;
+    };
+    let file = PathBuf::from(file);
+    conductor_cli::config::set_active(Some(&file)).expect("the case's config loads");
+    let host = conductor_cli::confine::Host;
+    let seams = conductor_cli::run::Seams {
+        providers: &host,
+        deliverer: &Nobody,
+        handle_request: None,
+        program: PathBuf::from(std::env::var_os("CONDUCTOR_TEST_PROGRAM").expect("the binary")),
+        gc: conductor_cli::gc::gc,
+    };
+    match conductor_cli::run::handle_lines(None, None, &[], &seams) {
+        Ok(_) => std::process::exit(0),
+        Err(error) => {
+            eprintln!("conductor: {error:#}");
+            std::process::exit(1);
+        }
+    }
+}
+
+impl Case {
+    /// A checkout of `repo` under the checkouts root, which makes it a repository the instance
+    /// knows.
+    fn checkout(&self, repo: &str) {
+        let git = self.dir.join("home/example-org").join(repo).join(".git");
+        fs::create_dir_all(&git).expect("create a checkout");
+        fs::write(git.join("HEAD"), "ref: refs/heads/main\n").expect("write its HEAD");
+    }
+
+    /// One watch tick of the loop in a child of this test binary ([`child`]).
+    fn tick(&self) {
+        let program = common::conductor(self.dir.join("home"))
+            .get_program()
+            .to_owned();
+        let output = std::process::Command::new(std::env::current_exe().expect("this binary"))
+            .args([
+                "--exact",
+                "child",
+                "--nocapture",
+                "--test-threads",
+                "1",
+                "-q",
+            ])
+            .env("HOME", self.dir.join("home"))
+            .env_remove("CONDUCTOR_INSTANCE")
+            .env("CONDUCTOR_CONFIG", self.dir.join("conductor.yaml"))
+            .env(CHILD, self.dir.join("conductor.yaml"))
+            .env("CONDUCTOR_TEST_PROGRAM", program)
+            .current_dir(self.dir.join("records"))
+            .stdin(Stdio::null())
+            .output()
+            .expect("the child runs");
+        assert!(output.status.success(), "the tick: {}", describe(&output));
+    }
+
+    /// The rows of `conductor dispatch dispatches --format json`; none before a store exists.
+    fn dispatches(&self) -> Vec<Value> {
+        let output = self.run(&["dispatch", "dispatches", "--format", "json"], "");
+        if !output.status.success() {
+            return Vec::new();
+        }
+        let rows: Value = serde_json::from_slice(&output.stdout).expect("the view is JSON");
+        rows.as_array().expect("an array of rows").clone()
+    }
+
+    /// What the loop keeps for a controller's next start, `<state>/run/pending.json`.
+    fn kept(&self) -> Vec<Value> {
+        fs::read_to_string(self.state().join("run/pending.json"))
+            .ok()
+            .and_then(|text| serde_json::from_str::<Value>(&text).ok())
+            .and_then(|kept| kept.as_array().cloned())
+            .unwrap_or_default()
+    }
+
+    /// Sends `text` from [`FROM`], which must be taken; the message's id.
+    fn sent(&self, text: &str) -> String {
+        let output = self.send(text, &Text::Stdin);
+        assert!(output.status.success(), "{}", describe(&output));
+        String::from_utf8_lossy(&output.stdout).trim().to_owned()
+    }
+}
+
+/// `story:need-starts-unit-of-work`: a `[NEED]` for a repository the instance knows that has no
+/// charter, no running controller and no open dispatch becomes one unit of work for it: a
+/// dispatch with the reference `need-<repo>-<request-id>` and the need's whole text as its brief.
+/// The message reads `Handled` with that dispatch, nothing is kept for the other repository, and
+/// the requester is told (kept for its next start, as no controller of it runs). Sent again, the
+/// need opens nothing more: its message is routed to the same dispatch.
+#[test]
+fn a_need_to_a_chartless_repository_opens_one_unit_of_work() {
+    let case = Case::new("need-unit");
+    case.checkout("cortex");
+    case.checkout("atlas");
+    let need = "[NEED cortex N-20991231-01] atlas a release with the new parser\n\nIt reads it.\n";
+    let first = case.sent(need);
+    case.tick();
+
+    let dispatches = case.dispatches();
+    assert_eq!(dispatches.len(), 1, "one dispatch: {dispatches:#?}");
+    let dispatch = &dispatches[0];
+    assert_eq!(dispatch["repository"], "atlas", "{dispatch}");
+    assert_eq!(
+        dispatch["reference"], "need-cortex-N-20991231-01",
+        "{dispatch}"
+    );
+    assert_eq!(dispatch["brief"], need, "{dispatch}");
+    let id = dispatch["dispatch_id"].as_str().expect("its id").to_owned();
+
+    let message = |message_id: &str| {
+        case.messages()
+            .into_iter()
+            .find(|row| row["message_id"] == message_id)
+            .expect("the message")
+    };
+    let row = message(&first);
+    assert_eq!(row["state"], "Handled", "{row}");
+    assert_eq!(row["dispatch_id"], id.as_str(), "{row}");
+
+    let kept = case.kept();
+    assert!(
+        kept.iter().all(|item| item["repo"] != "atlas"),
+        "the need is not kept for atlas: {kept:#?}"
+    );
+    let told = format!("[REPORT cortex -] need N-20991231-01 opened {id} for atlas");
+    assert!(
+        kept.iter().any(|item| item["repo"] == "cortex"
+            && item["text"]
+                .as_str()
+                .is_some_and(|text| text.starts_with(&told))),
+        "the requester is told {told:?}: {kept:#?}"
+    );
+
+    let again = case.sent(need);
+    case.tick();
+    assert_eq!(case.dispatches().len(), 1, "sent twice, one dispatch");
+    let row = message(&again);
+    assert_eq!(row["state"], "Handled", "{row}");
+    assert_eq!(row["dispatch_id"], id.as_str(), "{row}");
+}
+
+/// `story:need-starts-unit-of-work`: a `[NEED]` for a repository with a charter, and one whose
+/// `<other-repo>` names the requester itself, keep today's behaviour: kept for the repository's
+/// next start, no dispatch opened.
+#[test]
+fn a_need_to_a_chartered_repository_or_to_its_sender_opens_nothing() {
+    let case = Case::new("need-chartered");
+    case.checkout("cortex");
+    case.checkout("atlas");
+    let charter = case.dir.join("records/charters/atlas.md");
+    fs::create_dir_all(charter.parent().expect("a parent")).expect("create the charters");
+    fs::write(&charter, "# Charter: atlas\n\nKeep main green.\n").expect("write the charter");
+    case.sent("[NEED cortex N-20991231-01] atlas a release with the new parser\n");
+    case.sent("[NEED cortex N-20991231-02] cortex a release of itself\n");
+    case.tick();
+    assert_eq!(case.dispatches(), Vec::<Value>::new(), "no dispatch");
+    let kept: Vec<String> = case
+        .kept()
+        .iter()
+        .filter_map(|item| item["repo"].as_str().map(str::to_owned))
+        .collect();
+    assert_eq!(kept, ["atlas", "cortex"], "each need is kept as before");
+}
+
+/// `story:need-starts-unit-of-work`: a `[NEED]` whose `<other-repo>` names no repository of the
+/// instance raises one alert, `need-unroutable`, its subject `<repo> <request-id>`; the next tick
+/// raises none again.
+#[test]
+fn a_need_naming_no_repository_raises_one_alert() {
+    let case = Case::new("need-unroutable");
+    case.checkout("cortex");
+    case.sent("[NEED cortex N-20991231-01] delta export the store id\n");
+    case.tick();
+    case.tick();
+    let alerts: Vec<Value> = case
+        .dispatch_lines()
+        .into_iter()
+        .filter(|line| line["event"] == "alert")
+        .collect();
+    assert_eq!(alerts.len(), 1, "one alert line: {alerts:#?}");
+    assert_eq!(alerts[0]["condition"], "need-unroutable", "{}", alerts[0]);
+    assert_eq!(alerts[0]["repo"], "cortex", "{}", alerts[0]);
+    assert_eq!(alerts[0]["id"], "cortex N-20991231-01", "{}", alerts[0]);
+    assert_eq!(case.dispatches(), Vec::<Value>::new(), "no dispatch");
+}
+
+/// `story:need-starts-unit-of-work`: a repository whose charter is the default one
+/// ([`conductor_cli::spawn::is_default_charter`]) gets a controller only for a dispatch, as one
+/// with no charter does, so a `[NEED]` for it opens one unit of work too.
+#[test]
+fn a_need_to_a_repository_on_the_default_charter_opens_one_unit_of_work() {
+    let case = Case::new("need-default-charter");
+    case.checkout("cortex");
+    case.checkout("atlas");
+    let charter = case.dir.join("records/charters/atlas.md");
+    fs::create_dir_all(charter.parent().expect("a parent")).expect("create the charters");
+    fs::write(&charter, conductor_cli::spawn::DEFAULT_CHARTER).expect("write the charter");
+    let first = case.sent("[NEED cortex N-20991231-01] atlas a release with the new parser\n");
+    case.tick();
+    let dispatches = case.dispatches();
+    assert_eq!(dispatches.len(), 1, "one dispatch: {dispatches:#?}");
+    assert_eq!(dispatches[0]["repository"], "atlas", "{}", dispatches[0]);
+    assert_eq!(
+        dispatches[0]["reference"], "need-cortex-N-20991231-01",
+        "{}",
+        dispatches[0]
+    );
+    let row = case
+        .messages()
+        .into_iter()
+        .find(|row| row["message_id"] == first.as_str())
+        .expect("the message");
+    assert_eq!(row["state"], "Handled", "{row}");
+    assert!(
+        case.kept().iter().all(|item| item["repo"] != "atlas"),
+        "nothing is kept for atlas"
+    );
+}

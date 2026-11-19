@@ -17,7 +17,7 @@
 //! | `[REPORT <repo> <dispatch-id>] withdrawn <why>` | the controller withdraws its own `done`: a `Done` dispatch whose `done` this mailbox took after the last cycle started ([`TAKEN`]) is reopened by the loop (`dispatch reopen-dispatch`, `reopened`); an older one is refused, the answer naming `dispatch reopen-dispatch`, the operator's; on an open dispatch it moves nothing ([`withdrawn`]) |
 //! | `[REPORT <repo> <dispatch-id\|->] review <url> [<words>]` | the controller's pull request ([`review`]): a `Sent` dispatch is reported `started`, another moves nothing, as `progress`; the URL, the first word after the verb, is then recorded on the dispatch as `dispatch record-link` records it. A first word that is no link a dispatch takes, or none, is a `progress` report with nothing linked, and a dispatch that holds the most links takes the report without it: neither is refused, and the journal names it in one line. No other verb records a link |
 //! | `[HANDOVER <repo>] <rest>` | recorded as a report: the repository's open dispatch is reported blocked, `handover: <rest>` |
-//! | `[NEED <repo> <request-id>] <other-repo> <what>` | the whole message delivered to the running controller of `<other-repo>` (`relayed`), else kept for its next start; the repository is the field's leading run of name characters (`docs:` names `docs`). A field that names no repository the instance knows is not relayed and nothing is kept for it: the file stays in the mailbox, where the supervisor reads it, and the sender is told so in one message, `[REPORT <repo> -] not relayed: <reason>`; one that names the mailbox's own recipient, `conductor`, is the supervisor's and is answered by no one (`story:need-repository-from-tag`) |
+//! | `[NEED <repo> <request-id>] <other-repo> <what>` | the whole message delivered to the running controller of `<other-repo>` (`relayed`), else kept for its next start; the repository is the field's leading run of name characters (`docs:` names `docs`). A repository other than `<repo>` with no charter (none, an empty one or the default one), no running controller and no open dispatch gets a unit of work instead ([`unit`], `story:need-starts-unit-of-work`): one dispatch, `need-<repo>-<request-id>` its reference and the whole message its brief, which the message is routed to (`message route-need`) and the cycle starts; the same need again answers that dispatch, and `<repo>`'s controller is told `[REPORT <repo> -] need <request-id> opened <dispatch-id> for <other-repo>`. A field that names no repository the instance knows is not relayed and nothing is kept for it: the file stays in the mailbox, where the supervisor reads it, the sender is told so in one message, `[REPORT <repo> -] not relayed: <reason>`, and one alert `need-unroutable` is raised ([`crate::alert`]); one that names the mailbox's own recipient, `conductor`, is the supervisor's and is answered by no one (`story:need-repository-from-tag`) |
 //! | `[DECISION-REQUEST <repo> <request-id>] <question>` | handed whole to `decide::handle_request` ([`super::handle_request`]), which raises it with the rule that classified it, answers and records class C and escalates class O and H; a decided request's `[DECISION]` is delivered to the controller that raised it (`decision-sent`), else kept for its next start. With no decider seam ([`super::HandleRequest`]), raised (`decision raise-decision-request`) and escalated as class O, one of the options its body lists (`A) <label>: <cost>`), its `Recommendation:` line's letter recommended and the default, the deadline 48 hours out |
 //! | `[RESOURCE <repo>] <kind> <amount>` | answered "use conductor build run" to the repository's running controller (`relayed`), else kept for its next start |
 //!
@@ -32,8 +32,9 @@ use std::path::Path;
 use anyhow::{Context as _, Result, anyhow, bail};
 use conductor_model::behaviour::{DispatchStorage, MessageStorage};
 use conductor_model::dispatch::{
-    DispatchId, DispatchLogEvent, DispatchState, MessageKind, MessageState,
+    DispatchId, DispatchLogEvent, DispatchState, MessageKind, MessageState, WorkRequest,
 };
+use conductor_model::observation::RepositoryName;
 use serde_json::{Value, json};
 use time::OffsetDateTime;
 use time::format_description::well_known::Rfc3339;
@@ -42,9 +43,9 @@ use super::handlers::deliver_or_keep;
 use super::{Tick, one_line, write_file};
 use crate::cli::{
     EscalateRequestArgs, HandleMessageArgs, RaiseDecisionRequestArgs, ReportBlockedArgs,
-    ReportDoneArgs, ReportFailedArgs, ReportStartedArgs, ReportUnblockedArgs,
+    ReportDoneArgs, ReportFailedArgs, ReportStartedArgs, ReportUnblockedArgs, RouteNeedArgs,
 };
-use crate::dispatch::{Linking, Open, Reopening};
+use crate::dispatch::{Linking, Open, Reopening, Sent};
 
 /// The files handled, one name per line, in `<state>/run/`.
 const HANDLED: &str = "mailbox.handled";
@@ -144,7 +145,7 @@ fn act(tick: &mut Tick<'_, '_>, file: &Path) -> Result<bool> {
             let dispatch = open_dispatch(tick, repo)?;
             report(tick, repo, &dispatch, &format!("blocked handover: {rest}"))?.0
         }
-        ["NEED", _repo, _request] => need(tick, &text, first, rest)?,
+        ["NEED", repo, request] => need(tick, file, &text, first, rest, repo, request)?,
         ["DECISION-REQUEST", repo, request] => decision_request(tick, repo, request, rest, &text)?,
         ["RESOURCE", repo] => resource(tick, repo, first)?,
         _ => false,
@@ -674,20 +675,183 @@ fn held_of(tick: &Tick<'_, '_>, id: &str) -> Result<Option<(DispatchState, Strin
 /// repository the instance knows is not relayed and nothing is kept for it: the file stays in
 /// the mailbox, where the supervisor reads it. The sender is told so ([`NotRelayed`]), but for a
 /// field that names the mailbox's own recipient ([`RECIPIENT`]), a need for the supervisor that
-/// is answered by no one here (`story:need-repository-from-tag`).
-fn need(tick: &mut Tick<'_, '_>, text: &str, first: &str, rest: &str) -> Result<bool> {
+/// is answered by no one here (`story:need-repository-from-tag`), and raises one alert
+/// `need-unroutable` ([`unroutable`]).
+///
+/// A need of `repo` for another repository that can only start for a unit of work becomes one
+/// ([`unit`], `story:need-starts-unit-of-work`): its message, the file `file`, is routed to that
+/// dispatch, and `repo`'s controller is told so, delivered or kept for its next start.
+fn need(
+    tick: &mut Tick<'_, '_>,
+    file: &Path,
+    text: &str,
+    first: &str,
+    rest: &str,
+    repo: &str,
+    request: &str,
+) -> Result<bool> {
     let field = rest
         .split_whitespace()
         .next()
         .ok_or_else(|| anyhow!("the need names no repository"))?;
-    let Some(other) = other_repository(tick, field)? else {
-        return Ok(false);
+    let other = match other_repository(tick, field) {
+        Ok(Some(other)) => other,
+        Ok(None) => return Ok(false),
+        Err(error) => {
+            if error.is::<NotRelayed>() {
+                unroutable(tick, repo, request, &error);
+            }
+            return Err(error);
+        }
     };
+    // A need that names its own repository is no work for another: it waits for its own
+    // controller, as before.
+    if other != repo
+        && let Some(id) = unit(tick, &other, repo, request, text)?
+    {
+        route(tick, file, &id)?;
+        deliver_or_keep(
+            tick,
+            json!({
+                "repo": repo,
+                "text": format!("[REPORT {repo} -] need {request} opened {id} for {other}\n"),
+                "event": "relayed",
+                "line": first,
+            }),
+        )?;
+        return Ok(true);
+    }
     deliver_or_keep(
         tick,
         json!({"repo": other, "text": text, "event": "relayed", "line": first}),
     )?;
     Ok(true)
+}
+
+/// The condition of a `[NEED]` whose `<other-repo>` names no repository of the instance.
+const NEED_UNROUTABLE: &str = crate::alert::NEED_UNROUTABLE;
+
+/// The reference of the unit of work the need `request` of `repo` opens: `need-<repo>-<request>`,
+/// every character a reference does not take (`A-Z a-z 0-9 . _ -`) written `-`, cut to 64.
+fn need_reference(repo: &str, request: &str) -> String {
+    format!("need-{repo}-{request}")
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-') {
+                c
+            } else {
+                '-'
+            }
+        })
+        .take(64)
+        .collect()
+}
+
+/// The dispatch the need `request` of `repo`, whose whole message is `text`, is a unit of work
+/// for in `other`, if it is one: the dispatch that already holds its reference, or one sent now
+/// through [`crate::dispatch::send_work`] while `other` has no charter of its own ([`chartered`]),
+/// no running controller and no open dispatch. `None` otherwise, and when the send is refused (named on standard error):
+/// the need is then relayed as before.
+///
+/// # Errors
+///
+/// The store does not open, or the send fails.
+fn unit(
+    tick: &mut Tick<'_, '_>,
+    other: &str,
+    repo: &str,
+    request: &str,
+    text: &str,
+) -> Result<Option<String>> {
+    let reference = need_reference(repo, request);
+    let held = crate::dispatch::held_by(tick.state, &reference)?;
+    if held.is_none()
+        && (chartered(&tick.charter(other))
+            || tick.running(other)?.is_some()
+            || crate::dispatch::open_of(tick.state, other)? != Open::None)
+    {
+        return Ok(None);
+    }
+    let work = WorkRequest {
+        repository: RepositoryName(other.to_owned()),
+        brief: text.to_owned(),
+        reference,
+        start_ref: None,
+        issue: None,
+    };
+    match crate::dispatch::send_work(tick.state, &work, crate::actor::chosen())? {
+        Sent::Created(id) => {
+            tick.wrote(DispatchLogEvent::Sent);
+            Ok(Some(id))
+        }
+        Sent::Held(id) => Ok(Some(id)),
+        Sent::Refused { error, detail, .. } => {
+            tick.note(
+                &format!("mailbox: need {request} of {repo}"),
+                &anyhow!("no unit of work for {other}: {error}: {detail}; relayed as before"),
+            );
+            Ok(None)
+        }
+    }
+}
+
+/// Whether the charter `file` is one of the operator's: there, not empty, and not the default
+/// charter ([`crate::spawn::is_default_charter`]), on which a repository gets a controller only
+/// for a dispatch, as one with no charter does.
+fn chartered(file: &Path) -> bool {
+    fs::read_to_string(file).is_ok_and(|text| !text.trim().is_empty())
+        && !crate::spawn::is_default_charter(file)
+}
+
+/// Routes the `[NEED]` message the store recorded with `file` as its body, while it is
+/// `Received`, to the dispatch `id` (`message route-need`): it reads `Handled` with that dispatch.
+/// A file the store recorded no message for routes nothing.
+///
+/// # Errors
+///
+/// The store does not open, or the route is refused.
+fn route(tick: &Tick<'_, '_>, file: &Path, id: &str) -> Result<()> {
+    let dir = crate::state::dir(tick.state)?;
+    let store = crate::state::open(tick.state)?;
+    let path = file.display().to_string();
+    let message = MessageStorage::list(&store).into_iter().find(|held| {
+        held.data
+            .body_path
+            .as_deref()
+            .is_some_and(|body| body == path || dir.join(body) == file)
+            && held.state == MessageState::Received
+            && held.data.kind == MessageKind::Need
+    });
+    drop(store);
+    if let Some(message) = message {
+        let _ = crate::message::route_need(
+            tick.state,
+            RouteNeedArgs {
+                actor: None,
+                message_id: Some(message.data.message_id.0.0),
+                dispatch_id: Some(id.to_owned()),
+                input_json: None,
+            },
+        )
+        .with_context(|| format!("route the need of {} to {id}", one_line(&path)))?;
+    }
+    Ok(())
+}
+
+/// Raises one alert `need-unroutable` for the need `request` of `repo`, its subject `<repo>
+/// <request>`, saying `error`; a failure to raise it is named on standard error.
+fn unroutable(tick: &mut Tick<'_, '_>, repo: &str, request: &str, error: &anyhow::Error) {
+    let dir = tick.dir.clone();
+    let instance = &tick.instance().name.0;
+    let subject = format!("{repo} {request}");
+    let raised = crate::alert::line(NEED_UNROUTABLE, repo, Some(&subject), &format!("{error:#}"))
+        .and_then(|mut line| {
+            line.tick_id = Some(tick.id.clone());
+            crate::alert::raise(&dir, instance, &line, |line| tick.write(line))
+        });
+    if let Err(error) = raised {
+        tick.note("alert", &error);
+    }
 }
 
 /// Why a `[NEED]` was not relayed: the word its `<other-repo>` field names is no repository of
