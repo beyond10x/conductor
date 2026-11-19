@@ -22,7 +22,7 @@ scope:
   path: crates/conductor/tests/run.rs
 - confidence: cited
   path: spec/domains/dispatch.yaml
-revision: 7
+revision: 8
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-19T19:25:00Z", actor: "human:unknown", revision: 5}
 - {from: "proposed", to: "active", at: "2026-11-19T19:25:00Z", actor: "human:unknown", revision: 6}
@@ -55,14 +55,18 @@ the instance raises one alert.
   reference.
 - The requesting controller is told `[REPORT <repo> -] need <request-id> opened <dispatch-id> for
   <other-repo>`, delivered or kept as `deliver_or_keep` does.
-- A NEED for a repository with a charter, a running controller or an open dispatch keeps today's
-  behaviour.
+- "No charter" means the charter file is missing, empty, or the default charter
+  (`crate::spawn::is_default_charter`): a repository on the default charter also gets a
+  controller only for a dispatch (`Tick::spawn`), so a NEED to it opens the unit too.
+- A NEED for a repository with a charter of its own, a running controller or an open dispatch
+  keeps today's behaviour, as does a NEED whose `<other-repo>` is the requesting repository.
 - A NEED whose field names no repository of the instance (`NotRelayed`, `:482`) raises one alert
   through `crate::alert`, condition `need-unroutable`, subject `<repo> <request-id>`, besides
   today's answer to the sender.
 - Tests in `crates/conductor/tests/mailbox.rs` that fail on main: a NEED to a chartless known
   repository opens a dispatch with that reference and the message reads `Handled`; sent twice it
-  opens one; a NEED naming no repository writes one `alert` line.
+  opens one; a NEED to a repository on the default charter opens one; a NEED naming no
+  repository writes one `alert` line.
 
 ## Boundaries
 

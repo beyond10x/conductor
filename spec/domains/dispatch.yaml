@@ -2158,9 +2158,10 @@ commands:
 
   # A `[NEED]` from one controller becomes a dispatch to the controller of the repository it names
   # (design § 3). Conductor sends that dispatch first, then routes the message to it. The loop's
-  # mailbox does so for a repository with no charter, no running controller and no open dispatch
-  # (story:need-starts-unit-of-work): one unit of work (`WorkRequest`), its brief the need's whole
-  # text, its reference `need-<repo>-<request-id>` in the characters a reference takes, cut to 64.
+  # mailbox does so for a repository with no charter (none, an empty one or the default one), no
+  # running controller and no open dispatch (story:need-starts-unit-of-work): one unit of work
+  # (`WorkRequest`), its brief the need's whole text, its reference `need-<repo>-<request-id>` in
+  # the characters a reference takes, cut to 64.
   - name: conductor.dispatch.RouteNeed
     naming:
       wire: route-need

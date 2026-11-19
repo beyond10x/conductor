@@ -745,3 +745,36 @@ fn a_need_naming_no_repository_raises_one_alert() {
     assert_eq!(alerts[0]["id"], "cortex N-20991231-01", "{}", alerts[0]);
     assert_eq!(case.dispatches(), Vec::<Value>::new(), "no dispatch");
 }
+
+/// `story:need-starts-unit-of-work`: a repository whose charter is the default one
+/// ([`conductor_cli::spawn::is_default_charter`]) gets a controller only for a dispatch, as one
+/// with no charter does, so a `[NEED]` for it opens one unit of work too.
+#[test]
+fn a_need_to_a_repository_on_the_default_charter_opens_one_unit_of_work() {
+    let case = Case::new("need-default-charter");
+    case.checkout("cortex");
+    case.checkout("atlas");
+    let charter = case.dir.join("records/charters/atlas.md");
+    fs::create_dir_all(charter.parent().expect("a parent")).expect("create the charters");
+    fs::write(&charter, conductor_cli::spawn::DEFAULT_CHARTER).expect("write the charter");
+    let first = case.sent("[NEED cortex N-20991231-01] atlas a release with the new parser\n");
+    case.tick();
+    let dispatches = case.dispatches();
+    assert_eq!(dispatches.len(), 1, "one dispatch: {dispatches:#?}");
+    assert_eq!(dispatches[0]["repository"], "atlas", "{}", dispatches[0]);
+    assert_eq!(
+        dispatches[0]["reference"], "need-cortex-N-20991231-01",
+        "{}",
+        dispatches[0]
+    );
+    let row = case
+        .messages()
+        .into_iter()
+        .find(|row| row["message_id"] == first.as_str())
+        .expect("the message");
+    assert_eq!(row["state"], "Handled", "{row}");
+    assert!(
+        case.kept().iter().all(|item| item["repo"] != "atlas"),
+        "nothing is kept for atlas"
+    );
+}
