@@ -45,6 +45,9 @@
 //! `story:control-plane-work-handler` added the dispatches view's `reference`, `start_ref`, `issue`
 //! and `links` columns, last in each row: `dispatch-dispatches.json` holds them as `null` and `[]`,
 //! which is what this build reads from a dispatch sent without them.
+//! `story:dispatch-waiting-reason` added the dispatches view's `waiting` column after `links`:
+//! `dispatch-dispatches.json` holds it as `null` in every row, which is what this build reads from
+//! a dispatch on which no `RecordDispatchWaiting` was recorded.
 //!
 //! The organization in its repositories' URLs and working directories was then renamed
 //! `example-org`, in the store and in the views. The store is chained by hash, so it was not

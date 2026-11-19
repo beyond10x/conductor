@@ -913,6 +913,13 @@ fn in_a_box_a_subscription_token_the_runtime_holds_reaches_the_harness_in_its_va
         // (`run/handlers.rs`, `token::boxed_subscription_token`).
         let mut command = case.conductor();
         command.env_remove(OAUTH);
+        // The start runs in the box, as the runtime's does: every start of the box names the
+        // harness's state directory in the instance's state directory, which is what tells a
+        // process it runs there (`collect::checkouts::in_box`); a director started outside it is
+        // refused as `OutsideBox` (issue #220).
+        let box_dir = conductor_cli::placement::box_claude_dir(&case.dir.join("state"));
+        fs::create_dir_all(&box_dir).expect("the box's harness directory");
+        command.env(conductor_cli::placement::CLAUDE_CONFIG_VARIABLE, &box_dir);
         if kind == "subscription_token" {
             command.env(OAUTH, MARKER);
         }

@@ -1310,7 +1310,10 @@ fn the_daemons_seeding_skips_pod_run_instances() {
 /// digest, held to `tests/fixtures/k8s/pod-alpha.json`. The pods that carry no token of a forge
 /// of theirs are held to v1.4.0, `GLAB_SEND_TELEMETRY` and the secret volume's `items`, byte for
 /// byte by the three fixtures
-/// `pod-alpha-no-token.json`, `pod-alpha-local.json` and `pod-alpha-git-config.json`.
+/// `pod-alpha-no-token.json`, `pod-alpha-local.json` and `pod-alpha-git-config.json`. Since
+/// wave 59 the rendered file names the director's session `<session_prefix>-director` (issue
+/// #220) and the maintainer's without the prefix (issue #214), so every one of these pods is
+/// replaced once at that upgrade.
 #[test]
 fn the_pod_of_an_instance_under_the_daemons_token_is_the_one_of_v1_4_0_and_gits_variables() {
     let case = Case::new("before-the-key");
@@ -2505,7 +2508,8 @@ fn held_to(case: &Case, made: &pods::Manifests, fixture: &str) -> Option<String>
 /// A pod that git's credential helpers leave as it was (story:pod-git-reaches-forge), each held
 /// byte for byte to the pod the supervisor made before them, written from the supervisor of
 /// `cda5f4f0e` for the same file, and since then with `GLAB_SEND_TELEMETRY` after the git
-/// identity and the secret volume's `items`: a `github` instance's pod that carries no forge token; the pod of an instance with a `local` source only, under a daemon-wide `GH_TOKEN`; and a `github`
+/// identity and the secret volume's `items`, and the session names of wave 59 in the rendered
+/// file (issues #220, #214): a `github` instance's pod that carries no forge token; the pod of an instance with a `local` source only, under a daemon-wide `GH_TOKEN`; and a `github`
 /// instance's pod under a daemon-wide `GH_TOKEN` whose `env` names `GIT_CONFIG_COUNT`, where the
 /// installer owns git's configuration.
 #[test]
@@ -2567,8 +2571,8 @@ fn a_pod_without_a_token_of_its_forge_or_with_gits_config_named_is_the_one_made_
 /// daemon whose `env` names the forge token's secret twice, git's and ssh's configuration
 /// variables, and the installer's git configuration with a proxy, a CA file and a helper, is the
 /// one the supervisor of v1.8.0 made for this file, byte for byte, held to
-/// `tests/fixtures/k8s/pod-alpha-installer-env.json`: what an anonymous pod leaves out stays in
-/// every other pod.
+/// `tests/fixtures/k8s/pod-alpha-installer-env.json` but for the session names of wave 59 in the
+/// rendered file (issues #220, #214): what an anonymous pod leaves out stays in every other pod.
 #[test]
 fn a_pod_without_the_anonymous_member_keeps_every_installer_entry_as_in_v1_8_0() {
     let case = Case::new("installer-env");

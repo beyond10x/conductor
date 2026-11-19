@@ -49,8 +49,8 @@ struct Page {
 const PAGES: [Page; 2] = [
     Page {
         path: "website/docs/guides/start-conductor.md",
-        commands: 29,
-        handled: 3,
+        commands: 31,
+        handled: 4,
         reads: &[
             "controller stop-controller --controller-id <id> --reason <why>",
             "spawn --repository <repo>",
@@ -97,9 +97,10 @@ const DECLARED: [(&str, &[&str]); 23] = [
 ];
 
 /// The value a `<placeholder>` after a flag stands for, where `example` is not one the flag takes.
-const SAMPLES: [(&str, &str); 2] = [
+const SAMPLES: [(&str, &str); 3] = [
     ("--controller-id", "00000000-0000-7000-8000-000000000000"),
     ("--tag", "v1.0.0"),
+    ("--sent-at", "2026-11-09T09:00:00Z"),
 ];
 
 /// The flag every command with input fields takes instead of them.

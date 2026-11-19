@@ -21,6 +21,7 @@
 //! library in a child of this test binary ([`child`]).
 
 mod common;
+mod scratch;
 
 use std::fs;
 use std::os::unix::fs::PermissionsExt as _;
@@ -34,6 +35,8 @@ use conductor_cli::session::{Deliverer, Delivery};
 use serde_json::{Value, json};
 use time::OffsetDateTime;
 use time::format_description::well_known::Rfc3339;
+
+use scratch::Scratch;
 
 /// The variable that holds a child run's instructions, as one JSON object.
 const CHILD: &str = "CONDUCTOR_TEST_RUN_RECORDS_CHILD";
@@ -622,29 +625,27 @@ fn a_daily_tick_s_refused_commit_logs_the_check_s_findings() {
 /// covers is logged with the days that had none and why.
 #[test]
 fn a_skipped_daily_tick_is_logged_with_its_cause() {
-    let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("run-records-daily-missed");
-    let _ = fs::remove_dir_all(&dir);
-    fs::create_dir_all(&dir).expect("create the run directory");
+    let scratch = Scratch::new("run-records-daily-missed");
+    let dir = scratch.path();
     assert_eq!(
-        run::daily_missed(&dir, "2026-11-18", "08:07"),
+        run::daily_missed(dir, "2026-11-18", "08:07"),
         None,
         "no tick yet"
     );
     write(&dir.join("daily.last"), "2026-11-18\n");
     assert_eq!(
-        run::daily_missed(&dir, "2026-11-18", "08:07"),
+        run::daily_missed(dir, "2026-11-18", "08:07"),
         None,
         "yesterday's ran"
     );
     write(&dir.join("daily.last"), "2026-11-16\n");
-    let line = run::daily_missed(&dir, "2026-11-18", "08:07").expect("days were missed");
+    let line = run::daily_missed(dir, "2026-11-18", "08:07").expect("days were missed");
     assert!(
         line.starts_with(
             "conductor run: daily tick 2026-11-18: the last daily tick ended on 2026-11-16;"
         ) && line.contains("did not reach cadence.daily 08:07 UTC"),
         "{line}"
     );
-    let _ = fs::remove_dir_all(&dir);
 }
 
 /// A records directory that is not the top of a git repository of its own is refused, and
