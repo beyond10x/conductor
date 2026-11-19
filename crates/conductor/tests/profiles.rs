@@ -177,11 +177,11 @@ fn the_supervisor_refuses_a_permission_prompt_with_escape() {
 fn the_supervisor_starts_a_boxed_controller_through_a_cycle() {
     let text = profile("supervisor.md");
     for phrase in [
-        "At `placement: none`: `CONDUCTOR_INSTANCE=<name>\n   conductor spawn --repository <repo>`",
-        "At any other, where\n   `spawn` on the host refuses `OutsideBox`: `CONDUCTOR_INSTANCE=<name> \
-         conductor instance cycle`,\n   then check the controller is `Running` in `conductor \
+        "At `placement: none`: `CONDUCTOR_INSTANCE=<name> conductor spawn --repository <repo>`",
+        "At any other, where `spawn` on the host refuses `OutsideBox`: `CONDUCTOR_INSTANCE=<name> \
+         conductor instance cycle`, then check the controller is `Running` in `conductor \
          controller controllers`",
-        "the host's `conductor --version` equal to each\n   instance's `binary_version` in \
+        "the host's `conductor --version` equal to each instance's `binary_version` in \
          `/v1/instances`",
     ] {
         assert!(text.contains(phrase), "supervisor.md: holds {phrase:?}");
