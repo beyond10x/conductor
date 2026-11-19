@@ -1,0 +1,12 @@
+{
+  "at": "2026-11-19T19:16:54Z",
+  "actor": "human:unknown",
+  "artifact": "story:daily-tick-logged",
+  "kind": "story",
+  "revision": 5,
+  "change": {
+    "change": "evidence",
+    "kind": "test_result",
+    "source": "cargo test -p conductor-cli --test run_records: 13 passed at 6115cd6f"
+  }
+}

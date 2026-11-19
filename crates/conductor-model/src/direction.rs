@@ -1,5 +1,5 @@
 // generated from conductor v1
-// contract digest 87114b906e7caa0ed7e4b7971f214d3afd0390d8d014449d58b0c6bb611e9266
+// contract digest 446c14272eda471e83f2d056112185680e3dcc9fe99dea205f60f54332491604
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! Direction — `conductor.direction`.
@@ -308,8 +308,8 @@ pub struct RulesRefused {
 /// RulesRow — `conductor.direction.RulesRow`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RulesRow {
-    /// `item` — `Integer`.
-    pub item: i64,
+    /// `item` — `Optional<Integer>`.
+    pub item: Option<i64>,
     /// `title` — `String`.
     pub title: String,
     /// `section` — `String`.

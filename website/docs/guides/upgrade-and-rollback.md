@@ -58,6 +58,12 @@ instance of the config file in its order, one at a time, and stops at the first 
 0600. With `--daemon <url>` it asks that daemon as your login, with the `upgrade-instances` grant
 ([remote daemon](./remote-daemon.md)).
 
+Before it asks for any upgrade, the command reads `GET /v1/version` and refuses, exit 1, when the
+release's runtime needs a protocol the running daemon does not speak, naming the daemon's version
+and the protocol: a runtime of 1.16.0 or later in a box reaches the host's token pool with
+`CONDUCTOR-POOL/1`, which conductord 1.15.0 and older close unanswered, so every spawn would
+fail. Restart the daemon on the new binary first (step 1), then upgrade its instances.
+
 The daemon takes one running instance through four steps, each recorded as one `Reconciliation`
 of action `Upgrade` in its store:
 
@@ -72,8 +78,9 @@ The instance is then `Upgrading` in `GET /v1/instances` until its runtime answer
 The daemon shows it `Upgrading` before it answers the request, so the command reads the upgrade's
 end from the daemon, not the instance as it ran before.
 
-A runtime in a substrate box is asked about through substrate, not the service manager: it runs,
-and answers, while substrate says its session runs. Its `restart` closes the box and opens a new
+A runtime in a substrate box is asked about through substrate, not the service manager: it runs
+while substrate says its session runs. From 1.17.0 on it answers only once its new start has also
+reached the host's token pool through the daemon, what each of its spawns needs. Its `restart` closes the box and opens a new
 one on the new binary, and a rollback opens one on the previous binary.
 The command waits up to `daemon.upgrade_timeout` and a minute, and prints one line per instance.
 

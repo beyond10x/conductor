@@ -1,5 +1,5 @@
 // generated from conductor v1
-// contract digest 87114b906e7caa0ed7e4b7971f214d3afd0390d8d014449d58b0c6bb611e9266
+// contract digest 446c14272eda471e83f2d056112185680e3dcc9fe99dea205f60f54332491604
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! Store — `conductor.store`.
@@ -66,6 +66,8 @@ pub struct BuildData {
     pub version: BinaryVersion,
     /// `config` — `String`.
     pub config: String,
+    /// `protocols` — `List<String>`.
+    pub protocols: Vec<String>,
 }
 
 /// The states of `conductor.store.Build`, at the type level.
@@ -673,6 +675,8 @@ pub struct Version {
     pub version: BinaryVersion,
     /// `config` — `String`.
     pub config: String,
+    /// `protocols` — `List<String>`.
+    pub protocols: Vec<String>,
 }
 
 /// What this bounded context owes its implementor, and the seams of what is generated.

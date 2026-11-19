@@ -22,9 +22,15 @@ restart or an OOM kill, say), is recorded stopped, and the `cycle` line says why
 counts against `controllers.max_working`. One whose repository has an open dispatch starts again,
 as after `session gone`.
 
-Dispatch v1 runs `conductor spawn`, in name order, for each Active repository with a charter and no
-running or paused controller, while fewer than `controllers.max_working` run. A repository whose charter has
-`merge: human` waits while `controllers.max_open_reviews` of its pull requests wait for review.
+Dispatch v1 runs `conductor spawn` for each Active repository with a charter and no running or
+paused controller, the one that has waited longest for a place first, while fewer than
+`controllers.max_working` run. A repository whose charter has `merge: human` waits while
+`controllers.max_open_reviews` of its pull requests wait for review. A repository is sent a goal it
+serves once: after a `done` dispatch for that goal it gets no other from the loop. When every place
+is taken, the controller of a repository with no open dispatch whose session is idle is stopped
+for the waiting repository, and the `cycle` line names it. Each open dispatch that gets no
+controller carries why (no complete snapshot, Inactive, no charter, `max_working` reached, a
+refused start), shown by `dispatch dispatches` and written once per change as a `waiting` line.
 
 Each tick is recorded (`session run-ticks`). A handler that fails prints `conductor run: <what>:
 <why>` and the tick goes on. A tick that cannot be recorded fails the run. `--once` runs one watch

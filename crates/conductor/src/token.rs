@@ -33,6 +33,10 @@
 //!   ([`on_limit`]), through conductord for a runtime in a box, and answers whether another token
 //!   has headroom now, else the first instant a token of the pool resets ([`first_reset`]): the
 //!   loop resumes the agent at once, or at that instant.
+//! - A runtime in a box probes that route once it starts, until conductord answers
+//!   ([`probe_pool`], call `probe`): conductord keeps the start of each instance that probed
+//!   ([`probed`]), and an upgrade to a release that probes ([`PROBE_SINCE`]) counts as answered
+//!   only once its new start did (`story:upgrade-checks-daemon-protocols`).
 //! - Each lease names the runtime start that took it ([`runtime_tag`]); conductord releases the
 //!   leases of a start that ended once the instance runs on another ([`reap`]).
 //! - `conductor join` and `conductor leave` ([`join`], [`leave`]) are clients of the daemon's
@@ -1047,6 +1051,86 @@ pub fn runtime() -> Option<String> {
             .ok()
             .filter(|tag| !tag.is_empty() && tag.chars().all(|c| c.is_ascii_hexdigit()))
     })
+}
+
+/// The first release whose runtime in a box probes conductord's pool at its start
+/// ([`probe_pool`]); an upgrade to it or a later one is answered only once the new start probed
+/// ([`probed`], `story:upgrade-checks-daemon-protocols`).
+pub const PROBE_SINCE: &str = "1.17.0";
+
+/// How long a runtime waits between two probes of the pool that were not answered.
+const PROBE_EVERY: Duration = Duration::from_secs(5);
+
+/// Each instance whose runtime probed the pool, with the start that did ([`runtime_tag`]): kept
+/// in conductord's memory, which answered the probe.
+static PROBED: Mutex<BTreeMap<String, String>> = Mutex::new(BTreeMap::new());
+
+/// Keeps that the start `runtime` of `instance` reached the pool.
+fn record_probe(instance: &str, runtime: &str) {
+    PROBED
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .insert(instance.to_owned(), runtime.to_owned());
+}
+
+/// The start of `instance` ([`runtime_tag`]) that last probed conductord's pool, if one did.
+#[must_use]
+pub fn probed(instance: &str) -> Option<String> {
+    PROBED
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .get(instance)
+        .cloned()
+}
+
+/// One probe of conductord's pool from this runtime, as `agent`: `None` when this process holds
+/// no dial ([`hold_dial`]); else whether conductord answered it, a lease's route, admission and
+/// pool all reached.
+#[must_use]
+pub fn probe_pool(agent: &str) -> Option<Result<(), String>> {
+    let answer = dial_call(&json!({"call": "probe", "agent": agent}))?;
+    Some(answer.and_then(|answer| {
+        if answer["probed"] == true || answer["empty"] == true {
+            Ok(())
+        } else {
+            Err(answer["error"].as_str().map_or_else(
+                || "the host's token pool: conductord answered no probe".to_owned(),
+                |error| format!("the host's token pool: {error}"),
+            ))
+        }
+    }))
+}
+
+/// Probes conductord's pool on a thread of its own, every [`PROBE_EVERY`] until it answers, as
+/// `agent`; says on standard error, the runtime's log, how the first probe and the one that was
+/// answered went. Nothing when this process holds no dial.
+pub fn keep_probing(agent: String) {
+    if DIAL
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .is_none()
+    {
+        return;
+    }
+    std::thread::spawn(move || {
+        let mut said: Option<String> = None;
+        loop {
+            match probe_pool(&agent) {
+                None => return,
+                Some(Ok(())) => {
+                    eprintln!("conductor instance serve: the host's token pool answers");
+                    return;
+                }
+                Some(Err(error)) => {
+                    if said.as_deref() != Some(error.as_str()) {
+                        eprintln!("conductor instance serve: {error}; probing again");
+                        said = Some(error);
+                    }
+                }
+            }
+            std::thread::sleep(PROBE_EVERY);
+        }
+    });
 }
 
 /// How long a pool call through conductord may take.
@@ -2204,7 +2288,18 @@ pub fn pool_call(daemon: &Daemon<'_>, instance: &str, runtime: &str, request: &[
                 Err(error) => refused(&format!("{error:#}")),
             }
         }
-        _ => refused("the call is none of lease, release, limit"),
+        "probe" => {
+            // story:upgrade-checks-daemon-protocols: the start reached the pool through its
+            // route and admission; the pool's store, when there is one, opens.
+            if let Some(store) = existing_store(daemon.store)
+                && let Err(error) = store.check()
+            {
+                return refused(&format!("{error:#}"));
+            }
+            record_probe(instance, runtime);
+            json!({"probed": true})
+        }
+        _ => refused("the call is none of lease, release, limit, probe"),
     }
 }
 
@@ -2230,15 +2325,19 @@ pub fn serve_pool_call(
 }
 
 /// Reads one pool call from `stream` after its greeting and answers it `{"empty": true}`: the
-/// answer of a conductord that serves no config file, and so holds no pool.
+/// answer of a conductord that serves no config file, and so holds no pool. A probe of the start
+/// `runtime` of `instance` is kept as one ([`probed`]).
 ///
 /// # Errors
 ///
 /// The request cannot be read or the answer written.
-pub fn serve_no_pool(stream: &mut TcpStream) -> Result<()> {
+pub fn serve_no_pool(stream: &mut TcpStream, instance: &str, runtime: &str) -> Result<()> {
     stream.set_read_timeout(Some(DIAL_TIMEOUT))?;
     let mut line = Vec::new();
     BufReader::new((&*stream).take(DIAL_ANSWER_MAX)).read_until(b'\n', &mut line)?;
+    if serde_json::from_slice::<PoolRequest>(&line).is_ok_and(|request| request.call == "probe") {
+        record_probe(instance, runtime);
+    }
     stream.write_all(format!("{}\n", json!({"empty": true})).as_bytes())?;
     stream.flush()?;
     Ok(())

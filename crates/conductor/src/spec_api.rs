@@ -152,6 +152,10 @@ impl StorePorts {
                 data: m::store::BuildData {
                     version: m::store::BinaryVersion(build.version),
                     config: build.config,
+                    protocols: crate::instance::PROTOCOLS
+                        .iter()
+                        .map(|protocol| (*protocol).to_owned())
+                        .collect(),
                 },
             },
         );

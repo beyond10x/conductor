@@ -1178,10 +1178,7 @@ fn the_old_role_names_validate_with_a_note_by_their_path_and_keep_their_session_
         roles,
         [
             (&Value::from("conductor"), &Value::from("one-director")),
-            (
-                &Value::from("conductor-dev"),
-                &Value::from("one-conductor-dev")
-            ),
+            (&Value::from("conductor-dev"), &Value::from("conductor-dev")),
             (&Value::from("controller"), &Value::Null),
         ],
         "{shown:#}"
@@ -1227,7 +1224,7 @@ fn the_new_role_names_validate_without_a_note_and_the_defaults_keep_the_old_ones
     };
     let expected = vec![
         (Value::from("director"), Value::from("one-director")),
-        (Value::from("maintainer"), Value::from("one-maintainer")),
+        (Value::from("maintainer"), Value::from("maintainer")),
         (Value::from("lead"), Value::Null),
     ];
     assert_eq!(names(one), expected, "{shown:#}");
@@ -1257,10 +1254,7 @@ fn the_new_role_names_validate_without_a_note_and_the_defaults_keep_the_old_ones
         names(instance(&shown)),
         vec![
             (Value::from("conductor"), Value::from("one-director")),
-            (
-                Value::from("conductor-dev"),
-                Value::from("one-conductor-dev")
-            ),
+            (Value::from("conductor-dev"), Value::from("conductor-dev")),
             (Value::from("controller"), Value::Null),
         ],
         "{shown:#}"
@@ -2322,7 +2316,7 @@ fn a_session_prefix_is_shown_with_each_role_s_session_name() {
         session_names(&shown),
         [
             ("conductor".to_owned(), Value::from("a-director")),
-            ("conductor-dev".to_owned(), Value::from("a-conductor-dev")),
+            ("conductor-dev".to_owned(), Value::from("conductor-dev")),
             ("controller".to_owned(), Value::Null),
         ],
         "{shown:#}"
@@ -2334,7 +2328,7 @@ fn a_session_prefix_is_shown_with_each_role_s_session_name() {
     for line in [
         "instances[0].session_prefix: a",
         "instances[0].roles[0].session_name: a-director",
-        "instances[0].roles[1].session_name: a-conductor-dev",
+        "instances[0].roles[1].session_name: conductor-dev",
         "instances[0].roles[2].session_name: null",
     ] {
         assert!(
@@ -2349,6 +2343,59 @@ fn a_session_prefix_is_shown_with_each_role_s_session_name() {
     let validated = case.with_file(&written, &["config", "validate"]);
     assert_eq!(validated.status.code(), Some(0), "{}", describe(&validated));
     assert_eq!(case.show(&written, &[]), shown, "the round trip");
+}
+
+/// `story:host-role-session-unprefixed` (issue #214): the maintainer is the host's role, so its
+/// session carries no instance prefix, under the instance's roles and under `host.roles`, which
+/// `task maintainer:start` reads; the name of the release before, `<prefix>-<role>`, still
+/// validates and reads as the role's name, and any other is refused by its path.
+#[test]
+fn the_host_maintainer_s_session_carries_no_instance_prefix() {
+    let case = Case::new("host-maintainer-unprefixed");
+    for (name, role) in [("old", "conductor-dev"), ("new", "maintainer")] {
+        let file = case.write(
+            &format!("{name}.yaml"),
+            &one_instance(&format!(
+                "\x20   roles:\n\
+                 \x20     - {{role: {role}, harness: claude, model: opus}}\n"
+            )),
+        );
+        let shown = case.show(&file, &[]);
+        assert_eq!(shown["host"]["roles"][0]["role"], role, "{shown:#}");
+        assert_eq!(shown["host"]["roles"][0]["session_name"], role, "{shown:#}");
+        assert_eq!(
+            instance(&shown)["roles"][0]["session_name"],
+            role,
+            "{shown:#}"
+        );
+
+        let legacy = case.write(
+            &format!("{name}-legacy.yaml"),
+            &one_instance(&format!(
+                "\x20   roles:\n\
+                 \x20     - {{role: {role}, harness: claude, model: opus, session_name: one-{role}}}\n"
+            )),
+        );
+        let validated = case.with_file(&legacy, &["config", "validate"]);
+        assert_eq!(validated.status.code(), Some(0), "{}", describe(&validated));
+        assert_eq!(
+            case.show(&legacy, &[])["host"]["roles"][0]["session_name"],
+            role
+        );
+
+        let other = case.write(
+            &format!("{name}-other.yaml"),
+            &one_instance(&format!(
+                "\x20   roles:\n\
+                 \x20     - {{role: {role}, harness: claude, model: opus, session_name: two-{role}}}\n"
+            )),
+        );
+        let problems = refused(&case, &other);
+        assert!(
+            problems.contains("instances[0].roles[0].session_name"),
+            "{problems}"
+        );
+    }
 }
 
 /// Without a prefix, today's names: `conductor`, `conductor-dev`, and a controller named after

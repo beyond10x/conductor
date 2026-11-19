@@ -2341,3 +2341,44 @@ fn doctor_names_a_boxed_instance_without_a_director_session() {
         shown(&output)
     );
 }
+
+/// `story:disk-low-fits-disk` (issue #213): an instance whose `thresholds.disk_low` lies above
+/// half the filesystem at its `disk_path` gets one line naming it, the size and the reclaim floor,
+/// reported and not a failure; one whose `disk_low` fits gets none.
+#[test]
+fn doctor_names_a_disk_low_above_half_the_filesystem() {
+    let case = Case::new("disk-low-fits");
+    case.programs_but(&[]);
+    let policy = format!("\x20   gates_policy: {}\n", case.policy().display());
+    let disk = case.dir.display().to_string();
+    let lines_of = |low: u64| {
+        let config = case.config_of(
+            "[{github: example-org}]",
+            &format!(
+                "{policy}\x20   thresholds: {{disk_path: {disk}, disk_low: {low}G, disk_clear: {}G}}\n",
+                low + 10
+            ),
+        );
+        let output = case.doctor_for(&config);
+        let lines: Vec<String> = stdout(&output)
+            .into_iter()
+            .filter(|line| line.starts_with("disk alpha:"))
+            .collect();
+        (output, lines)
+    };
+
+    let (output, lines) = lines_of(1_000_000);
+    assert_eq!(output.status.code(), Some(0), "{}", shown(&output));
+    assert_eq!(lines.len(), 1, "{}", shown(&output));
+    assert!(
+        lines[0].starts_with("disk alpha: thresholds.disk_low 1000000G lies above half of the ")
+            && lines[0].contains(&format!("filesystem at {disk};"))
+            && lines[0].contains("thresholds.disk_admit plus 5G"),
+        "{}",
+        shown(&output)
+    );
+
+    let (output, lines) = lines_of(1);
+    assert_eq!(output.status.code(), Some(0), "{}", shown(&output));
+    assert!(lines.is_empty(), "{}", shown(&output));
+}

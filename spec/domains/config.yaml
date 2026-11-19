@@ -222,8 +222,13 @@ types:
   # chosen: the name the role's session starts under, `<session_prefix>-<role>`, or `<role>` when
   # the instance has no prefix, `<role>` as the file writes it; absent for `lead` (`controller`),
   # whose sessions are named per repository,
-  # `<session_prefix>-<repository>` or `<repository>`. The file may leave it out, and may write
-  # only that value. An instance whose file writes no `roles` has the three roles `director`,
+  # `<session_prefix>-<repository>` or `<repository>`. The maintainer (`maintainer`,
+  # `conductor-dev`) is the host's role, which develops conductor for every instance on it, and
+  # its session is `<role>` with no instance prefix, as a role of `globals.roles` is
+  # (story:host-role-session-unprefixed); `config show` prints it so under the instance's roles
+  # and under `host.roles`, which the start and attach tasks read. The file may leave it out, and
+  # may write only that value, or, for a maintainer, `<session_prefix>-<role>`, the name of the
+  # release before, which reads as `<role>`. An instance whose file writes no `roles` has the three roles `director`,
   # `maintainer` and `lead`, each on `claude` with the model `opus`, written for this release
   # under their old names `conductor`, `conductor-dev` and `controller`, which the start tasks and
   # the watch's context lines select them by; they move to the new names with the tasks
@@ -455,6 +460,13 @@ types:
   # information, `lean_debuginfo` (story:build-run-lean-debuginfo): `CARGO_PROFILE_DEV_DEBUG` and
   # `CARGO_PROFILE_TEST_DEBUG` set to `line-tables-only`, each unless the environment sets it or
   # the workspace manifest sets that profile's `debug`; absent, true.
+  # `disk_low` is a report line, not a floor anything reclaims to: the floor of `conductor host
+  # reclaim`, which the watch's reclaim, `build run` and the supervisor's disk check share, is
+  # `disk_admit` plus a 5G margin (`conductor.host.ReclaimDisk`). A `disk_low` above half the size
+  # of the filesystem at `disk_path` is one free disk is not back over while the host works:
+  # `conductor doctor` prints, for each such instance, one line naming the instance, `disk_low`, the
+  # filesystem's size and `disk_path`, and asking for a lower `disk_low` and `disk_clear`; it is
+  # reported, not a failure (story:disk-low-fits-disk).
   - name: conductor.config.Thresholds
     kind: struct
     fields:

@@ -155,6 +155,7 @@ impl Case {
                         start_ref: None,
                         issue: None,
                         links: Vec::new(),
+                        waiting: None,
                     },
                 },
             );

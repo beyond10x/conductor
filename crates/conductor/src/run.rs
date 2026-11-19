@@ -349,11 +349,25 @@ fn run_locked(
                 }
             })?;
         }
-        if let Some(day) = daily_due(dir, now, &instance.cadence.daily.0) {
+        let daily = &instance.cadence.daily.0;
+        if let Some(day) = daily_due(dir, now, daily) {
+            if let Some(line) = daily_missed(dir, &day, daily) {
+                say(true, &line);
+            }
             // Written once the tick ended, failed or not, so a loop stopped during it runs it
             // again at its next start (`story:daily-tick-runs`).
-            if let Err(error) = dispatch::daily_tick(config_flag, state, &day, seams) {
-                eprintln!("conductor run: daily tick: {error:#}");
+            match dispatch::daily_tick(config_flag, state, &day, seams) {
+                Ok(summary) => say(
+                    false,
+                    &format!(
+                        "conductor run: daily tick {day}: ran, tick {}",
+                        summary.tick_id
+                    ),
+                ),
+                Err(error) => say(
+                    true,
+                    &format!("conductor run: daily tick {day}: not run: {error:#}"),
+                ),
             }
             write_file(&dir.join(DAILY_LAST), &format!("{}\n", today(now)))?;
         }
@@ -603,6 +617,9 @@ pub struct Tick<'s, 'a> {
     pub lines_handled: i64,
     /// The events of the dispatch log lines written while it ran.
     pub actions: Vec<DispatchLogEvent>,
+    /// What [`Tick::make_room`] stopped to give a start its place, as the `cycle` line says it
+    /// (`story:idle-controller-yields-place`).
+    pub yielded: Vec<String>,
 }
 
 impl<'s, 'a> Tick<'s, 'a> {
@@ -627,6 +644,7 @@ impl<'s, 'a> Tick<'s, 'a> {
             started_at: crate::records::now()?,
             lines_handled: 0,
             actions: Vec::new(),
+            yielded: Vec::new(),
         })
     }
 
@@ -803,21 +821,24 @@ impl<'s, 'a> Tick<'s, 'a> {
         let _one = STARTS
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
+        // A repository on the default charter works units of work only: its open dispatch, else
+        // no controller (no goal's dispatch is sent for it).
+        let default = crate::spawn::is_default_charter(&self.charter(repo));
+        let open = if default {
+            let Ok(crate::dispatch::Open::One(id)) = crate::dispatch::open_of(self.state, repo)
+            else {
+                return Ok(Err((None, DEFAULT_CHARTER.to_owned())));
+            };
+            Some(id)
+        } else {
+            None
+        };
+        self.make_room(repo)?;
         if let Some(limit) = at_limit(self.state)? {
             return Ok(Err((None, format!("max_working {limit} reached"))));
         }
-        // A repository on the default charter works units of work only: its open dispatch, else
-        // no controller (no goal's dispatch is sent for it).
-        let dispatch = if crate::spawn::is_default_charter(&self.charter(repo)) {
-            let Ok(crate::dispatch::Open::One(id)) = crate::dispatch::open_of(self.state, repo)
-            else {
-                return Ok(Err((
-                    None,
-                    "the charter is conductor's default: a controller starts only for a dispatch"
-                        .to_owned(),
-                )));
-            };
-            Some(id)
+        let dispatch = if default {
+            open
         } else {
             match self.dispatch_for(repo) {
                 Ok(dispatch) => dispatch,
@@ -921,44 +942,154 @@ impl<'s, 'a> Tick<'s, 'a> {
         Ok(())
     }
 
+    /// Gives a start of `repo`'s controller a place (`story:idle-controller-yields-place`): while
+    /// `controllers.max_working` controllers run, the `Running` controller of another repository
+    /// that has no open dispatch and whose session the session list shows live and `idle`, the one
+    /// started first, is stopped with the reason `no open dispatch; place given to <repo>`, and
+    /// what was stopped is kept in [`Tick::yielded`] for the `cycle` line. A controller with an
+    /// open dispatch, a session busy or not listed live, or a session list that does not read
+    /// keeps its place. Stops one at most, as one start needs one place.
+    ///
+    /// # Errors
+    ///
+    /// The store does not open.
+    pub fn make_room(&mut self, repo: &str) -> Result<()> {
+        if at_limit(self.state)?.is_none() {
+            return Ok(());
+        }
+        let running: Vec<(String, String, String)> = self
+            .controllers()?
+            .into_iter()
+            .filter(|held| held.state == ControllerState::Running && held.data.repository.0 != repo)
+            .map(|held| {
+                (
+                    held.data.controller_id.0.0,
+                    held.data.repository.0,
+                    held.data.session_name.0,
+                )
+            })
+            .collect();
+        if running.is_empty() {
+            return Ok(());
+        }
+        let Ok(listed) = crate::confine::sessions() else {
+            return Ok(());
+        };
+        for (controller, held, session) in running {
+            if !idle_in(&listed, &session) || self.open_dispatch(&held)? {
+                continue;
+            }
+            let reason = format!("no open dispatch; place given to {repo}");
+            match crate::controller::stop_controller(
+                self.state,
+                StopControllerArgs {
+                    actor: None,
+                    controller_id: Some(controller.clone()),
+                    reason: Some(format!("conductor run: {reason}")),
+                    input_json: None,
+                },
+                self.seams.providers,
+            ) {
+                Ok(_) => {
+                    handlers::forget(self, &session);
+                    self.yielded
+                        .push(format!("stopped {held} ({session}): {reason}"));
+                    return Ok(());
+                }
+                Err(error) => {
+                    self.note(&format!("stop the idle controller {controller}"), &error);
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// The open goals `repo` serves (`Serving`, the goal `Confirmed` or `Draft`), a confirmed goal
+    /// before a draft, then by id, each with the id of a `Done` dispatch of `repo` for it, when
+    /// one is (`story:dispatch-v1-once-per-goal`).
+    ///
+    /// # Errors
+    ///
+    /// The store does not open, or a goal, a serving or a dispatch does not read.
+    pub fn served_goals(&self, repo: &str) -> Result<Vec<(String, Option<String>)>> {
+        use conductor_model::behaviour::{GoalServingStorage, GoalStorage};
+        use conductor_model::direction::{GoalServingState, GoalState};
+
+        let store = crate::state::open(self.state)?;
+        let mut goals: Vec<(bool, String)> = GoalServingStorage::list(&store)
+            .into_iter()
+            .filter(|held| {
+                held.state == GoalServingState::Serving && held.data.repository.0 == repo
+            })
+            .filter_map(|held| {
+                let goal = GoalStorage::get(&store, &held.data.goal_id)?;
+                match goal.state {
+                    GoalState::Confirmed => Some((false, goal.data.goal_id.0)),
+                    GoalState::Draft => Some((true, goal.data.goal_id.0)),
+                    GoalState::Met | GoalState::Dropped => None,
+                }
+            })
+            .collect();
+        let dispatches = DispatchStorage::list(&store);
+        store.check().context("read the goals")?;
+        goals.sort();
+        goals.dedup();
+        Ok(goals
+            .into_iter()
+            .map(|(_, goal)| {
+                let done = dispatches
+                    .iter()
+                    .find(|held| {
+                        held.state == DispatchState::Done
+                            && held.data.repository.0 == repo
+                            && held.data.goal_id.as_ref().is_some_and(|id| id.0 == goal)
+                    })
+                    .map(|held| held.data.dispatch_id.0.clone());
+                (goal, done)
+            })
+            .collect())
+    }
+
+    /// Why dispatch v1 starts no controller for `repo` (`story:dispatch-v1-once-per-goal`): it has
+    /// no open dispatch, serves an open goal, and has a `Done` dispatch for every open goal it
+    /// serves: `skips goal <goal>: done in <dispatch>` for the first. None otherwise.
+    ///
+    /// # Errors
+    ///
+    /// The store does not open.
+    pub fn part_done(&self, repo: &str) -> Result<Option<String>> {
+        if self.open_dispatch(repo)? {
+            return Ok(None);
+        }
+        let goals = self.served_goals(repo)?;
+        if goals.is_empty() || goals.iter().any(|(_, done)| done.is_none()) {
+            return Ok(None);
+        }
+        Ok(goals
+            .into_iter()
+            .next()
+            .and_then(|(goal, done)| done.map(|done| format!("skips goal {goal}: done in {done}"))))
+    }
+
     /// The dispatch a controller of `repo` this tick starts works on, which its charter names
     /// (`story:spawn-without-dispatch-reports`): the repository's open dispatch
-    /// ([`crate::dispatch::open_of`]); with none open, one sent now (`sent`) for the goal the
-    /// repository serves, a confirmed goal before a draft, the first by id; with several open, or
-    /// no open goal served, none.
+    /// ([`crate::dispatch::open_of`]); with none open, one sent now (`sent`) for the first goal the
+    /// repository serves ([`Tick::served_goals`]) that it has no `Done` dispatch for
+    /// (`story:dispatch-v1-once-per-goal`); with several open, or no such goal, none.
     ///
     /// # Errors
     ///
     /// The store does not open, or the dispatch is refused.
     fn dispatch_for(&mut self, repo: &str) -> Result<Option<String>> {
-        use conductor_model::behaviour::{GoalServingStorage, GoalStorage};
-        use conductor_model::direction::{GoalServingState, GoalState};
-
         match crate::dispatch::open_of(self.state, repo)? {
             crate::dispatch::Open::One(id) => return Ok(Some(id)),
             crate::dispatch::Open::Several(_) => return Ok(None),
             crate::dispatch::Open::None => {}
         }
-        let goal = {
-            let store = crate::state::open(self.state)?;
-            let mut goals: Vec<(bool, String)> = GoalServingStorage::list(&store)
-                .into_iter()
-                .filter(|held| {
-                    held.state == GoalServingState::Serving && held.data.repository.0 == repo
-                })
-                .filter_map(|held| {
-                    let goal = GoalStorage::get(&store, &held.data.goal_id)?;
-                    match goal.state {
-                        GoalState::Confirmed => Some((false, goal.data.goal_id.0)),
-                        GoalState::Draft => Some((true, goal.data.goal_id.0)),
-                        GoalState::Met | GoalState::Dropped => None,
-                    }
-                })
-                .collect();
-            store.check().context("read the goals")?;
-            goals.sort();
-            goals.into_iter().next().map(|(_, goal)| goal)
-        };
+        let goal = self
+            .served_goals(repo)?
+            .into_iter()
+            .find_map(|(goal, done)| done.is_none().then_some(goal));
         let Some(goal) = goal else {
             return Ok(None);
         };
@@ -1067,6 +1198,23 @@ impl<'s, 'a> Tick<'s, 'a> {
 /// and around the cycle's stop of the controllers whose sessions are gone ([`dispatch`]), so no
 /// start counts a record while it is being stopped.
 static STARTS: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+/// Why a repository on conductor's default charter gets no controller without an open dispatch.
+const DEFAULT_CHARTER: &str =
+    "the charter is conductor's default: a controller starts only for a dispatch";
+
+/// Whether the session list `listed` names the session `session` live (a `pid`) and `idle`: every
+/// live entry of that name, by its `status`, else its `state`, as the harness reports it.
+fn idle_in(listed: &[Value], session: &str) -> bool {
+    let mut live = listed
+        .iter()
+        .filter(|entry| entry["name"].as_str() == Some(session) && !entry["pid"].is_null())
+        .peekable();
+    live.peek().is_some()
+        && live.all(|entry| {
+            entry["status"].as_str().or_else(|| entry["state"].as_str()) == Some("idle")
+        })
+}
 
 /// `controllers.max_working`, when that many controllers of the store under `state` run.
 ///
@@ -1636,9 +1784,7 @@ fn today(now: OffsetDateTime) -> String {
 /// `daily`.
 fn daily_due(dir: &Path, now: OffsetDateTime, daily: &str) -> Option<String> {
     let now = now.to_offset(time::UtcOffset::UTC);
-    let (hour, minute) = daily.split_once(':')?;
-    let at =
-        now.replace_time(time::Time::from_hms(hour.parse().ok()?, minute.parse().ok()?, 0).ok()?);
+    let at = now.replace_time(daily_at(daily)?);
     if now < at {
         return None;
     }
@@ -1647,6 +1793,30 @@ fn daily_due(dir: &Path, now: OffsetDateTime, daily: &str) -> Option<String> {
         return None;
     }
     Some(today(now - time::Duration::days(1)))
+}
+
+/// The time of day `daily` (`HH:MM`, UTC) names; none when it names none.
+fn daily_at(daily: &str) -> Option<time::Time> {
+    let (hour, minute) = daily.split_once(':')?;
+    time::Time::from_hms(hour.parse().ok()?, minute.parse().ok()?, 0).ok()
+}
+
+/// The line the loop logs before the daily tick for `day` when the last one ended
+/// ([`DAILY_LAST`]) before `day`: the days between had none, because the loop did not reach
+/// `cadence.daily` on them (`story:daily-tick-logged`). None when no tick ended yet, or the last
+/// ended on `day`, the day before the one this tick runs on.
+#[must_use]
+pub fn daily_missed(dir: &Path, day: &str, daily: &str) -> Option<String> {
+    let last = fs::read_to_string(dir.join(DAILY_LAST)).ok()?;
+    let last = last.trim();
+    // Both `YYYY-MM-DD`: their order is their text's.
+    (!last.is_empty() && last < day).then(|| {
+        format!(
+            "conductor run: daily tick {day}: the last daily tick ended on {last}; none ran on \
+             the days between: the loop did not reach cadence.daily {daily} UTC on them (it was \
+             stopped, yielded its lock to another conductor run, or a tick held it past the day)"
+        )
+    })
 }
 
 /// Nanoseconds since the epoch of `at`.

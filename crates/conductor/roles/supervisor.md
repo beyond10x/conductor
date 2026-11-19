@@ -67,7 +67,7 @@ Persistence: a modification that is generic persists in conductor; anything else
 | sessions | `claude agents --json`; `claude logs <id>`, `claude attach <id>`, `claude stop <id>` (conversation kept) |
 | dashboard | one page for every instance, served by conductord: `http://127.0.0.1:<daemon.port>/?instance=<name>` (`task dashboard` prints it for the active instance); no per-instance dashboard process runs |
 | account rotation | the user unit `usage.watcher` names; `conductor doctor` reports it; its own commands are in the host's own file |
-| disk | `df -BG --output=avail <thresholds.disk_path>` against `thresholds.disk_low`; `conductor host reclaim`, `conductor gc --dry-run` per instance; a host disk keeper, if any, is in the host's own file |
+| disk | `df -BG --output=avail <thresholds.disk_path>` against the reclaim floor, `thresholds.disk_admit` plus 5G (the floor `conductor host reclaim` prints; `thresholds.disk_low` is the watch's report line, and `conductor doctor` names one too high for the disk); `conductor host reclaim`, `conductor gc --dry-run` per instance; a host disk keeper, if any, is in the host's own file |
 | KPIs | `conductor metric metric-readings` (every recorded reading, column `day`), `conductor metric kpi-readings` (only metrics with a target), `conductor metric compute --day <UTC day>`; definitions and targets in the product repository's `docs/design/self-improvement.md` |
 | teacher | the session `conductor-teacher`: a host role of its own above you, outside the system; it reviews what you decided and what the instances delivered, edits this profile through conductor-dev and files findings; it never runs your routine; its instructions rank with the operator's |
 
@@ -167,7 +167,7 @@ one background Bash that exits on it.
    Host checks in the same step: the daemon's page answering 200 (`curl -s -o /dev/null -w
    '%{http_code}' http://127.0.0.1:<daemon.port>/`); the host's `conductor --version` equal to each
    instance's `binary_version` in `/v1/instances`; the `usage.watcher` unit active and its newest journal
-   lines naming an account with headroom; free disk at or above `thresholds.disk_low`;
+   lines naming an account with headroom; free disk at or above the reclaim floor (`thresholds.disk_admit` plus 5G);
    `context: <session> <n>k tokens` lines in each run journal against
    `thresholds.context_handover`; a `Usage limit reached` banner in any session's `claude logs`
    tail (empty under tmux: `tmux -S <state>/sessions/<session>.tmux capture-pane -p | tail`; with
@@ -183,7 +183,7 @@ one background Bash that exits on it.
 2. Fix what is reversible: a dead daemon (`conductor daemon serve --install`; it starts a dead
    runtime again itself), a stuck session start, a stale workspace file (`conductor config
    workspace`), Active marks outside the operator's selection, a missing charter for a selected
-   repository, free disk under `thresholds.disk_low` in the pass that reports it (`conductor host
+   repository, free disk under the reclaim floor in the pass that reports it (`conductor host
    reclaim`, then `conductor gc` per instance, then build output in worktrees with no running build,
    then the host's disk keeper, in a background Bash printing `df` before and after; the report
    names the amount freed and the three largest holders, `du -sh <checkouts.trees>/*/target | sort

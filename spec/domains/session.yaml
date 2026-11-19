@@ -236,7 +236,12 @@ types:
   # day, the brief `<records>/REPORT.md`, then the records committed through the route
   # `forge.route` names, the bot route or plain git (story:forge-route),
   # story:records-committed-by-daemon), each recorded with `RecordRunTick`. It keeps what it
-  # must remember between ticks in files under `<state>/run/`, never in memory alone. `once`
+  # must remember between ticks in files under `<state>/run/`, never in memory alone. It logs
+  # each daily tick on its standard streams, which a runtime writes to its `runtime.log` or the
+  # journal (story:daily-tick-logged): `conductor run: daily tick <day>: ran, tick <id>`; a tick
+  # not run, with its cause: the days since the last daily tick that had none (the loop did not
+  # reach `cadence.daily` on them), or the error the tick ended on; and, for a `records-commit-refused`, the step that refused and what it
+  # printed, `records check`'s findings among them. `once`
   # runs one watch tick, then one cycle tick, and exits 0, for a test and a host without
   # systemd; `once` with `commit_records` commits the records alone, for today's UTC day, and
   # runs no tick. The per-instance user unit and its `install` and `uninstall` are gone (design

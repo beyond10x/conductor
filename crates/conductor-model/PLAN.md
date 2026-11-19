@@ -1,13 +1,13 @@
 <!--
   generated from conductor v1
-  contract digest 87114b906e7caa0ed7e4b7971f214d3afd0390d8d014449d58b0c6bb611e9266
+  contract digest 446c14272eda471e83f2d056112185680e3dcc9fe99dea205f60f54332491604
   do not edit: regenerate with `ess synthesize --layout crate`
 -->
 # Synthesis plan — conductor v1
 
 Scope: `component-skeletons`, laid out as `crate`, planned by `ess-synth`. Regenerate with `ess synthesize --layout crate`.
 
-1035 capabilities: **1019 generated**, **16 obligations**, **0 refused**. An obligation is yours to implement against its contract; a refusal is a fact about this synthesis scope, not about the specification.
+1039 capabilities: **1023 generated**, **16 obligations**, **0 refused**. An obligation is yours to implement against its contract; a refusal is a fact about this synthesis scope, not about the specification.
 
 ## Generated
 
@@ -496,6 +496,8 @@ Scope: `component-skeletons`, laid out as `crate`, planned by `ess-synth`. Regen
 | command contract | `conductor.dispatch.ReceiveMessage` |
 | command behaviour | `conductor.dispatch.ReceiveMessage` |
 | command contract | `conductor.dispatch.RecordDispatchLink` |
+| command contract | `conductor.dispatch.RecordDispatchWaiting` |
+| command behaviour | `conductor.dispatch.RecordDispatchWaiting` |
 | command contract | `conductor.dispatch.RecordGuardDecision` |
 | command behaviour | `conductor.dispatch.RecordGuardDecision` |
 | command contract | `conductor.dispatch.RefuseResource` |
@@ -682,6 +684,7 @@ Scope: `component-skeletons`, laid out as `crate`, planned by `ess-synth`. Regen
 | event type | `conductor.dispatch.DispatchSent` |
 | event type | `conductor.dispatch.DispatchStarted` |
 | event type | `conductor.dispatch.DispatchUnblocked` |
+| event type | `conductor.dispatch.DispatchWaitingRecorded` |
 | event type | `conductor.dispatch.GuardDecisionRecorded` |
 | event type | `conductor.dispatch.MessageHandled` |
 | event type | `conductor.dispatch.MessageReceived` |
@@ -811,6 +814,7 @@ Scope: `component-skeletons`, laid out as `crate`, planned by `ess-synth`. Regen
 | error type | `conductor.dispatch.InvalidLink` |
 | error type | `conductor.dispatch.InvalidPriority` |
 | error type | `conductor.dispatch.InvalidReference` |
+| error type | `conductor.dispatch.InvalidWaitingReason` |
 | error type | `conductor.dispatch.InvalidWorkRequest` |
 | error type | `conductor.dispatch.MailboxBodyMissing` |
 | error type | `conductor.dispatch.MessageDispatchMismatch` |

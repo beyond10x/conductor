@@ -61,7 +61,7 @@ Read "Where things are" in the supervisor's profile; it holds the commands. In a
 | your hand-off | `host/teacher-handoff.md`: instance-specific state for your successor |
 | supervisor's hand-off | `host/supervisor-handoff.md` |
 | account pool | the user unit `usage.watcher` names, and its commands in the host's file |
-| disk | `df -BG --output=avail <thresholds.disk_path>` against `thresholds.disk_low`; `conductor host reclaim`; `conductor gc --dry-run` per instance |
+| disk | `df -BG --output=avail <thresholds.disk_path>` against the reclaim floor, `thresholds.disk_admit` plus 5G (the floor `conductor host reclaim` prints); `conductor host reclaim`; `conductor gc --dry-run` per instance |
 | KPIs | `conductor metric kpi-readings`; `conductor metric compute --day <UTC day>`; table and targets in the conductor checkout's `docs/design/self-improvement.md` |
 | open merge requests of a GitLab group | `glab api --hostname <host> "groups/<group>/merge_requests?state=opened&per_page=100"`, then `projects/<id>/merge_requests/<iid>` for `detailed_merge_status`, `head_pipeline.status`, `merge_when_pipeline_succeeds` |
 
@@ -92,7 +92,7 @@ and the supervisor talk to you. To wait for something, one background Bash that 
    --version` against the dashboard's `/api/version`). Each deviation the supervisor did not report
    is a teaching.
 3. Host: the `usage.watcher` unit active, rotating above 0 % headroom, and an active account with
-   headroom; free disk at or above `thresholds.disk_low`, else have it reclaimed in a background
+   headroom; free disk at or above the reclaim floor (`thresholds.disk_admit` plus 5G), else have it reclaimed in a background
    Bash and read its output; every dashboard port answering 200.
 4. KPIs: `conductor metric kpi-readings` per instance for the last UTC day; empty means the daily
    tick did not run: compute it and send the defect to conductor-dev through the supervisor. A

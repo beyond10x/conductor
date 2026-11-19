@@ -1,0 +1,12 @@
+{
+  "at": "2026-11-19T19:16:53Z",
+  "actor": "human:unknown",
+  "artifact": "story:host-role-session-unprefixed",
+  "kind": "story",
+  "revision": 5,
+  "change": {
+    "change": "evidence",
+    "kind": "test_result",
+    "source": "cargo test -p conductor-cli --test config: 78 passed at 6115cd6f (4 fail on main config.rs); --test taskfile: attach and sessions cases pass, 4 maintainer:start launch cases fail in this box as on main (child session cannot start), need CI"
+  }
+}

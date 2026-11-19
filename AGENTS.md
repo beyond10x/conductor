@@ -241,7 +241,8 @@ The instance's loop is `conductor run`, no session; a conductor session (in its 
 directory) is started only by hand, and never outside the box of an instance whose placement opens
 one (`session start` refuses `OutsideBox`), and conductor-dev develops conductor in this repository; they
 are named `<session_prefix>-director` (`<session_prefix>-conductor` is the controller of a repository
-named `conductor`) and `<session_prefix>-conductor-dev`. The prefix is required and
+named `conductor`) and `conductor-dev`: the maintainer is the host's role, its session named after
+the role with no instance prefix. The prefix is required and
 unique within the config file (`conductor config validate` checks it; v1 has no host registry,
 design `docs/design/architecture-next.md` § 11); an instance written before that keeps `conductor` and
 `conductor-dev` until `conductor config migrate` writes its prefix. Both run in permission mode `bypassPermissions`, so messages

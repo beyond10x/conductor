@@ -1328,25 +1328,24 @@ fn a_limited_session_over_the_threshold_is_respawned_not_resumed() {
     );
 }
 
-/// `story:auto-resume`: a controller the session list shows blocked with no `pid`, whose
-/// repository has an open dispatch, is resumed from its transcript once its reset passed, on
-/// the controller role's model, and once per stop; it is not spawned afresh.
+/// `story:auto-resume`, issue #219: a controller the session list shows blocked with no `pid`,
+/// whose repository has an open dispatch and whose end showed no usage limit banner (a runtime
+/// or box restart), is no usage limit: it is never marked one, and is resumed from its
+/// transcript at once, on the controller role's model, once per stop; it is not spawned afresh.
 #[test]
-fn a_controller_blocked_with_no_pid_is_resumed_once_on_the_same_model() {
+fn a_controller_blocked_with_no_pid_and_no_limit_banner_is_resumed_at_once_not_marked_limited() {
     let case = Case::new("blocked-resume");
     case.ok(&["spawn", "--repository", "alpha"]);
     case.dispatch("alpha");
     case.live("alpha", FIRST, false);
 
-    let marked = case.tick(&[&format!("session exited (blocked): ex-alpha {FIRST_SHORT}")]);
-    assert_eq!(actions(&marked), ["usage-limit"], "{marked}");
-    let written = case.lines_of(&marked);
-    assert_eq!(written[0]["session"], "ex-alpha");
-    assert_eq!(written[0]["reason"], "blocked with no pid");
-    reset_passed(&case, "ex-alpha");
-
-    let resumed = case.tick(&[]);
+    let resumed = case.tick(&[&format!("session exited (blocked): ex-alpha {FIRST_SHORT}")]);
     assert_eq!(actions(&resumed), ["resumed"], "{resumed}");
+    assert!(
+        limited(&case).get("ex-alpha").is_none(),
+        "never marked limited: {}",
+        limited(&case)
+    );
     let resumes: Vec<String> = case
         .claude_args()
         .into_iter()
@@ -1920,7 +1919,8 @@ fn a_gone_session_without_a_charter_fails_its_open_dispatch() {
 }
 
 /// The maintainer role the conductor-dev cases add, under its old name, so its session is
-/// `ex-conductor-dev`.
+/// `conductor-dev`, the host's role carrying no instance prefix
+/// (`story:host-role-session-unprefixed`).
 const MAINTAINER: &str = "\x20     - {role: conductor-dev, harness: claude, model: opus}\n";
 
 /// The conductor-dev session's id, and the eight characters the watch names it by.
@@ -1951,7 +1951,7 @@ fn dev_gone(case: &Case, active: &[&str]) -> (Value, Vec<String>, PathBuf) {
     write(
         &listed,
         &json!({
-            "id": DEV, "sessionId": DEV, "name": "ex-conductor-dev", "pid": 4343,
+            "id": DEV, "sessionId": DEV, "name": "conductor-dev", "pid": 4343,
             "cwd": product, "status": "busy", "state": "working",
         })
         .to_string(),
@@ -1973,11 +1973,11 @@ fn a_gone_conductor_dev_is_started_again_while_the_plan_has_an_active_story() {
     let case = Case::new("dev-gone-active");
     let (gone, said, product) = dev_gone(&case, &["story:one"]);
 
-    assert_eq!(case.launched(), ["ex-conductor-dev"], "{gone} {said:?}");
+    assert_eq!(case.launched(), ["conductor-dev"], "{gone} {said:?}");
     let start = case
         .claude_args()
         .into_iter()
-        .find(|call| call.starts_with("--bg -n ex-conductor-dev "))
+        .find(|call| call.starts_with("--bg -n conductor-dev "))
         .expect("conductor-dev's start");
     assert!(start.contains("--model opus"), "{start}");
     let asked = fs::read_to_string(case.fake().join("aep.calls")).unwrap_or_default();
@@ -1989,7 +1989,7 @@ fn a_gone_conductor_dev_is_started_again_while_the_plan_has_an_active_story() {
     );
     let written = case.lines_of(&gone);
     assert_eq!(events(&written), ["controller-restarted"], "{written:?}");
-    assert_eq!(written[0]["session"], "ex-conductor-dev");
+    assert_eq!(written[0]["session"], "conductor-dev");
     assert_eq!(written[0]["repo"], "conductor");
     assert_eq!(written[0]["reason"], "conductor-dev gone; 1 active stories");
 }
@@ -3862,6 +3862,9 @@ fn a_cycle_leaves_running_controllers_whose_sessions_live_or_wait() {
         .spawn()
         .expect("a live process");
     child_entry(&case, "alpha", id, process.id());
+    // An open dispatch: an idle controller without one gives its place to gamma
+    // (story:idle-controller-yields-place).
+    case.dispatch("alpha");
     case.ok(&["spawn", "--repository", "beta"]);
     case.live("beta", "s0000002-0000", false);
     mark_active(&case, "gamma");
@@ -3895,6 +3898,350 @@ fn a_cycle_leaves_running_controllers_whose_sessions_live_or_wait() {
         said.contains("controllers not reconciled: the session list was not read"),
         "{said}"
     );
+}
+
+/// Issue #219: a usage limit mark the cycle recorded stopped with no reset (an older loop's, or
+/// one whose session ended in a restart) kept its repository waiting "usage limit until -" for
+/// ever. It is a stop to start again: the next cycle takes the mark out and starts the
+/// repository as any other; its `cycle` line is also written to standard error, the runtime's
+/// log.
+#[test]
+fn a_cycle_starts_a_repository_whose_stopped_limit_mark_names_no_reset() {
+    let case = Case::new("limit-no-reset");
+    case.configure("{provider: none}", "{max_working: 2}");
+    write(
+        &case.charter("gamma"),
+        "# Charter: gamma\n\nKeep main green.\n",
+    );
+    mark_active(&case, "gamma");
+    write(
+        &case.state().join("run/limited.json"),
+        &json!({"ex-gamma": {"repo": "gamma", "stopped": true}}).to_string(),
+    );
+
+    let (tick, said) = case.child_said(json!({
+        "do": "cycle",
+        "program": case.bin().join("conductor-steps"),
+    }));
+    let cycle = cycle_said(&case, &tick);
+    assert!(!cycle.contains("usage limit until"), "{cycle}");
+    assert!(cycle.contains("spawned gamma"), "{cycle}");
+    assert_eq!(case.launched(), ["ex-gamma"]);
+    assert!(
+        limited(&case).get("ex-gamma").is_none(),
+        "{}",
+        limited(&case)
+    );
+    assert!(
+        journal(&said)
+            .iter()
+            .any(|line| line.starts_with("conductor run: cycle ") && line.contains("spawned gamma")),
+        "the cycle line in the runtime's log: {said}"
+    );
+}
+
+/// Issue #219: `<state>/run/mailbox.handled` kept only the names that sort before the file a
+/// tick handled, so a message that arrived under a name sorting before older ones dropped
+/// those from the file, and the next tick, or the runtime after a restart or an upgrade, acted
+/// on them again. Every name handled stays named.
+#[test]
+fn the_mailbox_keeps_every_handled_name_when_a_file_sorting_before_them_arrives() {
+    let case = Case::new("mailbox-handled");
+    case.mail("0005", "hello\n");
+    case.mail("0009", "hello\n");
+    case.tick(&[]);
+    case.mail("0001", "hello\n");
+    case.tick(&[]);
+    let handled =
+        fs::read_to_string(case.state().join("run/mailbox.handled")).expect("the handled file");
+    let names: Vec<&str> = handled.lines().collect();
+    assert_eq!(names, ["0001.md", "0005.md", "0009.md"], "{handled}");
+}
+
+/// `story:idle-controller-yields-place`, a cycle at `controllers.max_working`: alpha's controller,
+/// started by hand for no dispatch, runs (its session idle with `idle`, else busy) while beta,
+/// Active with a charter, waits for a place; with `dispatch` alpha has an open dispatch. Answers
+/// the tick.
+fn at_max_working(case: &Case, idle: bool, dispatch: bool) -> Value {
+    case.configure("{provider: none}", "{max_working: 1}");
+    write(
+        &case.charter("beta"),
+        "# Charter: beta\n\nKeep main green.\n",
+    );
+    case.spawn("alpha", FIRST);
+    if idle {
+        case.idle("alpha", FIRST);
+    }
+    if dispatch {
+        case.dispatch("alpha");
+    }
+    mark_active(case, "beta");
+    case.child(json!({
+        "do": "cycle",
+        "program": case.bin().join("conductor-steps"),
+    }))
+}
+
+/// A start at `controllers.max_working` stops the `Running` controller whose repository has no open
+/// dispatch and whose session is idle, records why, and the `cycle` line names it beside the start
+/// it made room for.
+#[test]
+fn a_start_at_max_working_stops_an_idle_controller_with_no_open_dispatch_first() {
+    let case = Case::new("idle-yields");
+    let tick = at_max_working(&case, true, false);
+    assert_eq!(states_of(&case, "alpha"), ["Stopped"], "{tick}");
+    assert_eq!(states_of(&case, "beta"), ["Running"], "{tick}");
+    assert_eq!(case.launched(), ["ex-alpha", "ex-beta"]);
+    let said = cycle_said(&case, &tick);
+    for part in [
+        "stopped alpha (ex-alpha): no open dispatch; place given to beta",
+        "spawned beta",
+    ] {
+        assert!(said.contains(part), "{part:?} in {said}");
+    }
+    assert!(!said.contains("max_working"), "{said}");
+}
+
+/// An idle controller with an open dispatch keeps its place: the waiting repository waits.
+#[test]
+fn a_controller_with_an_open_dispatch_keeps_its_place_at_max_working() {
+    let case = Case::new("idle-keeps-dispatch");
+    let tick = at_max_working(&case, true, true);
+    assert_eq!(states_of(&case, "alpha"), ["Running"], "{tick}");
+    assert_eq!(states_of(&case, "beta"), Vec::<String>::new(), "{tick}");
+    let said = cycle_said(&case, &tick);
+    assert!(said.contains("beta waits: max_working 1 reached"), "{said}");
+    assert!(!said.contains("stopped"), "{said}");
+}
+
+/// A busy session keeps its place though its repository has no open dispatch.
+#[test]
+fn a_working_session_with_no_open_dispatch_keeps_its_place() {
+    let case = Case::new("busy-keeps");
+    let tick = at_max_working(&case, false, false);
+    assert_eq!(states_of(&case, "alpha"), ["Running"], "{tick}");
+    assert_eq!(states_of(&case, "beta"), Vec::<String>::new(), "{tick}");
+    let said = cycle_said(&case, &tick);
+    assert!(said.contains("beta waits: max_working 1 reached"), "{said}");
+    assert!(!said.contains("stopped"), "{said}");
+}
+
+/// A cycle that runs no step (the steps are logged, none runs): no snapshot is taken.
+fn cycle(case: &Case) -> Value {
+    case.child(json!({
+        "do": "cycle",
+        "program": case.bin().join("conductor-steps"),
+    }))
+}
+
+/// `story:dispatch-v1-once-per-goal`: alpha, Active with a charter, serves the goal G1 and has a
+/// dispatch for it that ended, `Done` with `done`, else `Failed`; answers that dispatch's id.
+fn served_and_ended(case: &Case, done: bool) -> String {
+    let id = case.dispatch("alpha");
+    case.ok(&[
+        "goal",
+        "add-serving",
+        "--goal-id",
+        "G1",
+        "--repository",
+        "alpha",
+    ]);
+    case.ok(&["dispatch", "report-started", "--dispatch-id", &id]);
+    if done {
+        case.ok(&[
+            "dispatch",
+            "report-done",
+            "--dispatch-id",
+            &id,
+            "--evidence",
+            "the intake is written",
+        ]);
+    } else {
+        case.ok(&[
+            "dispatch",
+            "report-failed",
+            "--dispatch-id",
+            &id,
+            "--reason",
+            "the checkout did not build",
+        ]);
+    }
+    mark_active(case, "alpha");
+    id
+}
+
+/// A repository whose dispatch for the goal it serves is `Done` is sent no other for that goal,
+/// and no controller starts for it; the `cycle` line says why, naming the goal and the dispatch.
+#[test]
+fn a_repository_with_a_done_dispatch_for_its_goal_is_sent_no_other() {
+    let case = Case::new("once-per-goal");
+    let done = served_and_ended(&case, true);
+    let tick = cycle(&case);
+    assert_eq!(
+        case.view(&["dispatch", "dispatches"]).len(),
+        1,
+        "no second dispatch: {tick}"
+    );
+    assert!(case.launched().is_empty(), "{:?}", case.launched());
+    let said = cycle_said(&case, &tick);
+    assert!(
+        said.contains(&format!("alpha skips goal G1: done in {done}")),
+        "{said}"
+    );
+}
+
+/// A `Failed` dispatch does not end the repository's part: the next cycle sends the goal again and
+/// starts the controller.
+#[test]
+fn a_failed_dispatch_does_not_end_the_repository_s_part() {
+    let case = Case::new("failed-goal");
+    let failed = served_and_ended(&case, false);
+    let tick = cycle(&case);
+    let rows = case.view(&["dispatch", "dispatches"]);
+    assert_eq!(rows.len(), 2, "a second dispatch: {rows:?}");
+    assert!(
+        rows.iter()
+            .any(|row| row["dispatch_id"] != failed.as_str() && row["state"] == "Sent"),
+        "{rows:?}"
+    );
+    assert_eq!(case.launched(), ["ex-alpha"], "{tick}");
+}
+
+/// With `controllers.max_working: 1` held, gamma waits a cycle; beta becomes Active after it. When
+/// the place frees, gamma, which has waited longest, takes it, not beta, first by name.
+#[test]
+fn repositories_waiting_for_a_place_are_taken_oldest_first_not_by_name() {
+    let case = Case::new("oldest-first");
+    case.configure("{provider: none}", "{max_working: 1}");
+    for repo in ["beta", "gamma"] {
+        write(
+            &case.charter(repo),
+            &format!("# Charter: {repo}\n\nKeep main green.\n"),
+        );
+    }
+    case.spawn("alpha", FIRST);
+    mark_active(&case, "gamma");
+    let first = cycle(&case);
+    let said = cycle_said(&case, &first);
+    assert!(
+        said.contains("gamma waits: max_working 1 reached"),
+        "{said}"
+    );
+    mark_active(&case, "beta");
+    case.ok(&[
+        "controller",
+        "stop-controller",
+        "--controller-id",
+        case.view(&["controller", "all-controllers"])[0]["controller_id"]
+            .as_str()
+            .expect("alpha's controller"),
+        "--reason",
+        "test",
+    ]);
+    let second = cycle(&case);
+    assert_eq!(states_of(&case, "gamma"), ["Running"], "{second}");
+    assert_eq!(states_of(&case, "beta"), Vec::<String>::new(), "{second}");
+    let said = cycle_said(&case, &second);
+    assert!(said.contains("spawned gamma"), "{said}");
+    assert!(said.contains("beta waits: max_working 1 reached"), "{said}");
+}
+
+/// `story:dispatch-waiting-reason`: the `waiting` lines of the dispatch `id`, their reasons in
+/// order.
+fn waiting_of(case: &Case, id: &str) -> Vec<String> {
+    case.log()
+        .into_iter()
+        .filter(|line| line["event"] == "waiting" && line["id"] == id)
+        .map(|line| line["reason"].as_str().unwrap_or_default().to_owned())
+        .collect()
+}
+
+/// The `waiting` field of the dispatch `id` in `dispatch dispatches`.
+fn waiting_shown(case: &Case, id: &str) -> Value {
+    case.view(&["dispatch", "dispatches"])
+        .into_iter()
+        .find(|row| row["dispatch_id"] == id)
+        .map(|row| row["waiting"].clone())
+        .expect("the dispatch's row")
+}
+
+/// An open dispatch whose repository is not Active, with no complete snapshot taken, gets no
+/// controller and says why: one `waiting` line with the tick's id, the dispatch's row, and the
+/// `cycle` line.
+#[test]
+fn an_open_dispatch_with_no_complete_snapshot_says_why_no_controller_started() {
+    let case = Case::new("waiting-no-snapshot");
+    let id = case.dispatch("alpha");
+    let tick = cycle(&case);
+    assert!(case.launched().is_empty(), "{:?}", case.launched());
+    assert_eq!(waiting_of(&case, &id), ["no complete snapshot"]);
+    let line = case
+        .lines_of(&tick)
+        .into_iter()
+        .find(|line| line["event"] == "waiting")
+        .expect("the waiting line carries the tick's id");
+    assert_eq!(line["repo"], "alpha");
+    assert_eq!(waiting_shown(&case, &id), "no complete snapshot");
+    let said = cycle_said(&case, &tick);
+    assert!(said.contains("alpha waits: no complete snapshot"), "{said}");
+}
+
+/// An open dispatch of an Active repository at `controllers.max_working` carries that reason.
+#[test]
+fn an_open_dispatch_at_max_working_says_so_on_the_dispatch() {
+    let case = Case::new("waiting-at-limit");
+    case.configure("{provider: none}", "{max_working: 1}");
+    write(
+        &case.charter("beta"),
+        "# Charter: beta\n\nKeep main green.\n",
+    );
+    case.spawn("alpha", FIRST);
+    let id = case.dispatch("beta");
+    mark_active(&case, "beta");
+    cycle(&case);
+    assert_eq!(waiting_of(&case, &id), ["max_working 1 reached"]);
+    assert_eq!(waiting_shown(&case, &id), "max_working 1 reached");
+}
+
+/// An open dispatch of an Active repository without a charter carries `no charter`.
+#[test]
+fn an_open_dispatch_without_a_charter_says_so_on_the_dispatch() {
+    let case = Case::new("waiting-no-charter");
+    let id = case.dispatch("gamma");
+    mark_active(&case, "gamma");
+    let tick = cycle(&case);
+    assert_eq!(waiting_of(&case, &id), ["no charter"]);
+    assert_eq!(waiting_shown(&case, &id), "no charter");
+    let said = cycle_said(&case, &tick);
+    assert!(said.contains("gamma waits: no charter"), "{said}");
+}
+
+/// The same reason is written once; another is written when it changes.
+#[test]
+fn the_waiting_reason_is_written_once_until_it_changes() {
+    let case = Case::new("waiting-once");
+    let id = case.dispatch("alpha");
+    cycle(&case);
+    cycle(&case);
+    assert_eq!(waiting_of(&case, &id), ["no complete snapshot"]);
+    case.ok(&[
+        "repository",
+        "mark-repository",
+        "--repository",
+        "alpha",
+        "--activity",
+        "Inactive",
+        "--marked-by",
+        "Operator",
+        "--reason",
+        "paused",
+    ]);
+    cycle(&case);
+    assert_eq!(
+        waiting_of(&case, &id),
+        ["no complete snapshot", "repository Inactive"]
+    );
+    assert_eq!(waiting_shown(&case, &id), "repository Inactive");
 }
 
 /// The daily tick computes the previous day's metrics and writes `REPORT.md` with deviations

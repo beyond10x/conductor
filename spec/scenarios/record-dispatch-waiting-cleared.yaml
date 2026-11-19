@@ -1,0 +1,49 @@
+type: ess-scenario/1
+domain: conductor.dispatch
+scenario: record-dispatch-waiting-cleared
+summary: A waiting reason is cleared once a controller runs; clearing none changes nothing.
+
+timeline:
+  - at: 2026-11-19T10:00:00Z
+    command: conductor.dispatch.SendDispatch
+    actor: conductor.dispatch.Conductor
+    input:
+      actor: {kind: ControlPlane}
+      dispatch_id: DSP-cleared
+      repository: cortex
+      brief: Fix the login redirect
+      sent_at: 2026-11-19T10:00:00Z
+      priority: 0
+      reference: WI-2002
+    outcome: sent-for-reference
+
+  - at: 2026-11-19T10:01:00Z
+    command: conductor.dispatch.RecordDispatchWaiting
+    actor: conductor.dispatch.Conductor
+    input:
+      actor: {kind: Daemon}
+      dispatch_id: DSP-cleared
+    outcome: unchanged
+
+  - at: 2026-11-19T10:05:00Z
+    command: conductor.dispatch.RecordDispatchWaiting
+    actor: conductor.dispatch.Conductor
+    input:
+      actor: {kind: Daemon}
+      dispatch_id: DSP-cleared
+      reason: max_working 4 reached
+    outcome: waiting
+
+  - at: 2026-11-19T10:10:00Z
+    command: conductor.dispatch.RecordDispatchWaiting
+    actor: conductor.dispatch.Conductor
+    input:
+      actor: {kind: Daemon}
+      dispatch_id: DSP-cleared
+    outcome: cleared
+
+assert:
+  - view: conductor.dispatch.Dispatches
+    contains:
+      dispatch_id: DSP-cleared
+      state: Sent

@@ -1,0 +1,13 @@
+{
+  "at": "2026-11-19T19:30:04Z",
+  "actor": "human:unknown",
+  "artifact": "story:dispatch-v1-once-per-goal",
+  "kind": "story",
+  "revision": 6,
+  "change": {
+    "change": "evidence",
+    "kind": "test_result",
+    "source": "cargo test -p conductor-cli --test run (local box, launches refused: needs CI); a_repository_with_a_done_dispatch_for_its_goal_is_sent_no_other passes, the other two need a launch",
+    "reference": "crates/conductor/tests/run.rs"
+  }
+}

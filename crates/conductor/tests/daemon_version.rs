@@ -1,7 +1,8 @@
 //! The daemon's version in one JSON answer (`story:daemon-version-json`): `GET /v1/version`
 //! answers `200` and the one row of `conductor.store.Version` in an array: `version` (the
 //! binary's) and `config` (the config format it reads), the two label values of
-//! `conductor_build_info` on `/metrics`. It is authenticated as every other read under `/v1`, the control
+//! `conductor_build_info` on `/metrics`, and `protocols`, the runtime protocols it speaks
+//! (`story:upgrade-checks-daemon-protocols`). It is authenticated as every other read under `/v1`, the control
 //! token admitted, and it does not wait for the reconciler's first publication. The daemon's API
 //! runs in this process, on a loopback listener and on one bound to every address, which takes
 //! bearers.
@@ -196,7 +197,12 @@ fn build_info(port: u16) -> Value {
             .unwrap_or_else(|| panic!("no label {name}: {sample}"))
             .to_owned()
     };
-    json!([{"version": label("version"), "config": label("config")}])
+    // story:upgrade-checks-daemon-protocols: and the runtime protocols it speaks.
+    json!([{
+        "version": label("version"),
+        "config": label("config"),
+        "protocols": ["CONDUCTOR-DIAL/1", "CONDUCTOR-POOL/1"],
+    }])
 }
 
 /// The control token reads the version on either listener: `200` and a one-element array whose
@@ -224,7 +230,7 @@ fn the_control_token_reads_the_version_metrics_names() {
         assert_eq!(rows.len(), 1, "{body}");
         assert_eq!(
             rows[0].as_object().map(serde_json::Map::len),
-            Some(2),
+            Some(3),
             "{body}"
         );
     }

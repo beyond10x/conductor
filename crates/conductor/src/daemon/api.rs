@@ -2243,7 +2243,9 @@ pub const SECRETS: &str = "/v1/secrets";
 
 /// The route of the daemon's version (`story:daemon-version-json`, `conductor.store.Version`):
 /// `GET` answers its one row, `version` and `config`, the label values of
-/// `conductor_build_info` on `/metrics` ([`super::metrics::Build::this`]). It reads no
+/// `conductor_build_info` on `/metrics` ([`super::metrics::Build::this`]), and `protocols`, the
+/// runtime protocols it speaks ([`crate::instance::PROTOCOLS`],
+/// `story:upgrade-checks-daemon-protocols`). It reads no
 /// publication, so it answers before the first reconcile, and admits whoever `GET`
 /// [`INSTANCES`] admits, `control-plane` included.
 pub const VERSION: &str = "/v1/version";
@@ -2286,8 +2288,16 @@ fn federated<S: Read + Write>(
         let row = Version {
             version: BinaryVersion(build.version),
             config: build.config,
+            protocols: crate::instance::PROTOCOLS
+                .iter()
+                .map(|protocol| (*protocol).to_owned())
+                .collect(),
         };
-        let answer = json!([{"version": row.version.0, "config": row.config}]);
+        let answer = json!([{
+            "version": row.version.0,
+            "config": row.config,
+            "protocols": row.protocols,
+        }]);
         return Some(reply(200, "OK", &answer, listener));
     }
     if path == federate::ASK {

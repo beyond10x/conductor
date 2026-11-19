@@ -24,16 +24,33 @@
 //! (`StartFailed` or `LaunchFailed`, [`crate::dispatch::failed_starts`]) is tried no more: the
 //! `cycle` line that wrote the third says it is left to the operator. Then for each repository Active
 //! in `repository activity` that has a charter `<records>/charters/<repo>.md` and no running or
-//! paused controller, in name order, `conductor spawn`, while fewer than `controllers.max_working`
-//! controllers run; each controller started gets its repository's open dispatch, or one sent in
-//! the same tick for the goal the repository serves, and its charter names it ([`Tick::spawn`]);
-//! a repository whose charter is conductor's default one, unedited, gets none but for its open
-//! dispatch, and waits. The units of work skip the `merge: human` review cap below: the work call
-//! is the control plane telling the instance to work the unit. A repository whose charter has the line `merge: human` and that has at least
-//! `controllers.max_open_reviews` pull requests waiting for review in the newest complete snapshot
-//! (as the board counts them, [`crate::status::waiting_in`]) waits. One `cycle` line names what
-//! each step did: `snapshot ok`, `board ok`, `records check ok` or how each ended, then `spawned
-//! <repos>` (or `spawned none`) and each repository that waits, with why.
+//! paused controller, the one that has waited longest first (`story:dispatch-v1-once-per-goal`: by
+//! the earlier of its open dispatches' oldest `sent_at` and the first cycle that left it waiting
+//! for a place, kept in `<state>/run/waiting.json`; one that never waited after those, ties by
+//! name), `conductor spawn`, while fewer than `controllers.max_working` controllers run; each
+//! controller started gets its repository's open dispatch, or one sent in the same tick for the
+//! first goal the repository serves that it has no `Done` dispatch for, and its charter names it
+//! ([`Tick::spawn`]); a repository with no open dispatch that has a `Done` dispatch for every open
+//! goal it serves gets no controller, and the `cycle` line says `<repo> skips goal <goal>: done in
+//! <dispatch>` ([`Tick::part_done`]); a repository whose charter is conductor's default one,
+//! unedited, gets none but for its open dispatch, and waits. A start that finds
+//! `controllers.max_working` controllers running first stops the `Running` controller of another
+//! repository that has no open dispatch and whose session the list shows idle, and the `cycle`
+//! line names it (`story:idle-controller-yields-place`, [`Tick::make_room`]). The units of work
+//! skip the `merge: human` review cap below: the work call is the control plane telling the
+//! instance to work the unit. A repository whose charter has the line `merge: human` and that has
+//! at least `controllers.max_open_reviews` pull requests waiting for review in the newest complete
+//! snapshot (as the board counts them, [`crate::status::waiting_in`]) waits. Each open dispatch
+//! whose repository then runs no controller carries why (`story:dispatch-waiting-reason`): no
+//! complete snapshot, not observed in it, Inactive, no charter, the default charter, the review
+//! cap, `max_working` reached, a usage limit, a refused start with its error, or its starts
+//! failed and it is tried no more; recorded through `dispatch record-waiting`'s code when it changes, one `waiting` line
+//! with the tick's id each time, and cleared once a controller of its repository runs
+//! ([`record_waiting`]). One `cycle` line names what each step did: `snapshot ok`, `board ok`,
+//! `records check ok` or how each ended, then each controller stopped for a place, `spawned
+//! <repos>` (or `spawned none`) and each repository that waits, with why, Active or not; the
+//! same words, with the tick's id, go to standard error, the runtime's log. A stopped mark with no
+//! reset ahead keeps no repository waiting ([`waiting_at_limit`]).
 //!
 //! **Daily.** `metric compute --day <the previous UTC day>`, then `status`, and the brief
 //! `<records>/REPORT.md`: the day, each reading that misses its target, each reading that could not
@@ -41,15 +58,18 @@
 //! its target; and its `Tuning` section, the lines of the tuner run after `status`
 //! ([`crate::tune::daily`], `story:tuner`). Then the records directory, the brief with it, is
 //! committed and pushed through the bot route for that day ([`super::commit_records`]), its
-//! `records-committed` or `records-commit-refused` line carrying the tick's id.
+//! `records-committed` or `records-commit-refused` line carrying the tick's id; a refusal is said
+//! on standard error too, the loop's log, with the step and what it printed
+//! ([`super::Committed::refusal`], `story:daily-tick-logged`).
 
+use std::collections::BTreeMap;
 use std::path::Path;
 use std::time::Duration;
 
 use anyhow::{Context as _, Result};
 use conductor_model::behaviour::{ControllerStorage, DispatchStorage, SnapshotStorage};
 use conductor_model::direction::Activity;
-use conductor_model::dispatch::{ControllerState, DispatchLogEvent, DispatchState};
+use conductor_model::dispatch::{ControllerState, DispatchId, DispatchLogEvent, DispatchState};
 use conductor_model::primitives::Timestamp;
 use conductor_model::session::TickKind;
 use time::OffsetDateTime;
@@ -100,7 +120,11 @@ pub fn cycle_tick(
         }
     }
     let mut line = tick.line(DispatchLogEvent::Cycle, "-")?;
-    line.line = Some(parts.join("; "));
+    let said = parts.join("; ");
+    // Issue #219: also on standard error, the runtime's log or the unit's journal, so a cycle
+    // that spawns nothing is seen where the runtime's other lines are.
+    eprintln!("conductor run: cycle {}: {said}", tick.id);
+    line.line = Some(said);
     tick.write(&line)?;
     tick.finish()
 }
@@ -267,76 +291,191 @@ fn lives_or_waits(listed: &[Value], session: &str) -> bool {
 }
 
 /// The repositories whose controller the cycle recorded stopped at a usage limit, waiting to be
-/// resumed at their reset ([`reconcile`]), each with that reset.
+/// resumed at their reset ([`reconcile`]), each with that reset. A stopped mark with no reset that
+/// reads, or whose reset passed [`crate::token::LIMIT_WINDOW`] ago with nothing resumed, waits no
+/// more: it is taken out of [`handlers::LIMITED`], and its repository is started as any other in
+/// this cycle (issue #219, [`waiting_in`]).
 fn waiting_at_limit(tick: &Tick<'_, '_>) -> Vec<(String, String)> {
-    super::read_json(&tick.dir, handlers::LIMITED, json!({}))
-        .as_object()
-        .into_iter()
-        .flatten()
-        .filter(|(_, entry)| entry["stopped"] == true)
-        .filter_map(|(_, entry)| {
-            Some((
-                entry["repo"].as_str()?.to_owned(),
-                entry["resets_at"].as_str().unwrap_or("-").to_owned(),
-            ))
+    let mut limited = super::read_json(&tick.dir, handlers::LIMITED, json!({}));
+    let (waiting, expired) = waiting_in(&limited, OffsetDateTime::now_utc());
+    if !expired.is_empty()
+        && let Some(marks) = limited.as_object_mut()
+    {
+        for session in &expired {
+            marks.remove(session);
+        }
+        if let Err(error) = super::write_json(&tick.dir, handlers::LIMITED, &limited) {
+            tick.note(handlers::LIMITED, &error);
+        }
+        tick.note(
+            handlers::LIMITED,
+            &anyhow::anyhow!(
+                "a stopped mark with no reset ahead waits no more: {}",
+                expired.join(", ")
+            ),
+        );
+    }
+    waiting
+}
+
+/// Of the marks `limited` holds ([`handlers::LIMITED`]) at `now`: the repositories whose stopped
+/// controller waits for its reset, each with it, and the sessions whose stopped mark waits no
+/// more: no reset that reads, or one more than [`crate::token::LIMIT_WINDOW`] past.
+fn waiting_in(limited: &Value, now: OffsetDateTime) -> (Vec<(String, String)>, Vec<String>) {
+    let mut waiting = Vec::new();
+    let mut expired = Vec::new();
+    for (session, entry) in limited.as_object().into_iter().flatten() {
+        if entry["stopped"] != true {
+            continue;
+        }
+        let reset = entry["resets_at"].as_str().and_then(|at| {
+            OffsetDateTime::parse(at, &Rfc3339)
+                .ok()
+                .map(|parsed| (at, parsed))
+        });
+        match (entry["repo"].as_str(), reset) {
+            (Some(repo), Some((at, parsed))) if parsed + crate::token::LIMIT_WINDOW > now => {
+                waiting.push((repo.to_owned(), at.to_owned()));
+            }
+            _ => expired.push(session.clone()),
+        }
+    }
+    (waiting, expired)
+}
+
+/// The repositories that waited a cycle for a place under `controllers.max_working`, each with
+/// the first instant it waited, RFC 3339 (`story:dispatch-v1-once-per-goal`).
+const WAITING: &str = "waiting.json";
+
+/// What dispatch v1 read of the store before it starts anything.
+struct Read {
+    /// Each repository of `repository activity`, and whether it is Active.
+    rows: Vec<(String, bool)>,
+    /// Whether a complete snapshot is kept.
+    complete: bool,
+    /// The repositories with a `Running` or `Paused` controller.
+    controlled: Vec<String>,
+    /// The `merge: human` review count of each repository at its cap.
+    full: BTreeMap<String, i64>,
+    /// The units of work: each `Sent` dispatch with a reference, its repository, id and `sent_at`.
+    units: Vec<(String, String, Timestamp)>,
+    /// The oldest `sent_at` of each repository's open dispatches; `None` where it does not read.
+    open_since: BTreeMap<String, Option<OffsetDateTime>>,
+}
+
+/// Reads what dispatch v1 starts from.
+fn read(tick: &Tick<'_, '_>) -> Result<Read> {
+    let instance = tick.instance();
+    let store = crate::state::open(tick.state)?;
+    let dispatches = DispatchStorage::list(&store);
+    let units = dispatches
+        .iter()
+        .filter(|held| held.state == DispatchState::Sent && held.data.reference.is_some())
+        .map(|held| {
+            (
+                held.data.repository.0.clone(),
+                held.data.dispatch_id.0.clone(),
+                held.data.sent_at.clone(),
+            )
         })
-        .collect()
+        .collect();
+    let mut open_since: BTreeMap<String, Option<OffsetDateTime>> = BTreeMap::new();
+    for held in dispatches.iter().filter(|held| open(held.state)) {
+        let at = OffsetDateTime::parse(&held.data.sent_at.0, &Rfc3339).ok();
+        open_since
+            .entry(held.data.repository.0.clone())
+            .and_modify(|since| *since = earlier(*since, at))
+            .or_insert(at);
+    }
+    let rows = crate::repository::activity(&store)
+        .into_iter()
+        .map(|row| (row.repository.0, matches!(row.activity, Activity::Active)))
+        .collect();
+    let controlled = ControllerStorage::list(&store)
+        .into_iter()
+        .filter(|held| {
+            matches!(
+                held.state,
+                ControllerState::Running | ControllerState::Paused
+            )
+        })
+        .map(|held| held.data.repository.0)
+        .collect();
+    let snapshots = SnapshotStorage::list(&store);
+    let newest = crate::status::newest_complete(&snapshots, None);
+    let complete = newest.is_some();
+    let full = newest.map_or_else(Default::default, |held| {
+        crate::status::review_full(
+            &crate::status::waiting_in(&store, held),
+            instance.controllers.max_open_reviews,
+        )
+    });
+    store
+        .check()
+        .context("read the repositories and controllers")?;
+    Ok(Read {
+        rows,
+        complete,
+        controlled,
+        full,
+        units,
+        open_since,
+    })
+}
+
+/// Whether a dispatch in `state` is open: sent, started or blocked.
+const fn open(state: DispatchState) -> bool {
+    matches!(
+        state,
+        DispatchState::Sent | DispatchState::Started | DispatchState::Blocked
+    )
+}
+
+/// The earlier of two instants, either of which may be unknown.
+fn earlier(one: Option<OffsetDateTime>, other: Option<OffsetDateTime>) -> Option<OffsetDateTime> {
+    match (one, other) {
+        (Some(one), Some(other)) => Some(one.min(other)),
+        (one, other) => one.or(other),
+    }
+}
+
+/// What the cycle says of the repositories it did not start, and why each open dispatch waits
+/// (`story:dispatch-waiting-reason`).
+#[derive(Default)]
+struct Waits {
+    /// The parts of the `cycle` line, `<repo> waits: <why>` and the like, in order.
+    said: Vec<String>,
+    /// Why each repository's open dispatches wait, the first reason found.
+    why: BTreeMap<String, String>,
+}
+
+impl Waits {
+    /// `repo` waits for `why`: said in the `cycle` line, and kept for its open dispatches.
+    fn wait(&mut self, repo: &str, why: String) {
+        self.said.push(format!("{repo} waits: {why}"));
+        self.why.entry(repo.to_owned()).or_insert(why);
+    }
 }
 
 /// Dispatch v1, as the module documentation says; what it did, as the `cycle` line says it.
 fn dispatch_v1(tick: &mut Tick<'_, '_>) -> Result<String> {
     let instance = tick.instance();
-    let (active, mut controlled, full, units) = {
-        let store = crate::state::open(tick.state)?;
-        let units: Vec<(String, String, Timestamp)> = DispatchStorage::list(&store)
-            .into_iter()
-            .filter(|held| held.state == DispatchState::Sent && held.data.reference.is_some())
-            .map(|held| {
-                (
-                    held.data.repository.0,
-                    held.data.dispatch_id.0,
-                    held.data.sent_at,
-                )
-            })
-            .collect();
-        let active: Vec<String> = crate::repository::activity(&store)
-            .into_iter()
-            .filter(|row| matches!(row.activity, Activity::Active))
-            .map(|row| row.repository.0)
-            .collect();
-        let controlled: Vec<String> = ControllerStorage::list(&store)
-            .into_iter()
-            .filter(|held| {
-                matches!(
-                    held.state,
-                    ControllerState::Running | ControllerState::Paused
-                )
-            })
-            .map(|held| held.data.repository.0)
-            .collect();
-        let snapshots = SnapshotStorage::list(&store);
-        let full = crate::status::newest_complete(&snapshots, None).map_or_else(
-            Default::default,
-            |held| {
-                crate::status::review_full(
-                    &crate::status::waiting_in(&store, held),
-                    instance.controllers.max_open_reviews,
-                )
-            },
-        );
-        store
-            .check()
-            .context("read the repositories and controllers")?;
-        (active, controlled, full, units)
-    };
+    let Read {
+        rows,
+        complete,
+        mut controlled,
+        full,
+        units,
+        open_since,
+    } = read(tick)?;
     let limit = instance.controllers.max_open_reviews;
     let mut spawned = Vec::new();
-    let mut waits = Vec::new();
+    let mut waits = Waits::default();
     // A repository whose controller waits for its usage limit's reset is resumed then, not
     // started afresh (story:limit-resume-at-reset).
     for (repo, at) in waiting_at_limit(tick) {
         if !controlled.contains(&repo) {
-            waits.push(format!("{repo} waits: usage limit until {at}"));
+            waits.wait(&repo, format!("usage limit until {at}"));
             controlled.push(repo);
         }
     }
@@ -351,8 +490,15 @@ fn dispatch_v1(tick: &mut Tick<'_, '_>) -> Result<String> {
         controlled.push(repo.clone());
         let failed = crate::dispatch::failed_starts(records, sent_at, repo, id)?;
         if failed >= crate::dispatch::FAILED_STARTS_MOST {
+            waits.why.entry(repo.clone()).or_insert_with(|| {
+                format!(
+                    "{} starts of it failed; the loop tries it no more",
+                    crate::dispatch::FAILED_STARTS_MOST
+                )
+            });
             continue;
         }
+        tick.make_room(repo)?;
         match super::start_work(tick.config, tick.state, tick.seams.providers, repo, id) {
             None => {
                 tick.wrote(DispatchLogEvent::Sent);
@@ -362,14 +508,14 @@ fn dispatch_v1(tick: &mut Tick<'_, '_>) -> Result<String> {
                 let mut line = super::start_refused_line(repo, id, refusal, &detail)?;
                 line.tick_id = Some(tick.id.clone());
                 tick.write(&line)?;
-                waits.push(format!(
-                    "{repo} waits: {}: {detail}",
-                    super::work_refusal_name(refusal)
-                ));
+                waits.wait(
+                    repo,
+                    format!("{}: {detail}", super::work_refusal_name(refusal)),
+                );
                 if crate::dispatch::failed_starts(records, sent_at, repo, id)?
                     >= crate::dispatch::FAILED_STARTS_MOST
                 {
-                    waits.push(format!(
+                    waits.said.push(format!(
                         "{id} of {repo} is left to the operator: {} starts of it failed, and the \
                          loop tries it no more",
                         crate::dispatch::FAILED_STARTS_MOST
@@ -378,31 +524,162 @@ fn dispatch_v1(tick: &mut Tick<'_, '_>) -> Result<String> {
             }
         }
     }
-    for repo in &active {
-        if controlled.contains(repo) || !tick.charter(repo).is_file() {
+    // Then each Active repository with no controller, the one that has waited longest for a place
+    // first (story:dispatch-v1-once-per-goal).
+    let mut waited = super::read_json(&tick.dir, WAITING, json!({}));
+    let since = |repo: &str| {
+        let kept = waited[repo]
+            .as_str()
+            .and_then(|at| OffsetDateTime::parse(at, &Rfc3339).ok());
+        earlier(kept, open_since.get(repo).copied().flatten())
+    };
+    let mut order: Vec<(Option<OffsetDateTime>, String)> = rows
+        .iter()
+        .filter(|(repo, active)| *active && !controlled.contains(repo))
+        .map(|(repo, _)| (since(repo.as_str()), repo.clone()))
+        .collect();
+    order.sort_by_key(|(since, repo)| (since.is_none(), *since, repo.clone()));
+    let mut at_place = Vec::new();
+    for (_, repo) in &order {
+        let repo = repo.as_str();
+        if !tick.charter(repo).is_file() {
+            if open_since.contains_key(repo) {
+                waits.wait(repo, "no charter".to_owned());
+            }
             continue;
         }
         if merge_human(&tick.charter(repo))
             && let Some(waiting) = full.get(repo)
         {
-            waits.push(format!("{repo} waits: {waiting}/{limit} pull requests"));
+            waits.wait(repo, format!("{waiting}/{limit} pull requests"));
+            continue;
+        }
+        if let Some(skip) = tick.part_done(repo)? {
+            waits.said.push(format!("{repo} {skip}"));
             continue;
         }
         match tick.spawn(repo)? {
-            Ok(()) => spawned.push(repo.clone()),
-            Err(why) => waits.push(format!("{repo} waits: {why}")),
+            Ok(()) => spawned.push(repo.to_owned()),
+            Err(why) => {
+                if why.starts_with("max_working ") {
+                    at_place.push(repo.to_owned());
+                }
+                waits.wait(repo, why);
+            }
         }
     }
-    let mut said = if spawned.is_empty() {
+    let now = OffsetDateTime::now_utc()
+        .format(&Rfc3339)
+        .context("format the clock")?;
+    let still: serde_json::Map<String, Value> = at_place
+        .into_iter()
+        .map(|repo| {
+            let at = waited[repo.as_str()].as_str().unwrap_or(&now).to_owned();
+            (repo, json!(at))
+        })
+        .collect();
+    if waited != Value::Object(still.clone()) {
+        waited = Value::Object(still);
+        if let Err(error) = super::write_json(&tick.dir, WAITING, &waited) {
+            tick.note(WAITING, &error);
+        }
+    }
+    // Each repository with an open dispatch that is not Active says why
+    // (story:dispatch-waiting-reason).
+    for repo in open_since.keys() {
+        if controlled.contains(repo) || spawned.contains(repo) || waits.why.contains_key(repo) {
+            continue;
+        }
+        let why = match rows.iter().find(|(row, _)| row == repo) {
+            Some((_, false)) => "repository Inactive",
+            Some((_, true)) => continue,
+            None if complete => "not observed in the newest snapshot",
+            None => "no complete snapshot",
+        };
+        waits.wait(repo, why.to_owned());
+    }
+    record_waiting(tick, &waits.why)?;
+    let mut said = String::new();
+    for stopped in tick.yielded.drain(..) {
+        said.push_str(&stopped);
+        said.push_str("; ");
+    }
+    said.push_str(&if spawned.is_empty() {
         "spawned none".to_owned()
     } else {
         format!("spawned {}", spawned.join(", "))
-    };
-    for wait in waits {
+    });
+    for wait in waits.said {
         said.push_str("; ");
         said.push_str(&wait);
     }
     Ok(said)
+}
+
+/// Records on each open dispatch why it waits (`story:dispatch-waiting-reason`): the reason `why`
+/// keeps for its repository while the repository runs no `Running` or `Paused` controller, none
+/// once one runs; through `dispatch record-waiting`'s code ([`crate::dispatch::wait`]), and only
+/// where the dispatch holds another, so a `waiting` line, with the tick's id, is written once per
+/// change. A dispatch whose repository runs none and that no reason was found for keeps its own.
+///
+/// # Errors
+///
+/// The store does not open, or a reason is not kept or its line not written.
+fn record_waiting(tick: &mut Tick<'_, '_>, why: &BTreeMap<String, String>) -> Result<()> {
+    let (open_now, controlled) = {
+        let store = crate::state::open(tick.state)?;
+        let open_now: Vec<(String, String, Option<String>)> = DispatchStorage::list(&store)
+            .into_iter()
+            .filter(|held| open(held.state))
+            .map(|held| {
+                (
+                    held.data.dispatch_id.0,
+                    held.data.repository.0,
+                    held.data.waiting,
+                )
+            })
+            .collect();
+        let controlled: Vec<String> = ControllerStorage::list(&store)
+            .into_iter()
+            .filter(|held| {
+                matches!(
+                    held.state,
+                    ControllerState::Running | ControllerState::Paused
+                )
+            })
+            .map(|held| held.data.repository.0)
+            .collect();
+        store.check().context("read the open dispatches")?;
+        (open_now, controlled)
+    };
+    for (id, repo, held) in open_now {
+        let wanted = if controlled.contains(&repo) {
+            None
+        } else if let Some(reason) = why.get(&repo) {
+            Some(reason.split_whitespace().collect::<Vec<_>>().join(" "))
+        } else {
+            continue;
+        };
+        if wanted == held || wanted.as_deref() == Some("") {
+            continue;
+        }
+        let some = wanted.is_some();
+        match crate::dispatch::wait(
+            tick.state,
+            DispatchId(id.clone()),
+            wanted,
+            crate::actor::chosen(),
+            Some(&tick.id),
+        )? {
+            crate::dispatch::Waiting::Recorded if some => tick.wrote(DispatchLogEvent::Waiting),
+            crate::dispatch::Waiting::Recorded | crate::dispatch::Waiting::Held => {}
+            crate::dispatch::Waiting::Refused { error, detail } => tick.note(
+                &format!("record why {id} waits"),
+                &anyhow::anyhow!("{error}: {detail}"),
+            ),
+        }
+    }
+    Ok(())
 }
 
 /// Whether the charter `file` has the line `merge: human`.
@@ -491,9 +768,44 @@ pub fn daily_tick(
         tick.state,
     )
     .with_forge_access(tick.instance().forge_access);
-    if let Some(mut line) = commit_records(records, &route, day).line()? {
+    let committed = commit_records(records, &route, day);
+    // The refusal and what refused it, `records check`'s findings among them, in the loop's log
+    // too (`story:daily-tick-logged`).
+    if let Some(said) = committed.refusal(day) {
+        super::say(true, &said);
+    }
+    if let Some(mut line) = committed.line()? {
         line.tick_id = Some(tick.id.clone());
         tick.write(&line)?;
     }
     tick.finish()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Issue #219: a mark recorded stopped with no reset kept its repository waiting "until -"
+    /// for ever; it waits no more, nor does one whose reset passed a whole limit window ago.
+    #[test]
+    fn a_stopped_mark_with_no_reset_ahead_waits_no_more() {
+        let now = OffsetDateTime::parse("2026-11-19T15:00:00Z", &Rfc3339).expect("now");
+        let limited = json!({
+            "ex-alpha": {"repo": "alpha", "stopped": true},
+            "ex-beta": {"repo": "beta", "stopped": true, "resets_at": "2026-11-19T17:00:00Z"},
+            "ex-gamma": {"repo": "gamma", "stopped": true, "resets_at": "2026-11-19T14:00:00Z"},
+            "ex-delta": {"repo": "delta", "stopped": true, "resets_at": "2026-11-19T08:00:00Z"},
+            "ex-eps": {"repo": "eps", "resets_at": "2026-11-19T17:00:00Z"},
+            "ex-zeta": {"repo": "zeta", "stopped": true, "resets_at": "soon"},
+        });
+        let (waiting, expired) = waiting_in(&limited, now);
+        assert_eq!(
+            waiting,
+            [
+                ("beta".to_owned(), "2026-11-19T17:00:00Z".to_owned()),
+                ("gamma".to_owned(), "2026-11-19T14:00:00Z".to_owned()),
+            ]
+        );
+        assert_eq!(expired, ["ex-alpha", "ex-delta", "ex-zeta"]);
+    }
 }
