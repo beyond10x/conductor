@@ -2,8 +2,8 @@
   "provenance": {
     "system": "conductor",
     "specification_version": "v1",
-    "source_digest": "0fda3db3cfa9c538f13fc2171a2009fb669fc417a1d0af8ae1d07283b41bbff3",
-    "contract_digest": "4db77cc1609eabc954004c5ea01cc712eee0414ec1c1828d6a9168ca9523cbd9"
+    "source_digest": "8991f38e3df329df0607d97ad4009581cf12b17719c61bd2348c1771c3b49460",
+    "contract_digest": "1e51e8597d088c769b802ce8f4771c1aad9184faa80e8cdb7b667bcf452d7949"
   },
   "scope": {
     "profile": "component-skeletons",
@@ -678,6 +678,13 @@
     {
       "kind": "domain_type",
       "source": "conductor.config.TrustWorkspaces",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.config.UnitMerge",
       "disposition": {
         "disposition": "generated"
       }

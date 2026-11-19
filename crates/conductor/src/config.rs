@@ -148,7 +148,7 @@ use conductor_model::config::{
     KubernetesResources, KubernetesVolume, Limits, LocalSource, ModelTokenKind, Network,
     OperatorGrant, OperatorRole, PlacementName, RepoCache, Report, RepositoryRule, Retention, Role,
     SecretSource, SecretSync, SecretsSource, SessionName, SessionPrefix, Source, SuggestedPrefix,
-    Thresholds, TimeOfDay, TlsListener, Tokens, Usage, WorkspaceMember, Writable,
+    Thresholds, TimeOfDay, TlsListener, Tokens, UnitMerge, Usage, WorkspaceMember, Writable,
 };
 use conductor_model::decision::Decider;
 use conductor_model::direction::Activity;
@@ -902,7 +902,19 @@ const OPERATOR_GRANTS: [(&str, OperatorGrant); 7] = [
     ("join", OperatorGrant::Join),
 ];
 const LIMIT_KEYS: [&str; 3] = ["memory_max", "cpu_weight", "tasks_max"];
-const CONTROLLER_KEYS: [&str; 3] = ["max_working", "max_subagents", "max_open_reviews"];
+const CONTROLLER_KEYS: [&str; 4] = [
+    "max_working",
+    "max_subagents",
+    "max_open_reviews",
+    "unit_merge",
+];
+
+/// How the file writes each `conductor.config.UnitMerge`: who merges a unit of work's request
+/// (`story:unit-merge-policy`).
+pub const UNIT_MERGES: [(&str, UnitMerge); 2] = [
+    ("controller", UnitMerge::Controller),
+    ("human", UnitMerge::Human),
+];
 const REPOSITORY_KEYS: [&str; 3] = ["match", "activity", "no_releases"];
 const CADENCE_KEYS: [&str; 4] = ["cycle", "daily", "watch", "ci"];
 const THRESHOLD_KEYS: [&str; 21] = [
@@ -2232,7 +2244,17 @@ fn default_controllers() -> Controllers {
         max_working: MAX_WORKING,
         max_subagents: MAX_SUBAGENTS,
         max_open_reviews: MAX_OPEN_REVIEWS,
+        unit_merge: UnitMerge::Human,
     }
+}
+
+/// The word the file writes for `unit_merge` ([`UNIT_MERGES`]).
+#[must_use]
+pub fn unit_merge_word(merge: UnitMerge) -> &'static str {
+    UNIT_MERGES
+        .iter()
+        .find(|(_, meaning)| *meaning == merge)
+        .map_or("human", |(word, _)| word)
 }
 
 fn default_cadence() -> Cadence {
@@ -5681,7 +5703,8 @@ impl Reader<'_> {
     }
 
     /// `conductor.config.Controllers`, its invariants `max_working >= 1`,
-    /// `max_subagents >= 1` and `max_open_reviews >= 0` held.
+    /// `max_subagents >= 1` and `max_open_reviews >= 0` held, and `unit_merge` one of
+    /// [`UNIT_MERGES`], `human` when absent.
     fn controllers(&mut self, value: &Value, path: &str) -> Option<Controllers> {
         let map = self.mapping(value, path, &CONTROLLER_KEYS)?;
         let defaults = default_controllers();
@@ -5716,10 +5739,15 @@ impl Reader<'_> {
             0,
             defaults.max_open_reviews,
         );
+        let unit_merge = match Self::get(map, "unit_merge") {
+            Some(value) => self.word(value, &join(path, "unit_merge"), &UNIT_MERGES),
+            None => Some(defaults.unit_merge),
+        };
         Some(Controllers {
             max_working: max_working?,
             max_subagents: max_subagents?,
             max_open_reviews: max_open_reviews?,
+            unit_merge: unit_merge?,
         })
     }
 
@@ -6425,6 +6453,10 @@ fn shown_instance(instance: &Instance, legacy: &Legacy) -> Yaml {
                     Yaml::Number(serde_yaml::Number::from(
                         instance.controllers.max_open_reviews,
                     )),
+                ),
+                (
+                    "unit_merge",
+                    text(unit_merge_word(instance.controllers.unit_merge)),
                 ),
             ]),
         ),

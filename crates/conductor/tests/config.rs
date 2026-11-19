@@ -516,7 +516,12 @@ fn show_without_a_file_prints_todays_constants() {
     // at most 4 sub-agents at once.
     assert_eq!(
         instance["controllers"],
-        serde_json::json!({"max_working": 5, "max_subagents": 4, "max_open_reviews": 3}),
+        serde_json::json!({
+            "max_working": 5,
+            "max_subagents": 4,
+            "max_open_reviews": 3,
+            "unit_merge": "human"
+        }),
         "{shown:#}"
     );
     // No instance names its operator unless the file does.
@@ -760,7 +765,12 @@ fn the_session_profile_keys_validate_and_show_as_written() {
     );
     assert_eq!(
         one["controllers"],
-        serde_json::json!({"max_working": 3, "max_subagents": 2, "max_open_reviews": 3}),
+        serde_json::json!({
+            "max_working": 3,
+            "max_subagents": 2,
+            "max_open_reviews": 3,
+            "unit_merge": "human"
+        }),
         "{shown:#}"
     );
     let thresholds = &one["thresholds"];
@@ -946,6 +956,54 @@ fn max_open_reviews_defaults_to_3_takes_0_and_refuses_a_negative_by_its_path() {
         let problems = refused(&case, &file);
         assert!(
             problems.contains("instances[0].controllers.max_open_reviews: "),
+            "{name}: {problems}"
+        );
+    }
+}
+
+/// `story:unit-merge-policy`: `controllers.unit_merge` is `human` without the key, takes
+/// `controller` and `human` as written, and refuses any other value by its YAML path, exit 1.
+#[test]
+fn unit_merge_defaults_to_human_takes_controller_and_refuses_another_word_by_its_path() {
+    let case = Case::new("unit-merge");
+    for (name, extra, shown_as) in [
+        ("absent", "", "human"),
+        ("empty", "\x20   controllers: {}\n", "human"),
+        (
+            "controller",
+            "\x20   controllers: {unit_merge: controller}\n",
+            "controller",
+        ),
+        (
+            "human",
+            "\x20   controllers: {unit_merge: human}\n",
+            "human",
+        ),
+    ] {
+        let file = case.write(&format!("{name}.yaml"), &one_instance(extra));
+        let validated = case.with_file(&file, &["config", "validate"]);
+        assert_eq!(
+            validated.status.code(),
+            Some(0),
+            "{name}: {}",
+            describe(&validated)
+        );
+        let shown = case.show(&file, &[]);
+        assert_eq!(
+            instance(&shown)["controllers"]["unit_merge"],
+            shown_as,
+            "{name}: {shown:#}"
+        );
+    }
+    for (name, extra) in [
+        ("bot", "\x20   controllers: {unit_merge: bot}\n"),
+        ("upper", "\x20   controllers: {unit_merge: Controller}\n"),
+        ("number", "\x20   controllers: {unit_merge: 1}\n"),
+    ] {
+        let file = case.write(&format!("{name}.yaml"), &one_instance(extra));
+        let problems = refused(&case, &file);
+        assert!(
+            problems.contains("instances[0].controllers.unit_merge: "),
             "{name}: {problems}"
         );
     }

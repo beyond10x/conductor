@@ -571,9 +571,12 @@ starts nothing, whatever the other members say. `GET /v1/instances/{name}/work/{
 answers the row, `404` `conductor.dispatch.WorkNotFound` for a reference no dispatch holds.
 
 Where `<records>/charters/<repository>.md` is missing or empty, the start first writes
-conductor's default charter there; a charter with text is never overwritten. The default charter
-has the session work the unit and nothing else, in one pull or merge request that it reports as
-`review <url>` and never merges (`merge: human`), and end with `done`, `failed` or `blocked`.
+conductor's default charter there; a charter with text is never overwritten, but one equal byte
+for byte to a default form is rewritten to the form `controllers.unit_merge` names. The default
+charter has the session work the unit and nothing else, in one pull or merge request that it
+reports as `review <url>`, and end with `done`, `failed` or `blocked`. With `unit_merge: human`,
+the default, it never merges the request (`merge: human`); with `controller` it merges it once its
+full gate passed and its checks are green (`merge: controller`).
 Any edit makes it the operator's charter, treated as any other. While it is unchanged, the
 repository gets a controller only for a dispatch.
 

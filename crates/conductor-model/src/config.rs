@@ -1,5 +1,5 @@
 // generated from conductor v1
-// contract digest 4db77cc1609eabc954004c5ea01cc712eee0414ec1c1828d6a9168ca9523cbd9
+// contract digest 1e51e8597d088c769b802ce8f4771c1aad9184faa80e8cdb7b667bcf452d7949
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! Config — `conductor.config`.
@@ -286,6 +286,8 @@ pub struct Controllers {
     pub max_subagents: i64,
     /// `max_open_reviews` — `Integer`.
     pub max_open_reviews: i64,
+    /// `unit_merge` — `conductor.config.UnitMerge`.
+    pub unit_merge: UnitMerge,
 }
 
 /// Daemon — `conductor.config.Daemon`.
@@ -1125,6 +1127,15 @@ pub struct Tokens(pub i64);
 pub struct TrustWorkspaces {
     /// `instance` — `Optional<String>`.
     pub instance: Option<String>,
+}
+
+/// UnitMerge — `conductor.config.UnitMerge`: one of a closed set of names.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UnitMerge {
+    /// `Controller`.
+    Controller,
+    /// `Human`.
+    Human,
 }
 
 /// UpgradeBinary — `conductor.config.UpgradeBinary`.
