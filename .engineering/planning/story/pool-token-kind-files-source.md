@@ -2,7 +2,7 @@
 format: aep.planning-md/3
 id: story:pool-token-kind-files-source
 kind: story
-status: active
+status: implemented
 title: A pool token carries its kind, and a files-source instance can take pool tokens
 summary: conductor join records whether a token is a subscription token or an API key, and works where the secrets source is files
 tags:
@@ -19,10 +19,11 @@ scope:
   path: crates/conductor/tests/token_pool.rs
 - confidence: cited
   path: spec/domains/token.yaml
-revision: 5
+revision: 6
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-18T08:24:07Z", actor: "human:unknown", revision: 3}
 - {from: "proposed", to: "active", at: "2026-11-18T08:24:07Z", actor: "human:unknown", revision: 4}
+- {from: "active", to: "implemented", at: "2026-11-19T23:49:57Z", actor: "human:unknown", revision: 6, decided_on: {"recorded":{"test_result":1}}}
 ---
 ## Why
 

@@ -2,7 +2,7 @@
 format: aep.planning-md/3
 id: story:limit-resume-at-reset
 kind: story
-status: active
+status: implemented
 title: A limited session resumes at the reset its limit line names, with no ais
 summary: Parse the 5-hour and weekly reset, resume at it, back off on a second limit, free the max_working place of a dead limited session
 refs:
@@ -25,10 +25,11 @@ scope:
   path: crates/conductor/src/watch.rs
 - confidence: cited
   path: crates/conductor/tests/run.rs
-revision: 4
+revision: 5
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-18T08:24:07Z", actor: "human:unknown", revision: 2}
 - {from: "proposed", to: "active", at: "2026-11-18T08:24:07Z", actor: "human:unknown", revision: 3}
+- {from: "active", to: "implemented", at: "2026-11-19T23:49:59Z", actor: "human:unknown", revision: 5, decided_on: {"recorded":{"test_result":1}}}
 ---
 ## Why
 

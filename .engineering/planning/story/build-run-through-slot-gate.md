@@ -2,7 +2,7 @@
 format: aep.planning-md/3
 id: story:build-run-through-slot-gate
 kind: story
-status: active
+status: implemented
 title: build run admits a boxed build through slot gate, with one slot ledger
 summary: Under SLOT_GATE, conductor build run takes its CPU share from slot's FIFO jobserver and does not count a second build slot of its own
 tags:
@@ -16,10 +16,11 @@ scope:
   path: crates/conductor/tests/build_run.rs
 - confidence: cited
   path: docs/design/slot-integration.md
-revision: 3
+revision: 4
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-18T09:36:29Z", actor: "human:unknown", revision: 2}
 - {from: "proposed", to: "active", at: "2026-11-18T09:36:29Z", actor: "human:unknown", revision: 3}
+- {from: "active", to: "implemented", at: "2026-11-19T23:50:05Z", actor: "human:unknown", revision: 4, decided_on: {"recorded":{"test_result":1}}}
 ---
 ## Why
 

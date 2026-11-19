@@ -2,7 +2,7 @@
 format: aep.planning-md/3
 id: story:box-harness-versions-dir
 kind: story
-status: active
+status: implemented
 title: A box reads the harness versions directory, so a host-side update still starts
 summary: Mount the link target's parent; a harness start error is a decider fault
 refs:
@@ -17,10 +17,11 @@ scope:
   path: crates/conductor/src/placement.rs
 - confidence: cited
   path: crates/conductor/tests/placement.rs
-revision: 4
+revision: 5
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-18T08:24:08Z", actor: "human:unknown", revision: 2}
 - {from: "proposed", to: "active", at: "2026-11-18T08:24:08Z", actor: "human:unknown", revision: 3}
+- {from: "active", to: "implemented", at: "2026-11-19T23:50:02Z", actor: "human:unknown", revision: 5, decided_on: {"recorded":{"test_result":1}}}
 ---
 ## Why
 
