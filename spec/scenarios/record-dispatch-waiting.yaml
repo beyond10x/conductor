@@ -1,0 +1,63 @@
+type: ess-scenario/1
+domain: conductor.dispatch
+scenario: record-dispatch-waiting
+summary: The loop records why a dispatch waits; the same reason again changes nothing, another replaces it.
+
+timeline:
+  - at: 2026-11-19T09:00:00Z
+    command: conductor.dispatch.SendDispatch
+    actor: conductor.dispatch.Conductor
+    input:
+      actor: {kind: ControlPlane}
+      dispatch_id: DSP-waits
+      repository: cortex
+      brief: Fix the login redirect
+      sent_at: 2026-11-19T09:00:00Z
+      priority: 0
+      reference: WI-2001
+    outcome: sent-for-reference
+
+  - at: 2026-11-19T09:05:00Z
+    command: conductor.dispatch.RecordDispatchWaiting
+    actor: conductor.dispatch.Conductor
+    input:
+      actor: {kind: Daemon}
+      dispatch_id: DSP-waits
+      reason: no complete snapshot
+    outcome: waiting
+
+  - at: 2026-11-19T09:10:00Z
+    command: conductor.dispatch.RecordDispatchWaiting
+    actor: conductor.dispatch.Conductor
+    input:
+      actor: {kind: Daemon}
+      dispatch_id: DSP-waits
+      reason: no complete snapshot
+    outcome: unchanged
+
+  - at: 2026-11-19T09:15:00Z
+    command: conductor.dispatch.RecordDispatchWaiting
+    actor: conductor.dispatch.Conductor
+    input:
+      actor: {kind: Daemon}
+      dispatch_id: DSP-waits
+      reason: "no charter\nmax_working 4 reached"
+    outcome: invalid-reason
+    error:
+      name: conductor.dispatch.InvalidWaitingReason
+
+  - at: 2026-11-19T09:20:00Z
+    command: conductor.dispatch.RecordDispatchWaiting
+    actor: conductor.dispatch.Conductor
+    input:
+      actor: {kind: Daemon}
+      dispatch_id: DSP-waits
+      reason: max_working 4 reached
+    outcome: waiting
+
+assert:
+  - view: conductor.dispatch.Dispatches
+    contains:
+      dispatch_id: DSP-waits
+      state: Sent
+      waiting: max_working 4 reached

@@ -246,9 +246,10 @@ fn adv_every_typed_flag_refuses_values_outside_its_type() {
 /// ledger leaves by `tests/build_run.rs` (`story:build-run`); the usage leaves by
 /// `tests/usage_probe.rs` (`story:usage-probe`); the `metric` leaves by `tests/metric.rs`
 /// (`story:kpi-records`); `tuner settings-proposals` by `tests/tuner.rs` (`story:tuner`);
-/// `dispatch record-link` by `tests/dispatch_reference.rs` (`story:control-plane-work-handler`). In
-/// the order the leaves are placed.
-const IMPLEMENTED: [&str; 105] = [
+/// `dispatch record-link` by `tests/dispatch_reference.rs` (`story:control-plane-work-handler`);
+/// `dispatch record-waiting` by `tests/run.rs` (`story:dispatch-waiting-reason`). In the order the
+/// leaves are placed.
+const IMPLEMENTED: [&str; 106] = [
     "snapshot complete-snapshot",
     "snapshot fail-snapshot",
     "snapshot publish-board",
@@ -313,6 +314,7 @@ const IMPLEMENTED: [&str; 105] = [
     "controller all-controllers",
     "dispatch cancel-dispatch",
     "dispatch record-link",
+    "dispatch record-waiting",
     "dispatch report-blocked",
     "dispatch report-done",
     "dispatch report-failed",

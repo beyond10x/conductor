@@ -290,6 +290,7 @@ pub fn send_dispatch<P: DispatchStorage + GoalStorage>(
         start_ref: input.start_ref,
         issue: input.issue,
         links: Vec::new(),
+        waiting: None,
     };
     if let Some(broken) = data.broken_invariant() {
         return Err(UnmetObligation {

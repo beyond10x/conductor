@@ -60,9 +60,15 @@ yields` while another process holds it. A runtime in a box writes to
 ## Controllers
 
 Each cycle, the loop starts a controller for each Active repository that has a charter,
-`<records>/charters/<repo>.md`, and no running or paused controller, in name order, while fewer
-than `controllers.max_working` run. It runs `conductor spawn --repository <repo>` and gives the
-controller its charter and the repository's open dispatch. The session is named
+`<records>/charters/<repo>.md`, and no running or paused controller, the one that has waited
+longest for a place first, while fewer than `controllers.max_working` run. It runs `conductor
+spawn --repository <repo>` and gives the controller its charter and the repository's open
+dispatch, or a new one for the first goal the repository serves that it has not finished: a
+repository with a `done` dispatch for every goal it serves gets no new one until you send it one
+(`conductor dispatch send-dispatch`). When every place is taken, a controller whose repository has
+no open dispatch and whose session is idle is stopped to give its place to the waiting repository.
+An open dispatch that gets no controller says why in the `waiting` column of `conductor dispatch
+dispatches`. The session is named
 `<session_prefix>-<repo>`. How it starts, and why `spawn` refuses, is in
 [sessions](/docs/security/sessions#who-starts-a-session).
 

@@ -104,6 +104,7 @@ Every command takes these, before or after its name.
 | [`conductor dispatch`](#conductor-dispatch) | Briefs to controllers and their reports |
 | [`conductor dispatch cancel-dispatch`](#conductor-dispatch-cancel-dispatch) | Cancel a dispatch |
 | [`conductor dispatch record-link`](#conductor-dispatch-record-link) | Record a link on a dispatch |
+| [`conductor dispatch record-waiting`](#conductor-dispatch-record-waiting) | Record why a dispatch waits |
 | [`conductor dispatch report-blocked`](#conductor-dispatch-report-blocked) | Report a dispatch blocked |
 | [`conductor dispatch report-done`](#conductor-dispatch-report-done) | Report a dispatch done |
 | [`conductor dispatch report-failed`](#conductor-dispatch-report-failed) | Report a dispatch failed |
@@ -1382,6 +1383,21 @@ Usage: conductor dispatch record-link [OPTIONS]
 |---|---|---|---|
 | `--dispatch-id <DISPATCH_ID>` | no | none | DispatchId, starting with `DSP-` |
 | `--link <LINK>` | no | none | string |
+| `--actor <ACTOR>` | no | none | Actor, as the records print it (`human:<name>`, `agent:<instance>/<role>/<name>`, `daemon`) or one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`, `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`; default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the operator |
+| `--input-json <INPUT_JSON>` | no | none | Read the input fields from standard input, as one JSON object One of `-`. |
+
+## `conductor dispatch record-waiting`
+
+Record why a dispatch waits
+
+```text
+Usage: conductor dispatch record-waiting [OPTIONS]
+```
+
+| Argument | Required | Default | Meaning |
+|---|---|---|---|
+| `--dispatch-id <DISPATCH_ID>` | no | none | DispatchId, starting with `DSP-` |
+| `--reason <REASON>` | no | none | string; absent clears the reason the dispatch holds |
 | `--actor <ACTOR>` | no | none | Actor, as the records print it (`human:<name>`, `agent:<instance>/<role>/<name>`, `daemon`) or one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`, `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`; default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the operator |
 | `--input-json <INPUT_JSON>` | no | none | Read the input fields from standard input, as one JSON object One of `-`. |
 

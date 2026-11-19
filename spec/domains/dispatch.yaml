@@ -220,8 +220,8 @@ types:
   # spawn` and `SendDispatch`), `started`, `blocked`, `unblocked`, `done`, `failed` (the `Report*`
   # commands), `cancelled` (`CancelDispatch`), `message-received` (`ReceiveMessage`),
   # `resource-granted`, `resource-refused` (`GrantResource`, `RefuseResource`),
-  # `charter-revised` (`ReviseCharter`) and `linked` (`RecordDispatchLink`, a link the dispatch did
-  # not hold). The work call and the loop write `start-refused`, a start of a controller for a
+  # `charter-revised` (`ReviseCharter`), `linked` (`RecordDispatchLink`, a link the dispatch did
+  # not hold) and `waiting` (`RecordDispatchWaiting`, a reason the dispatch did not hold). The work call and the loop write `start-refused`, a start of a controller for a
   # dispatch with a `reference` that was refused (`WorkStartRefusal`).
   # The run daemon writes the rest (story:run-daemon, docs/design/conductor-run.md § 3), one per
   # action its handlers take, and `conductor session deliver` writes `delivered`
@@ -276,6 +276,7 @@ types:
       - RecordsCommitted
       - RecordsCommitRefused
       - StartRefused
+      - Waiting
 
   # One line of `<records>/dispatches/YYYY-MM.jsonl`: a JSON object holding `at` (when it was
   # written, RFC 3339 UTC), `event`, `repo` (the repository; the key is `repo`, never
@@ -285,6 +286,8 @@ types:
   # - `sent` by `SendDispatch`: `id`, `to` (the repository's session name), `brief`, `priority`,
   #   and each of `goal`, `reference`, `start_ref`, `issue` and `waits_on` that was given;
   # - `linked` by `RecordDispatchLink`: `id` and `link`, the link appended;
+  # - `waiting` by `RecordDispatchWaiting`: `id` and `reason`, the reason recorded, and `tick_id`
+  #   when the loop's cycle wrote it;
   # - `sent` by `conductor spawn`: `controller_id`, `to`, `session_id` (what `claude --bg`
   #   printed) and `charter_revision`;
   # - `start-refused`: `id` (the dispatch), `reason` (the `WorkStartRefusal`'s name) and `line`
@@ -536,6 +539,12 @@ entities:
       # they were recorded, each once, at most 32.
       - name: links
         type: List<String>
+      # Why the loop starts no controller for the dispatch while it is open and its repository
+      # runs none (story:dispatch-waiting-reason): the reason the cycle's dispatch v1 found last,
+      # recorded through `RecordDispatchWaiting`, and cleared once a controller of the repository
+      # runs. One line.
+      - name: waiting
+        type: Optional<String>
     relations:
       - name: goal
         kind: references
@@ -702,6 +711,7 @@ actors:
       - conductor.dispatch.ReportFailed
       - conductor.dispatch.CancelDispatch
       - conductor.dispatch.RecordDispatchLink
+      - conductor.dispatch.RecordDispatchWaiting
       - conductor.dispatch.ReceiveMessage
       - conductor.dispatch.HandleMessage
       - conductor.dispatch.RejectMessage
@@ -882,6 +892,12 @@ errors:
 
   - name: conductor.dispatch.DispatchLinksFull
     summary: The dispatch holds 32 links, the most it holds, so the link was not recorded.
+    fields:
+      - name: dispatch_id
+        type: conductor.dispatch.DispatchId
+
+  - name: conductor.dispatch.InvalidWaitingReason
+    summary: A waiting reason is one line that is not empty, so it was not recorded.
     fields:
       - name: dispatch_id
         type: conductor.dispatch.DispatchId
@@ -1776,6 +1792,89 @@ commands:
             link: input.link
         summary: The link is the dispatch's last.
 
+  # Records line (`DispatchLogLine`): `waiting`, with `id` and `reason`, when a reason the dispatch
+  # did not hold was recorded; none when the reason is cleared or unchanged
+  # (story:dispatch-waiting-reason). The loop's cycle records, after dispatch v1, why it started no
+  # controller for each open dispatch whose repository runs none (no complete snapshot, the
+  # repository Inactive, no charter, `controllers.max_working` reached, the review cap, a usage
+  # limit, the goal done in another dispatch, a start refused with its error), and clears the
+  # reason of each open dispatch whose repository runs a controller. A reason is one line that is
+  # not empty (no line feed, carriage return or tab); a dispatch in any state takes it.
+  - name: conductor.dispatch.RecordDispatchWaiting
+    naming:
+      wire: record-waiting
+      display: Record why a dispatch waits
+    input:
+      - {name: actor, type: conductor.operator.Actor}
+      - name: dispatch_id
+        type: conductor.dispatch.DispatchId
+      # The reason; absent clears the one held.
+      - name: reason
+        type: Optional<String>
+        example: "max_working 4 reached"
+    outcomes:
+      - name: invalid-reason
+        when:
+          all:
+            - defined(reason)
+            - any:
+                - {reason: ""}
+                - reason: {contains: "\n"}
+                - reason: {contains: "\r"}
+                - reason: {contains: "\t"}
+        error: conductor.dispatch.InvalidWaitingReason
+        payload:
+          conductor.dispatch.InvalidWaitingReason:
+            dispatch_id: input.dispatch_id
+        summary: A reason is one line that is not empty; nothing was recorded.
+      - name: no-such-dispatch
+        unknown_instance: true
+        error: conductor.dispatch.DispatchNotFound
+        payload:
+          conductor.dispatch.DispatchNotFound:
+            dispatch_id: input.dispatch_id
+      - name: unchanged
+        when_subject:
+          predicate:
+            any:
+              - all:
+                  - not defined(waiting)
+                  - not defined(input.reason)
+              - all:
+                  - defined(waiting)
+                  - defined(input.reason)
+                  - waiting == input.reason
+        preserves: conductor.dispatch.Dispatch
+        instance: dispatch_id
+        summary: The dispatch holds that reason, or none and none was given; it is unchanged.
+      - name: cleared
+        when: not defined(reason)
+        updates: conductor.dispatch.Dispatch
+        instance: dispatch_id
+        sets:
+          waiting: {cleared: true}
+        emits:
+          - conductor.dispatch.DispatchWaitingRecorded
+        payload:
+          conductor.dispatch.DispatchWaitingRecorded:
+            actor: input.actor
+            dispatch_id: input.dispatch_id
+            reason: input.reason
+        summary: The dispatch holds no reason.
+      - name: waiting
+        updates: conductor.dispatch.Dispatch
+        instance: dispatch_id
+        sets:
+          waiting: input.reason
+        emits:
+          - conductor.dispatch.DispatchWaitingRecorded
+        payload:
+          conductor.dispatch.DispatchWaitingRecorded:
+            actor: input.actor
+            dispatch_id: input.dispatch_id
+            reason: input.reason
+        summary: The reason is the dispatch's.
+
   # Records line (`DispatchLogLine`): `message-received`, with `id`, `from`, `to`, `kind` and
   # `first_line`, whether the message is received or rejected at receipt.
   # Over `Mailbox` (story:mailbox-send-and-deliver) the caller is `conductor message send`, which
@@ -2310,6 +2409,15 @@ events:
       - name: link
         type: String
 
+  - name: conductor.dispatch.DispatchWaitingRecorded
+    fields:
+      - name: actor
+        type: conductor.operator.Actor
+      - name: dispatch_id
+        type: conductor.dispatch.DispatchId
+      - name: reason
+        type: Optional<String>
+
   - name: conductor.dispatch.DispatchStarted
     fields:
       - name: actor
@@ -2504,6 +2612,8 @@ views:
         type: Optional<String>
       - name: links
         type: List<String>
+      - name: waiting
+        type: Optional<String>
     naming:
       wire: dispatches
       display: Dispatches

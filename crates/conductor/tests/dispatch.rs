@@ -280,6 +280,7 @@ fn a_dispatch_against_g9_moves_sent_started_blocked_started_done_and_another_is_
             "start_ref": null,
             "issue": null,
             "links": [],
+            "waiting": null,
         })
     );
 

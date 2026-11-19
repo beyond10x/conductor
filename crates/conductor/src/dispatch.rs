@@ -40,16 +40,16 @@ use conductor_model::behaviour::{
 };
 use conductor_model::direction::GoalId;
 use conductor_model::dispatch::obligations::{
-    CancelDispatchBehavior, DispatchesQuery, RecordDispatchLinkBehavior, ReportBlockedBehavior,
-    ReportDoneBehavior, ReportFailedBehavior, ReportStartedBehavior, ReportUnblockedBehavior,
-    SendDispatchBehavior,
+    CancelDispatchBehavior, DispatchesQuery, RecordDispatchLinkBehavior,
+    RecordDispatchWaitingBehavior, ReportBlockedBehavior, ReportDoneBehavior, ReportFailedBehavior,
+    ReportStartedBehavior, ReportUnblockedBehavior, SendDispatchBehavior,
 };
 use conductor_model::dispatch::{
     CancelDispatch, CancelDispatchOutcome, DispatchId, DispatchLogEvent, DispatchLogLine,
-    DispatchState, RecordDispatchLink, RecordDispatchLinkOutcome, ReportBlocked,
-    ReportBlockedOutcome, ReportDone, ReportDoneOutcome, ReportFailed, ReportFailedOutcome,
-    ReportStarted, ReportStartedOutcome, ReportUnblocked, ReportUnblockedOutcome, SendDispatch,
-    SendDispatchOutcome,
+    DispatchState, RecordDispatchLink, RecordDispatchLinkOutcome, RecordDispatchWaiting,
+    RecordDispatchWaitingOutcome, ReportBlocked, ReportBlockedOutcome, ReportDone,
+    ReportDoneOutcome, ReportFailed, ReportFailedOutcome, ReportStarted, ReportStartedOutcome,
+    ReportUnblocked, ReportUnblockedOutcome, SendDispatch, SendDispatchOutcome,
 };
 use conductor_model::obligation::UnmetObligation;
 use conductor_model::observation::RepositoryName;
@@ -57,8 +57,9 @@ use conductor_model::primitives::Timestamp;
 use serde_json::Value;
 
 use crate::cli::{
-    CancelDispatchArgs, JsonInput, RecordDispatchLinkArgs, ReportBlockedArgs, ReportDoneArgs,
-    ReportFailedArgs, ReportStartedArgs, ReportUnblockedArgs, SendDispatchArgs, ViewArgs,
+    CancelDispatchArgs, JsonInput, RecordDispatchLinkArgs, RecordDispatchWaitingArgs,
+    ReportBlockedArgs, ReportDoneArgs, ReportFailedArgs, ReportStartedArgs, ReportUnblockedArgs,
+    SendDispatchArgs, ViewArgs,
 };
 use crate::decide::{ATTEMPTS, highest, in_allocator_form, next_id, utc_day};
 use crate::not_implemented;
@@ -738,6 +739,95 @@ pub fn link(
     })
 }
 
+/// `conductor dispatch record-waiting`: the command `conductor.dispatch.RecordDispatchWaiting`,
+/// through [`wait`] (`story:dispatch-waiting-reason`). A reason the dispatch holds already, or no
+/// reason where it holds none, changes nothing and writes no line.
+///
+/// # Errors
+///
+/// `--dispatch-id` is missing, `--input-json` is given ([`NotImplemented`](crate::NotImplemented)),
+/// the store does not open or keep the reason, or the specification refuses it:
+/// `InvalidWaitingReason`, `DispatchNotFound`.
+pub fn record_waiting(state: Option<&Path>, args: RecordDispatchWaitingArgs) -> Result<ExitCode> {
+    const COMMAND: &str = "dispatch record-waiting";
+    flags_only(args.input_json, "dispatch record-waiting --input-json")?;
+    let actor = crate::actor::chosen();
+    let dispatch = dispatch_id(COMMAND, args.dispatch_id)?;
+    match wait(state, dispatch, args.reason, actor, None)? {
+        Waiting::Recorded | Waiting::Held => Ok(ExitCode::SUCCESS),
+        Waiting::Refused { error, detail } => refused(COMMAND, error, &detail),
+    }
+}
+
+/// What recording why a dispatch waits answered ([`wait`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Waiting {
+    /// The reason is the dispatch's, or it holds none now; a `waiting` line is written for a
+    /// reason.
+    Recorded,
+    /// The dispatch held that reason, or none and none was given: nothing changed.
+    Held,
+    /// The specification refused it: the error's name in `conductor.dispatch` and its one line.
+    Refused { error: &'static str, detail: String },
+}
+
+/// Records `reason` as why the dispatch `dispatch` waits, or clears the reason it holds when none
+/// is given, as `actor` (`conductor.dispatch.RecordDispatchWaiting`): the code `dispatch
+/// record-waiting` runs, and the loop's cycle (`story:dispatch-waiting-reason`), whose `tick` id
+/// the `waiting` line carries.
+///
+/// # Errors
+///
+/// The store does not open or keep the reason, or the records' line is not written.
+pub fn wait(
+    state: Option<&Path>,
+    dispatch: DispatchId,
+    reason: Option<String>,
+    actor: conductor_model::operator::Actor,
+    tick: Option<&str>,
+) -> Result<Waiting> {
+    const COMMAND: &str = "dispatch record-waiting";
+    let input = RecordDispatchWaiting {
+        actor,
+        dispatch_id: dispatch,
+        reason,
+    };
+    let (outcome, store) = run(state, COMMAND, |generated| {
+        generated.record_dispatch_waiting(input)
+    })?;
+    Ok(match outcome {
+        RecordDispatchWaitingOutcome::Waiting {
+            dispatch_waiting_recorded,
+        } => {
+            let _ = logged(
+                COMMAND,
+                &store,
+                &dispatch_waiting_recorded.dispatch_id,
+                DispatchLogEvent::Waiting,
+                |line| {
+                    line.reason = dispatch_waiting_recorded.reason.clone();
+                    line.tick_id = tick.map(str::to_owned);
+                },
+            )?;
+            Waiting::Recorded
+        }
+        RecordDispatchWaitingOutcome::Cleared { .. } => Waiting::Recorded,
+        RecordDispatchWaitingOutcome::Unchanged => Waiting::Held,
+        RecordDispatchWaitingOutcome::InvalidReason { error } => Waiting::Refused {
+            error: "InvalidWaitingReason",
+            detail: format!(
+                "the reason for dispatch {} is empty or more than one line, so nothing was \
+                 recorded",
+                error.dispatch_id.0
+            ),
+        },
+        RecordDispatchWaitingOutcome::NoSuchDispatch { error } => Waiting::Refused {
+            error: "DispatchNotFound",
+            detail: format!("no dispatch has the id {}", error.dispatch_id.0),
+        },
+    })
+}
+
 /// `conductor dispatch report-started`: the command `conductor.dispatch.ReportStarted`.
 ///
 /// # Errors
@@ -1002,7 +1092,7 @@ pub fn cancel_dispatch(state: Option<&Path>, args: CancelDispatchArgs) -> Result
 /// output.
 pub fn dispatches(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> {
     /// The view's fields, in the specification's order (`spec/domains/dispatch.yaml`).
-    const COLUMNS: [&str; 13] = [
+    const COLUMNS: [&str; 14] = [
         "dispatch_id",
         "state",
         "repository",
@@ -1016,6 +1106,7 @@ pub fn dispatches(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> {
         "start_ref",
         "issue",
         "links",
+        "waiting",
     ];
 
     let generated = Generated::new(crate::state::open_reader(state)?);
@@ -1039,6 +1130,7 @@ pub fn dispatches(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> {
                 Value::from(row.start_ref),
                 Value::from(row.issue),
                 Value::from(row.links),
+                Value::from(row.waiting),
             ]
         })
         .collect();
