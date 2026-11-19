@@ -2,40 +2,73 @@
 format: aep.planning-md/3
 id: story:failing-start-recreates-box
 kind: story
-status: draft
-title: A start that keeps failing on a gone box recreates the box once, then alerts
+status: active
+title: A box substrate answers as gone is forgotten and a new one opened; a failed recreation alerts
 summary: No silent retry of a stored box substrate no longer holds
 refs:
 - provider: github
   reference: beyond10x/conductor#207
 relations:
 - decomposes: epic:routine-duties-in-loop
-revision: 1
+- depends_on: story:loop-alerts-when-it-cannot-act
+scope:
+- confidence: cited
+  path: crates/conductor/src/daemon/reconcile.rs
+- confidence: cited
+  path: crates/conductor/src/placement.rs
+- confidence: cited
+  path: crates/conductor/tests/placement.rs
+revision: 9
+transitions:
+- {from: "draft", to: "proposed", at: "2026-11-19T19:24:59Z", actor: "human:unknown", revision: 8}
+- {from: "proposed", to: "active", at: "2026-11-19T19:24:59Z", actor: "human:unknown", revision: 9}
 ---
 ## Why
 
 An instance whose stored box names a workspace that no longer exists failed its start with
-`resource.not-found` every minute for 19 hours with no alert (#207). The daemon's reconcile
-(`crates/conductor/src/daemon/reconcile.rs`, `retry_after`, `story:box-crash-loop-reads-failed`)
-backs off and retries the same stored box for ever.
+`resource.not-found` every minute for 19 hours with no alert (#207). A boxed start first closes the
+box the daemon holds for the instance: `start_runtime` -> `close_strays`
+(`crates/conductor/src/daemon/reconcile.rs:1460-1468`) -> `stop_runtime` -> `close_box`
+(`:1617-1640`). When substrate answers that the workspace does not exist, the close fails, the
+entry stays in `boxes.json`, nothing is opened, and every pass fails the same way. The run-bound
+restart (`keep_boxes` -> `restart_in_box`, `:723-835`) reuses the same stored workspace and keeps
+its old `started_at` on a refusal, so it is asked again every tick.
 
 ## Outcome
 
-A start that fails the same way repeatedly because the stored box is gone recreates the box once,
-and, should that fail too, raises one alert instead of retrying silently.
+A stored box substrate answers as gone is forgotten and a new box is opened in the same pass;
+should the new box's start fail as well, the operator gets one alert instead of a silent retry.
 
 ## Acceptance
 
-- After N failed starts in a row (a constant named in the code) whose runtime log or substrate
-  answer names a missing resource of the stored box, the daemon drops the stored box reference and
-  opens a new box for the instance, recorded as one line in the daemon log and the instance's
-  start record.
-- When the recreated start also fails, the instance reads `failed` with the cause on
-  `/v1/instances` and in `conductor doctor`, and one alert line goes to the operator
-  (`story:loop-alerts-when-it-cannot-act`).
-- A test with a fake substrate answering `resource.not-found` fails on main.
+- Substrate's not-found answer is one named constant in `crates/conductor/src/placement.rs`
+  (`resource.not-found`). A close of the stored box, or a run-bound restart in it, that substrate
+  answers with it removes the box from `boxes.json`, frees its slot, and the pass (for a restart,
+  the next pass) opens a new
+  box through `start_runtime`; the daemon log has one line naming the forgotten workspace, and the
+  pass records one `Start` (`Succeeded` when the new box opens).
+- A new box whose start then fails follows the existing row of failed starts (`failed_start`,
+  `retry_after`; the instance reads `Unreachable` on `/v1/instances` with the refusal as detail),
+  and the first failure of a recreated box raises one alert through `crate::alert`, condition
+  `box-not-recreated`, subject the instance; a second failure of the same row raises none.
+- Tests in `crates/conductor/tests/placement.rs` with its fake substrate (`Fake`, `:136`; its
+  `close` at `:192`, `keep_boxes` driven at `:2225`), none binding a socket, each failing on main:
+  a close answered not-found leads to a new box in the same pass and no `Refused` record; a
+  restart answered not-found leads to a new box at the next pass; a recreated box whose open is refused raises one alert
+  over three passes.
 
 ## Boundaries
 
-The daemon never removes a box's workspace data; it only forgets the reference to a box substrate
-no longer holds.
+The daemon never removes a workspace's data and closes no box substrate still holds; it only
+forgets its reference to one substrate answered as gone. Any other close or restart failure keeps
+today's behaviour.
+
+## Scope
+
+`crates/conductor/src/daemon/reconcile.rs`, `crates/conductor/src/placement.rs`,
+`crates/conductor/tests/placement.rs`.
+
+## Notes
+
+Depends on `story:loop-alerts-when-it-cannot-act` for `crate::alert`. Shares no file with
+`story:unit-merge-policy` or `story:need-starts-unit-of-work`.
