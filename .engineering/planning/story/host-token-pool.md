@@ -2,7 +2,7 @@
 format: aep.planning-md/3
 id: story:host-token-pool
 kind: story
-status: active
+status: implemented
 title: 'The host''s token pool: conductord owns it and leases its tokens to every instance, boxed or not'
 summary: One pool per host in conductord's store; join and leave change it with no config edit or restart; a token serves several sessions; a boxed runtime leases through conductord
 tags:
@@ -38,10 +38,11 @@ scope:
   path: crates/conductor/tests/token_pool.rs
 - confidence: cited
   path: spec/domains/token.yaml
-revision: 7
+revision: 8
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-18T11:48:53Z", actor: "human:unknown", revision: 4}
 - {from: "proposed", to: "active", at: "2026-11-18T11:48:53Z", actor: "human:unknown", revision: 5}
+- {from: "active", to: "implemented", at: "2026-11-19T17:02:28Z", actor: "human:unknown", revision: 8, decided_on: {"recorded":{"test_result":1}}}
 ---
 ## Why
 

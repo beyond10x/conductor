@@ -2,7 +2,7 @@
 format: aep.planning-md/3
 id: story:box-memory-default
 kind: story
-status: active
+status: implemented
 title: A box's default memory fits the controllers it runs, and doctor says when it does not
 summary: The 8 GiB default memory_max of a box is derived from controllers.max_working, or doctor reports a box whose cap is below what its controllers need
 tags:
@@ -23,10 +23,11 @@ scope:
   path: crates/conductor/tests/placement.rs
 - confidence: inferred
   path: spec/domains/config.yaml
-revision: 7
+revision: 8
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-18T11:48:53Z", actor: "human:unknown", revision: 6}
 - {from: "proposed", to: "active", at: "2026-11-18T11:48:54Z", actor: "human:unknown", revision: 7}
+- {from: "active", to: "implemented", at: "2026-11-19T17:02:27Z", actor: "human:unknown", revision: 8, decided_on: {"recorded":{"test_result":1}}}
 ---
 ## Why
 

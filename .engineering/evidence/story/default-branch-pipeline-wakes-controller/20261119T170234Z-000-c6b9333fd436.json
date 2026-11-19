@@ -1,0 +1,12 @@
+{
+  "at": "2026-11-19T17:02:34Z",
+  "actor": "human:unknown",
+  "artifact": "story:default-branch-pipeline-wakes-controller",
+  "kind": "story",
+  "revision": 5,
+  "change": {
+    "change": "evidence",
+    "kind": "test_result",
+    "source": "https://github.com/beyond10x/conductor/actions/runs/44564863390/job/135703737295\nhttps://github.com/beyond10x/conductor/actions/runs/44559219922/job/135683576437"
+  }
+}

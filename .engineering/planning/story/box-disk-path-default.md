@@ -2,7 +2,7 @@
 format: aep.planning-md/3
 id: story:box-disk-path-default
 kind: story
-status: active
+status: implemented
 title: A boxed instance's disk thresholds read the filesystem its builds write
 summary: Absent thresholds.disk_path, a box measures free disk on its checkouts root, not on the box's tmpfs root
 tags:
@@ -32,10 +32,11 @@ scope:
   path: crates/conductor/tests/free_space.rs
 - confidence: cited
   path: spec/domains/config.yaml
-revision: 7
+revision: 8
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-18T14:13:12Z", actor: "human:unknown", revision: 6}
 - {from: "proposed", to: "active", at: "2026-11-18T14:13:13Z", actor: "human:unknown", revision: 7}
+- {from: "active", to: "implemented", at: "2026-11-19T17:02:27Z", actor: "human:unknown", revision: 8, decided_on: {"recorded":{"test_result":1}}}
 ---
 ## Why
 
