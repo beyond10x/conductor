@@ -37,7 +37,7 @@ use std::time::{Duration, Instant};
 
 use anyhow::bail;
 use conductor_cli::config;
-use conductor_cli::run::{self, Headroom, Seams};
+use conductor_cli::run::{self, Seams};
 use conductor_cli::session::{Deliverer, Delivery};
 use serde_json::{Value, json};
 
@@ -461,15 +461,6 @@ impl Deliverer for Nobody {
     }
 }
 
-/// The headroom of the child cycle: always.
-struct Plenty;
-
-impl Headroom for Plenty {
-    fn headroom(&self) -> anyhow::Result<bool> {
-        Ok(true)
-    }
-}
-
 /// The child cycle ([`Case::cycle`]); a plain run of the suite passes at once. It fixes the
 /// case's config file as the process's instance and runs one cycle tick, whose steps run the
 /// program [`CHILD`] names, and prints its summary as JSON.
@@ -484,7 +475,6 @@ fn child() {
     let seams = Seams {
         providers: &host,
         deliverer: &Nobody,
-        headroom: &Plenty,
         handle_request: None,
         program: PathBuf::from(program),
         gc: conductor_cli::gc::gc,

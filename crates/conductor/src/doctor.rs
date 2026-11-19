@@ -1678,7 +1678,8 @@ fn kind_lines(flag: Option<&Path>) -> Vec<(String, Option<String>)> {
 /// token does not reach the box and prints the `--secret-slot` flag that declares the slot;
 /// it is reported, not a failure, as a usage watcher not running is: the box starts and runs
 /// without it. Every box gets the row of [`memory_line`] when its written memory cap is below
-/// what its controllers need. A box the local daemon would open gets the rows of [`forge_work_lines`] and
+/// what its controllers need, and that of [`disk_path_line`] when its `thresholds.disk_path` is on
+/// its tmpfs. A box the local daemon would open gets the rows of [`forge_work_lines`] and
 /// [`bypass_line`]. It opens no box, starts nothing and writes nothing; only
 /// [`doctor_with`] calls it, never [`check_in`], which the dashboard's health thread repeats.
 /// A config that does not load, no config file, and a file that writes no `daemon.store`
@@ -1794,6 +1795,7 @@ fn box_lines(
                 ),
             }];
             rows.extend(memory_line(name, instance));
+            rows.extend(disk_path_line(name, instance, &request.writable_roots));
             // Reported, not a failure: the box starts without the slot.
             if let (None, Some(unsealed)) = (&refused, &answer.unsealed) {
                 rows.push((format!("box {name} token: {}", one_line(unsealed)), None));
@@ -1823,6 +1825,32 @@ fn memory_line(name: &str, instance: &Instance) -> Option<(String, Option<String
             format!(
                 "box {name} memory: {written}G for {controllers} controllers; set \
                  limits.memory_max to at least {needed}G"
+            ),
+            None,
+        )
+    })
+}
+
+/// The row of the box of the instance `name` whose `thresholds.disk_path` lies under none of
+/// `roots`, the directories the box writes, so on the box's tmpfs root
+/// (`story:box-disk-path-default`): `box <name> disk_path: <path> is on the box's tmpfs, under
+/// no directory the box writes; set thresholds.disk_path to one, such as <checkouts root>`.
+/// Reported, not a failure: the box starts, and its builds wait on the tmpfs's free disk. A
+/// `disk_path` at or under a writable root gets none.
+fn disk_path_line(
+    name: &str,
+    instance: &Instance,
+    roots: &[crate::placement::HostRoot],
+) -> Option<(String, Option<String>)> {
+    let disk = Path::new(&instance.thresholds.disk_path);
+    let written = roots.iter().any(|root| disk.starts_with(&root.path));
+    (!written).then(|| {
+        (
+            format!(
+                "box {name} disk_path: {} is on the box's tmpfs, under no directory the box \
+                 writes; set thresholds.disk_path to one, such as {}",
+                disk.display(),
+                instance.checkouts.root
             ),
             None,
         )

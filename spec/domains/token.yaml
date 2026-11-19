@@ -86,7 +86,7 @@ entities:
   #
   # Lifecycle: `Available` once contributed, whatever its leases; `Limited` once an agent on it
   # stopped at a usage limit, until `limited_until`; `Available` again once restored (a lease of
-  # a Limited token whose time is past, or with the account's headroom back, restores it first);
+  # a Limited token whose time is past restores it first; story:limit-aware-token-reassignment);
   # `Withdrawn` once its owner withdrew it (`conductor leave`).
   #
   # UNMAPPED: `owner` names a `conductor.operator.Operator`, keyed by `OperatorKey {operator,
@@ -521,8 +521,8 @@ commands:
             token_id: input.token_id
         summary: The token is withdrawn, so no agent on it hit a limit; nothing changed.
 
-  # A Limited token is leased again (story:token-pool): once its `limited_until` is past, or,
-  # with the account's headroom back (today's `auto-resume`). The runtime restores it before the
+  # A Limited token is leased again (story:token-pool) once its `limited_until` is past, and
+  # never before (story:limit-aware-token-reassignment). The runtime restores it before the
   # lease: `Ok` again, `limited_until` cleared.
   - name: conductor.token.RestoreToken
     naming:

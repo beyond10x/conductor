@@ -20,7 +20,8 @@
 //! `systemctl`, `gh`, `notify-send` and `aep`, which do nothing.
 //!
 //! The ticks are run through the library in a child of this test binary ([`child`]), with a
-//! [`Recorder`] in place of the real deliverer and a headroom read from `fake/headroom`; the
+//! [`Recorder`] in place of the real deliverer; a usage limit's reset is passed by moving the one
+//! the loop keeps ([`Case::reset_passed`]); the
 //! controllers are spawned and stopped by hand through the built binary. One case gives the
 //! instance a token pool first ([`pool`]), in a child run too.
 
@@ -35,7 +36,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::Result;
 use conductor_cli::config;
-use conductor_cli::run::{self, Headroom, Seams};
+use conductor_cli::run::{self, Seams};
 use conductor_cli::session::{Deliverer, Delivery};
 use conductor_model::behaviour::PoolTokenStorage;
 use conductor_model::operator::OperatorName;
@@ -84,17 +85,6 @@ impl Deliverer for Recorder {
     }
 }
 
-/// The headroom of a child run: `yes` in `fake/headroom`.
-struct FileHeadroom {
-    dir: PathBuf,
-}
-
-impl Headroom for FileHeadroom {
-    fn headroom(&self) -> Result<bool> {
-        Ok(fs::read_to_string(self.dir.join("headroom")).is_ok_and(|text| text.trim() == "yes"))
-    }
-}
-
 /// The child run of this test binary ([`Case::tick`]); a plain run of the suite passes at once.
 /// It fixes the case's config file as the process's instance and runs a watch tick over the
 /// fixture lines; it prints the tick's summary as JSON and exits 0, or names the error and
@@ -113,12 +103,10 @@ fn child() {
     }
     let fake = PathBuf::from(spec["fake"].as_str().expect("the fake directory"));
     let deliverer = Recorder { dir: fake.clone() };
-    let headroom = FileHeadroom { dir: fake };
     let host = conductor_cli::confine::Host;
     let seams = Seams {
         providers: &host,
         deliverer: &deliverer,
-        headroom: &headroom,
         handle_request: None,
         program: PathBuf::from(spec["program"].as_str().expect("the conductor binary")),
         gc: conductor_cli::gc::gc,
@@ -799,8 +787,8 @@ fn an_entry_that_names_no_controller_stands_only_for_the_session_its_line_names(
 }
 
 /// An entry the binary before this story wrote, for a session a usage limit stopped: the list
-/// keeps that session without a `pid`, so the entry is still tied to it, and the tick with
-/// headroom spawns the controller afresh, as before the upgrade, and does not resume it.
+/// keeps that session without a `pid`, so the entry is still tied to it, and the tick past
+/// its reset spawns the controller afresh, as before the upgrade, and does not resume it.
 #[test]
 fn a_limited_session_asked_by_an_earlier_version_is_spawned_afresh() {
     let case = Case::new("limited-earlier-version");
@@ -813,7 +801,6 @@ fn a_limited_session_asked_by_an_earlier_version_is_spawned_afresh() {
         })
         .to_string(),
     );
-    write(&case.fake().join("headroom"), "no");
     let (marked, _) = case.actions(&["usage limit: You've hit your limit; 1 sessions: ex-alpha"]);
     assert_eq!(marked, ["usage-limit"]);
     write(
@@ -826,7 +813,7 @@ fn a_limited_session_asked_by_an_earlier_version_is_spawned_afresh() {
         .to_string(),
     );
 
-    write(&case.fake().join("headroom"), "yes");
+    case.reset_passed();
     let (actions, journal) = case.actions(&[]);
     assert_eq!(actions, ["sent", "controller-restarted"], "{journal:?}");
     assert_eq!(case.launches(), 2, "a fresh spawn: {journal:?}");
@@ -942,7 +929,7 @@ fn a_resume_on_another_token_keeps_the_request_to_the_session_asked() {
 /// A session a usage limit stopped is spawned afresh, not resumed, only when the hand-over was
 /// asked of its own controller: with an entry of another controller under its session name it
 /// is resumed from its transcript, as one never asked. The entry is written between the ticks,
-/// so the tick that has headroom reads it before anything forgot it.
+/// so the tick past the reset reads it before anything forgot it.
 #[test]
 fn a_limited_session_with_an_entry_of_another_controller_is_resumed_not_respawned() {
     let case = Case::new("limited-other-controller");
@@ -956,7 +943,6 @@ fn a_limited_session_with_an_entry_of_another_controller_is_resumed_not_respawne
         })
         .to_string(),
     );
-    write(&case.fake().join("headroom"), "no");
     let (marked, _) = case.actions(&["usage limit: You've hit your limit; 1 sessions: ex-alpha"]);
     assert_eq!(marked, ["usage-limit"]);
     write(
@@ -970,7 +956,7 @@ fn a_limited_session_with_an_entry_of_another_controller_is_resumed_not_respawne
         .to_string(),
     );
 
-    write(&case.fake().join("headroom"), "yes");
+    case.reset_passed();
     let (actions, journal) = case.actions(&[]);
     assert_eq!(actions, ["resumed"], "{journal:?}");
     assert_eq!(case.launches(), 1, "no fresh spawn");
@@ -1008,14 +994,13 @@ impl Case {
 /// `handovers()` in a tick, and restarts a session a usage limit marked when a hand-over was
 /// asked of it. The session was asked, then marked by a usage limit; it was ended and started
 /// again by hand under the same name, after the delivery, once the limit lifted; the next tick
-/// has headroom. The loop stops nothing: the session that holds the name started after the
+/// is past the reset. The loop stops nothing: the session that holds the name started after the
 /// delivery.
 #[test]
 fn adversary_a_session_started_after_the_delivery_is_not_stopped_by_the_usage_limit_path() {
     let case = Case::new("adversary-limited-younger");
     let controller = case.spawn(FIRST);
     case.ask();
-    write(&case.fake().join("headroom"), "no");
     let (marked, journal) =
         case.actions(&["usage limit: You've hit your limit; 1 sessions: ex-alpha"]);
     assert_eq!(marked, ["usage-limit"], "{journal:?}");
@@ -1028,7 +1013,7 @@ fn adversary_a_session_started_after_the_delivery_is_not_stopped_by_the_usage_li
     // Ended and started again by hand, outside conductor, after the delivery.
     case.unlist(FIRST);
     case.list(FIRST, "busy", Some(now()));
-    write(&case.fake().join("headroom"), "yes");
+    case.reset_passed();
     let (actions, journal) = case.actions(&[]);
 
     assert_eq!(
@@ -1145,6 +1130,18 @@ impl Case {
             .and_then(|text| serde_json::from_str(&text).ok())
             .unwrap_or_else(|| json!({}))
     }
+
+    /// Moves the reset the loop keeps for the session to a minute ago, as the clock passing it
+    /// would (`story:limit-aware-token-reassignment`: no probe resumes it earlier).
+    fn reset_passed(&self) {
+        let mut kept = self.limited();
+        kept[SESSION]["resets_at"] = json!(
+            (time::OffsetDateTime::now_utc() - time::Duration::minutes(1))
+                .format(&time::format_description::well_known::Rfc3339)
+                .expect("the clock")
+        );
+        write(&self.state().join("run/limited.json"), &kept.to_string());
+    }
 }
 
 /// The case the correction names as untested: the session asked is resumed by hand under its id
@@ -1242,7 +1239,7 @@ fn adversary2_a_replaced_controller_resumed_by_the_loop_stops_nothing() {
     assert_eq!(case.running(), Some(second), "the second runs on");
 }
 
-/// The correction's claim for the usage-limit path: with headroom back and a hand-over kept for
+/// The correction's claim for the usage-limit path: with the reset passed and a hand-over kept for
 /// the session, a session list that cannot be read stops nothing, starts nothing and leaves the
 /// session marked and its request kept; the first tick that reads the list restarts it.
 #[test]
@@ -1259,13 +1256,12 @@ fn adversary2_a_limited_session_whose_request_cannot_be_told_stays_marked() {
         })
         .to_string(),
     );
-    write(&case.fake().join("headroom"), "no");
     let (marked, journal) =
         case.actions(&["usage limit: You've hit your limit; 1 sessions: ex-alpha"]);
     assert_eq!(marked, ["usage-limit"], "{journal:?}");
 
     write(&case.fake().join("list-fails"), "");
-    write(&case.fake().join("headroom"), "yes");
+    case.reset_passed();
     let (actions, journal) = case.actions(&[]);
     assert_eq!(actions, Vec::<String>::new(), "{journal:?}");
     assert_eq!(case.launches(), 1, "none started: {journal:?}");

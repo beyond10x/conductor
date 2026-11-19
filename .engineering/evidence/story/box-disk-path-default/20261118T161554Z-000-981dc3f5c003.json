@@ -1,0 +1,13 @@
+{
+  "at": "2026-11-18T16:15:54Z",
+  "actor": "human:unknown",
+  "artifact": "story:box-disk-path-default",
+  "kind": "story",
+  "revision": 7,
+  "change": {
+    "change": "evidence",
+    "kind": "test_result",
+    "source": "cargo test -p conductor-cli --test config (77 passed), --test free_space (4 passed), --test doctor (42 passed), --test watch (80 passed); cargo clippy -p conductor-cli --all-targets -D warnings clean; at 3efc0491",
+    "reference": "3efc0491"
+  }
+}

@@ -60,7 +60,7 @@ pub const DECISIONS: &str = "decisions";
 
 /// The keys a line of the dispatch log may hold: the fields of `conductor.dispatch.DispatchLogLine`
 /// (`spec/domains/dispatch.yaml`), in its order.
-pub const DISPATCH_KEYS: [&str; 30] = [
+pub const DISPATCH_KEYS: [&str; 32] = [
     "at",
     "event",
     "repo",
@@ -91,6 +91,8 @@ pub const DISPATCH_KEYS: [&str; 30] = [
     "start_ref",
     "issue",
     "link",
+    "token",
+    "resets_at",
 ];
 
 /// The keys every line of the dispatch log holds.
@@ -272,6 +274,8 @@ pub fn dispatch_line(event: DispatchLogEvent, repo: &str) -> Result<DispatchLogL
         start_ref: None,
         issue: None,
         link: None,
+        token: None,
+        resets_at: None,
     })
 }
 
@@ -350,6 +354,12 @@ pub fn dispatch_object(line: &DispatchLogLine) -> Map<String, Value> {
     put(&mut object, "start_ref", line.start_ref.clone());
     put(&mut object, "issue", line.issue.clone());
     put(&mut object, "link", line.link.clone());
+    put(&mut object, "token", line.token.clone());
+    put(
+        &mut object,
+        "resets_at",
+        line.resets_at.as_ref().map(|at| at.0.clone()),
+    );
     object
 }
 

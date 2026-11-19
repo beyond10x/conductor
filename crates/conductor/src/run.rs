@@ -37,7 +37,7 @@
 //!
 //! The daemon acts through [`Seams`]: the confinement providers sessions start and stop through,
 //! the [`Deliverer`] that puts a text in front of a session (`conductor session deliver`,
-//! [`ShellDeliverer`]), the [`Headroom`] reader ([`Ais`]), `decide::handle_request`
+//! [`ShellDeliverer`]), `decide::handle_request`
 //! (`story:decide-model-adapter`, [`handle_request`]), the binary the cycle's steps run, and `gc`.
 //! A test gives its own.
 
@@ -74,12 +74,12 @@ use time::OffsetDateTime;
 use time::format_description::well_known::Rfc3339;
 
 use crate::cli::{GcArgs, RecordRunTickArgs, RunArgs, SpawnArgs, StopControllerArgs, ViewArgs};
+use crate::config;
 use crate::confine::Providers;
 use crate::session::{Deliverer, ShellDeliverer};
 use crate::store::Store;
 use crate::store::run::{kind_name, kind_named, state_name};
 use crate::watch::{Options, Watch};
-use crate::{collect, config};
 
 /// The daemon's own directory under the state directory.
 pub const RUN_DIR: &str = "run";
@@ -103,90 +103,6 @@ const ASKED_POLL: Duration = Duration::from_secs(1);
 
 /// The cycle's cadence when the instance's `cadence.cycle` does not read: the built-in two hours.
 const CYCLE_EVERY: u64 = 2 * 3600;
-
-/// How long `ais status` may take.
-const AIS_BOUND: Duration = Duration::from_secs(60);
-
-/// Whether the account the sessions use has headroom again after a usage limit
-/// (docs/design/conductor-run.md § 3). [`Ais`] is the real one; a test gives its own. The probe
-/// is optional (`story:limit-resume-at-reset`): a session whose reset has passed is resumed
-/// without it, and one whose reset is ahead is resumed early only on a yes.
-pub trait Headroom {
-    /// Whether it has; `false` when that is not known.
-    ///
-    /// # Errors
-    ///
-    /// The answer could not be read.
-    fn headroom(&self) -> Result<bool>;
-}
-
-/// The real [`Headroom`]: `ais status --json --provider claude`, within a minute, read by
-/// [`headroom_of`]. A host with no `ais` answers no headroom: unknown, not an error, so the
-/// loop waits for each session's reset.
-#[derive(Debug, Clone, Copy, Default)]
-pub struct Ais;
-
-impl Headroom for Ais {
-    fn headroom(&self) -> Result<bool> {
-        let shown = "ais status --json --provider claude";
-        let output = match collect::run(
-            crate::instance::command("ais").args(["status", "--json", "--provider", "claude"]),
-            AIS_BOUND,
-        ) {
-            Ok(output) => output,
-            Err(error) if missing(&error) => return Ok(false),
-            Err(error) => return Err(error.context(format!("run `{shown}`"))),
-        };
-        headroom_read(shown, &crate::confine::exited(&output), &output.stdout)
-    }
-}
-
-/// Whether `error` is a program that is not there to start.
-fn missing(error: &anyhow::Error) -> bool {
-    error.chain().any(|cause| {
-        cause
-            .downcast_ref::<io::Error>()
-            .is_some_and(|cause| cause.kind() == io::ErrorKind::NotFound)
-    })
-}
-
-/// The headroom in what `shown` printed, whatever its exit: `ais status` exits non-zero while
-/// one account of the pool is exhausted and still prints the whole status. Only output that is
-/// missing or no JSON object is an error, and its line names `exited`, the command's exit.
-///
-/// # Errors
-///
-/// `stdout` holds no JSON object.
-pub fn headroom_read(shown: &str, exited: &str, stdout: &[u8]) -> Result<bool> {
-    match serde_json::from_slice::<Value>(stdout) {
-        Ok(status) if status.is_object() => Ok(headroom_of(&status)),
-        _ => bail!("`{shown}` {exited} and printed no JSON status"),
-    }
-}
-
-/// Whether `status`, what `ais status --json` prints, shows headroom: its active account has not
-/// reached its limit and none of its usage windows is full. No active account is no headroom.
-#[must_use]
-pub fn headroom_of(status: &Value) -> bool {
-    status["accounts"]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .find(|account| account["active"] == true)
-        .is_some_and(|account| {
-            let usage = &account["usage"];
-            usage["limit_reached"] != true
-                && usage["windows"]
-                    .as_array()
-                    .into_iter()
-                    .flatten()
-                    .all(|window| {
-                        window["used_percent"]
-                            .as_f64()
-                            .is_none_or(|used| used < 100.0)
-                    })
-        })
-}
 
 /// `decide::handle_request` (`story:decide-model-adapter`): handles the `[DECISION-REQUEST]`
 /// message it is given whole, in the store under the state directory: raises it with the rule
@@ -234,8 +150,6 @@ pub struct Seams<'a> {
     pub providers: &'a dyn Providers,
     /// What puts a text in front of a session.
     pub deliverer: &'a dyn Deliverer,
-    /// Whether usage has headroom.
-    pub headroom: &'a dyn Headroom,
     /// `decide::handle_request` ([`handle_request`]), or none: a request is escalated as class O.
     pub handle_request: Option<HandleRequest>,
     /// The `conductor` binary the cycle's and the daily tick's steps run.
@@ -278,7 +192,7 @@ pub fn run(
     run_with(config_flag, state, args.once == Some(true), &seams)
 }
 
-/// The seams of the real loop: `providers`, `deliverer`, [`Ais`], [`handle_request`], this
+/// The seams of the real loop: `providers`, `deliverer`, [`handle_request`], this
 /// binary and `gc`.
 ///
 /// # Errors
@@ -288,7 +202,6 @@ fn real_seams<'a>(providers: &'a dyn Providers, deliverer: &'a dyn Deliverer) ->
     Ok(Seams {
         providers,
         deliverer,
-        headroom: &Ais,
         handle_request: Some(handle_request),
         program: std::env::current_exe().context("run: read the path of the conductor binary")?,
         gc: crate::gc::gc,
@@ -1778,22 +1691,5 @@ mod tests {
     fn a_daily_that_does_not_read_is_never_due() {
         let dir = Dir::new("unread");
         assert_eq!(daily_due(&dir.0, at("2026-11-07T15:30:00Z"), "8h07"), None);
-    }
-
-    /// `story:resume-reads-ais-json`: `ais status` 0.5.1 exits 3 while one account of the pool is
-    /// exhausted and still prints the whole JSON (2026-11-08 01:59); the headroom is read from it.
-    #[test]
-    fn headroom_is_read_from_printed_json_whatever_the_exit() {
-        let printed =
-            br#"{"accounts":[{"active":true,"usage":{"limit_reached":false,"windows":[]}}]}"#;
-        assert!(headroom_read("ais status", "exited 3", printed).expect("JSON was printed"));
-        let error = headroom_read("ais status", "exited 3", b"")
-            .expect_err("nothing printed")
-            .to_string();
-        assert!(
-            error.contains("exited 3"),
-            "the exit is in the line: {error}"
-        );
-        assert!(headroom_read("ais status", "exited 0", b"not json").is_err());
     }
 }

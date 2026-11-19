@@ -440,7 +440,12 @@ types:
   # before the watch reports the build queued (story:watch-stalled-sessions), each a duration as
   # `cadence` writes one. Then how long a managed tree that is dirty or unmerged may be untouched
   # before reclaim removes its `target/` and lists it stale, kept (story:gc-finished-trees), a
-  # duration as `cadence` writes one. Absent, the filesystem is `/`, the silence 30 minutes, the
+  # duration as `cadence` writes one. Absent, the filesystem is the checkouts root
+  # (`checkouts.root`) for an instance whose written `placement` opens a substrate box, whose `/`
+  # and home directory are a tmpfs, and `/` for any other (story:box-disk-path-default); the
+  # build gate, the snapshot's `disk_free_bytes` and the watch's disk lines all read it, and
+  # `conductor doctor` names a box's `disk_path` under no directory the box writes, on its tmpfs.
+  # The silence 30 minutes, the
   # reserve 2 cores, the build slots 3, the repository cache `on` and its size 2G, the short-lane
   # slots 1 and their longest p90 3 minutes, the stall 45 minutes, the queued build 30 minutes and
   # the staleness 48 hours. Whether `build run` gives a cargo-based command line-table-only debug

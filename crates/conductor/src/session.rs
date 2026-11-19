@@ -1813,7 +1813,7 @@ pub fn start(
     };
     // story:token-pool: the agent runs on a token leased from the instance's pool, which its
     // settings name; with no token in the pool the launch is today's.
-    let lease = match crate::token::lease_into(instance, found, &mut launch, false) {
+    let lease = match crate::token::lease_into(instance, found, &mut launch) {
         Ok(lease) => lease,
         Err(detail) => {
             if let Err(error) = crate::broker::unregister_session(&state_dir, &name) {

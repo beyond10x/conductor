@@ -29,7 +29,7 @@ use std::process::{Command, Output, Stdio};
 
 use anyhow::{Result, bail};
 use conductor_cli::config;
-use conductor_cli::run::{self, Headroom, Seams};
+use conductor_cli::run::{self, Seams};
 use conductor_cli::session::{Deliverer, Delivery};
 use serde_json::{Value, json};
 use time::OffsetDateTime;
@@ -57,15 +57,6 @@ impl Deliverer for Nobody {
     }
 }
 
-/// The headroom of a child run: none is asked.
-struct NoHeadroom;
-
-impl Headroom for NoHeadroom {
-    fn headroom(&self) -> Result<bool> {
-        Ok(false)
-    }
-}
-
 /// The child run of this test binary ([`Case::child`]); a plain run of the suite passes at once.
 /// It fixes the case's config file as the process's instance and runs the daily tick for `day`,
 /// printing the tick's summary as JSON.
@@ -81,7 +72,6 @@ fn child() {
     let seams = Seams {
         providers: &host,
         deliverer: &Nobody,
-        headroom: &NoHeadroom,
         handle_request: None,
         program: PathBuf::from(spec["program"].as_str().expect("the conductor binary")),
         gc: conductor_cli::gc::gc,

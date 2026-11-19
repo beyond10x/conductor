@@ -269,7 +269,7 @@ pub fn spawn_for(
     )?;
     // story:token-pool: the controller runs on a token leased from the instance's pool (its
     // `token_owner`'s, for Remote Control, when the role names one); none in the pool, today's.
-    let lease = match crate::token::lease_into(instance, controller, &mut launch, false) {
+    let lease = match crate::token::lease_into(instance, controller, &mut launch) {
         Ok(lease) => lease,
         Err(detail) => {
             record_stopped(
@@ -594,6 +594,25 @@ pub fn resume(
     session_name: &SessionName,
     providers: &dyn Providers,
 ) -> Result<Option<String>> {
+    Ok(
+        resume_leased(config_flag, state, repository, session_name, providers)?
+            .map(|(shown, _)| shown),
+    )
+}
+
+/// [`resume`], with the lease of the host's pool the session was resumed on, if it leased one
+/// (`story:limit-aware-token-reassignment`: the `resumed` line names its token).
+///
+/// # Errors
+///
+/// As [`resume`].
+pub fn resume_leased(
+    config_flag: Option<&Path>,
+    state: Option<&Path>,
+    repository: &str,
+    session_name: &SessionName,
+    providers: &dyn Providers,
+) -> Result<Option<(String, Option<crate::token::Lease>)>> {
     let state_dir = crate::state::dir(state)?;
     let Some(session) = recorded_session(&state_dir, session_name)? else {
         return Ok(None);
@@ -629,9 +648,9 @@ pub fn resume(
         &checkout,
         &environment,
     )?;
-    // story:token-pool: resumed on a token of the pool: an Available one, else, with the
-    // account's headroom back, the Limited one (a pool of one is today's auto-resume).
-    let lease = crate::token::lease_into(instance, controller, &mut launch, true)
+    // story:limit-aware-token-reassignment: resumed on a token of the pool with headroom, an
+    // Available one or a Limited one whose reset has passed; never one before its reset.
+    let lease = crate::token::lease_into(instance, controller, &mut launch)
         .map_err(|detail| anyhow!("{detail}"))?;
     let chosen = confine::choose(providers, &crate::config::legacy(instance).confinement)
         .map_err(|refusal| anyhow!("{}", refusal_detail(refusal)))?;
@@ -649,10 +668,11 @@ pub fn resume(
         .session_id
         .as_deref()
         .unwrap_or("with no id");
-    Ok(Some(match &started.session.unit {
+    let shown = match &started.session.unit {
         Some(unit) => format!("{} ({id}) in {unit}", session_name.0),
         None => format!("{} ({id})", session_name.0),
-    }))
+    };
+    Ok(Some((shown, lease)))
 }
 
 /// What a refusal of the confinement says, named.

@@ -15,8 +15,8 @@
 //! - A runtime in a box, with no daemon database, leases, releases and marks limited through
 //!   conductord over its dial-in connection, as the instance conductord admitted it as.
 //! - The pool's rules on the library: the token with the fewest live leases, a cap per kind, a
-//!   named owner's own token only (`NoTokenAvailable` otherwise), a Limited token taken again on
-//!   headroom with a pool of one, only the owner withdraws, a lease never outlives a withdrawal,
+//!   named owner's own token only (`NoTokenAvailable` otherwise), a Limited token taken again
+//!   only once its reset passed, never on a probe's headroom, only the owner withdraws, a lease never outlives a withdrawal,
 //!   the leases of a runtime start that ended are reaped, a limit is clamped to a week.
 //! - `roles[].token_owner` is a controller's key only.
 //!
@@ -1367,14 +1367,13 @@ fn alpha() -> InstanceName {
     InstanceName("alpha".to_owned())
 }
 
-/// The start of `agent` of `instance`, for no owner, with no headroom.
+/// The start of `agent` of `instance`, for no owner.
 fn start_of(instance: &str, agent: &str) -> token::Start {
     token::Start {
         instance: InstanceName(instance.to_owned()),
         agent: AgentName(agent.to_owned()),
         owner: None,
         actor: runtime(),
-        headroom: false,
         runtime: None,
     }
 }
@@ -1633,11 +1632,13 @@ fn a_named_owner_with_no_available_token_is_refused_and_takes_no_other() {
     assert!(refused.is_err(), "a named owner took another owner's token");
 }
 
+/// `story:limit-aware-token-reassignment`: a Limited token is leased again once its reset has
+/// passed and never before: the lease asks no probe of the account's headroom.
 #[test]
-fn with_one_token_a_limited_token_is_leased_again_on_headroom() {
+fn with_one_token_a_limited_token_is_leased_again_once_its_reset_passed() {
     let url = library_url("pool-of-one");
     with_tokens(&url, &[("0001", "alice", None)]);
-    let mut start = start_of("alpha", "alpha-controller");
+    let start = start_of("alpha", "alpha-controller");
     lease(&url, &start);
     token::limit(&url, &alpha(), &start.agent, runtime(), None)
         .expect("limit")
@@ -1647,7 +1648,16 @@ fn with_one_token_a_limited_token_is_leased_again_on_headroom() {
         without.is_err(),
         "a Limited token was leased before its time"
     );
-    start.headroom = true;
+    let mut store = open(&url);
+    let mut limited =
+        PoolTokenStorage::get(&store, &TokenId(Uuid("0001".to_owned()))).expect("the token");
+    limited.data.limited_until = Some(Timestamp(
+        (time::OffsetDateTime::now_utc() - time::Duration::minutes(1))
+            .format(&time::format_description::well_known::Rfc3339)
+            .expect("the clock"),
+    ));
+    PoolTokenStorage::put(&mut store, limited);
+    store.check().expect("the reset passed");
     let again = lease(&url, &start);
     assert_eq!(again.token_id.0.0, "0001");
     let found = PoolTokenStorage::get(&open(&url), &again.token_id).expect("the token");
@@ -1694,6 +1704,10 @@ const ALPHA_START: &str = "alpha-start-token-5f1c";
 
 /// The token the daemon minted for the start of `beta`'s runtime.
 const BETA_START: &str = "beta-start-token-9a2e";
+
+/// The dial a runtime holds is one per process ([`token::hold_dial`]): the tests that hold one
+/// take this lock first, so no test's calls reach another's conductord.
+static DIALED: Mutex<()> = Mutex::new(());
 
 /// A conductord of `case` for the pool: its API with the case's config file and store, `alpha`
 /// and `beta` routed by dial-in on [`ALPHA_START`] and [`BETA_START`], and its dial-in listener;
@@ -1845,6 +1859,9 @@ fn a_boxed_runtime_leases_a_token_joined_after_its_box_opened() {
     let case = Case::two("boxed-runtime");
     let secrets = case.dir.join("secrets");
     with_files_source(&case, &secrets);
+    let _dialed = DIALED
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     let (address, said) = dial_conductord(&case);
     // The runtime: it dials conductord and has no store of its own (`runtime_store` finds none,
     // as the process's config names none that exists).
@@ -1854,7 +1871,7 @@ fn a_boxed_runtime_leases_a_token_joined_after_its_box_opened() {
     let token_id = contribute(&case, &secrets, MARKER, ModelTokenKind::SubscriptionToken);
     let (instance, role) = instance_of(&case, "alpha");
     let mut launch = launch_of(&case, "alpha-controller");
-    let leased = token::lease_into(&instance, &role, &mut launch, false)
+    let leased = token::lease_into(&instance, &role, &mut launch)
         .expect("a lease through conductord")
         .expect("the pool holds a token");
     assert_eq!(leased.token_id.0.0, token_id);
@@ -1879,11 +1896,15 @@ fn a_boxed_runtime_leases_a_token_joined_after_its_box_opened() {
     assert!(held_of(&case.store_url(), &token_id).is_empty());
 
     let mut launch = launch_of(&case, "alpha-controller");
-    token::lease_into(&instance, &role, &mut launch, false)
+    token::lease_into(&instance, &role, &mut launch)
         .expect("a lease through conductord")
         .expect("the pool holds a token");
-    let other = token::on_limit(&instance, "alpha-controller", None).expect("limit");
-    assert!(!other, "the pool holds no other token");
+    let answer = token::on_limit(&instance, "alpha-controller", None).expect("limit");
+    assert!(!answer.other, "the pool holds no other token");
+    assert_eq!(
+        answer.limited.as_ref().map(|(token, _)| token.as_str()),
+        Some(token_id.as_str())
+    );
     assert_eq!(
         PoolTokenStorage::get(&case.store(), &TokenId(Uuid(token_id.clone())))
             .expect("the token")
@@ -1893,6 +1914,70 @@ fn a_boxed_runtime_leases_a_token_joined_after_its_box_opened() {
 
     let journal = said.lock().expect("said").join("\n");
     assert!(!journal.contains(MARKER), "{journal}");
+    case.assert_nowhere(MARKER);
+}
+
+/// `story:limit-aware-token-reassignment`: a runtime in a box marks the token its agent holds
+/// Limited through conductord, until the reset the limit's line named, and conductord answers
+/// the token, its reset, whether another token has headroom, and else the first reset of the
+/// pool. Fails before the story: conductord answered `limited` and `other` alone, and the
+/// runtime could neither name the token nor wait for the first reset.
+#[test]
+fn a_boxed_runtime_marks_its_token_limited_through_conductord() {
+    let case = Case::two("boxed-limit");
+    let secrets = case.dir.join("secrets");
+    with_files_source(&case, &secrets);
+    let _dialed = DIALED
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let (address, said) = dial_conductord(&case);
+    token::hold_dial(&address, "alpha", ALPHA_START);
+    let first = contribute(&case, &secrets, MARKER, ModelTokenKind::SubscriptionToken);
+    let second = contribute(&case, &secrets, SECOND, ModelTokenKind::SubscriptionToken);
+    let (instance, role) = instance_of(&case, "alpha");
+    let whole = |at: time::OffsetDateTime| at.replace_nanosecond(0).expect("a whole second");
+    let now = time::OffsetDateTime::now_utc();
+
+    let mut launch = launch_of(&case, "alpha-controller");
+    let leased = token::lease_into(&instance, &role, &mut launch)
+        .expect("a lease through conductord")
+        .expect("the pool holds a token");
+    let held = leased.token_id.0.0.clone();
+    let other = if held == first { &second } else { &first };
+    let late = whole(now + time::Duration::hours(5));
+    let answer = token::on_limit(&instance, "alpha-controller", Some(late)).expect("limit");
+    assert_eq!(answer.limited, Some((held.clone(), late)), "{answer:?}");
+    assert!(answer.other, "the second token has headroom: {answer:?}");
+    let found =
+        PoolTokenStorage::get(&case.store(), &TokenId(Uuid(held.clone()))).expect("the token");
+    assert_eq!(found.state, PoolTokenState::Limited);
+    let until = found.data.limited_until.expect("an end").0;
+    assert_eq!(
+        time::OffsetDateTime::parse(&until, &time::format_description::well_known::Rfc3339)
+            .expect("RFC 3339"),
+        late
+    );
+
+    // Resumed on the other token; its limit resets first, so the session waits for that one.
+    let mut launch = launch_of(&case, "alpha-controller");
+    let moved = token::lease_into(&instance, &role, &mut launch)
+        .expect("a lease through conductord")
+        .expect("the pool holds a token");
+    assert_eq!(
+        &moved.token_id.0.0, other,
+        "moved to the token with headroom"
+    );
+    let soon = whole(now + time::Duration::hours(1));
+    let answer = token::on_limit(&instance, "alpha-controller", Some(soon)).expect("limit");
+    assert_eq!(answer.limited, Some((other.clone(), soon)), "{answer:?}");
+    assert!(!answer.other, "{answer:?}");
+    assert_eq!(answer.first_reset, Some(soon), "the first token to reset");
+
+    let journal = said.lock().expect("said").join("\n");
+    assert!(
+        !journal.contains(MARKER) && !journal.contains(SECOND),
+        "{journal}"
+    );
     case.assert_nowhere(MARKER);
 }
 

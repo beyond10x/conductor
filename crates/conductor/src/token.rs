@@ -11,9 +11,9 @@
 //!   token serves several agents at once (class C decision of `story:host-token-pool`).
 //! - [`pick`] is the lease rule: a named owner's own tokens only, else every token of the pool
 //!   (decision K4: no fallback); among the tokens with headroom (`Available`, or `Limited` with
-//!   `limited_until` past) the one with the fewest live leases, ties by `token_id`. With
-//!   `headroom` (the account has headroom again, today's `auto-resume`) a Limited one is taken
-//!   last, the earliest `limited_until` first. A token never holds more live leases than its
+//!   `limited_until` past) the one with the fewest live leases, ties by `token_id`. A Limited
+//!   token whose `limited_until` is ahead is never taken, and no probe of the account's headroom
+//!   lets it (`story:limit-aware-token-reassignment`). A token never holds more live leases than its
 //!   kind's cap ([`Caps`]; Decision (operator, 2026-11-18): 4 sessions per `subscription_token`
 //!   by default, no cap for an `api_key`).
 //! - A lease that raced a withdrawal or another lease past the cap is released again and the pick
@@ -29,6 +29,10 @@
 //!   connection, opened with [`crate::instance::POOL_HELLO`], its instance and the token the
 //!   daemon minted for its start. conductord takes the instance from that admission, never from
 //!   the request ([`pool_call`]).
+//! - A usage limit of an agent marks the token it holds Limited until the reset its line named
+//!   ([`on_limit`]), through conductord for a runtime in a box, and answers whether another token
+//!   has headroom now, else the first instant a token of the pool resets ([`first_reset`]): the
+//!   loop resumes the agent at once, or at that instant.
 //! - Each lease names the runtime start that took it ([`runtime_tag`]); conductord releases the
 //!   leases of a start that ended once the instance runs on another ([`reap`]).
 //! - `conductor join` and `conductor leave` ([`join`], [`leave`]) are clients of the daemon's
@@ -313,7 +317,6 @@ pub fn pick(
     caps: Caps,
     owner: Option<&OperatorName>,
     now: OffsetDateTime,
-    headroom: bool,
 ) -> Option<TokenId> {
     let past = |token: &PoolTokenSnapshot| {
         token
@@ -323,41 +326,43 @@ pub fn pick(
             .and_then(|at| instant(&at.0))
             .is_none_or(|until| until <= now)
     };
-    let mut admitted: Vec<(u8, String, u64, String, TokenId)> = tokens
+    tokens
         .iter()
         .filter(|token| owner.is_none_or(|owner| token.data.owner == *owner))
         .filter(|token| {
             caps.cap(kind_of(&token.data))
                 .is_none_or(|cap| live(&token.data.token_id) < cap)
         })
-        .filter_map(|token| {
-            let class = match token.state {
-                PoolTokenState::Available => 0,
-                PoolTokenState::Limited if past(token) => 0,
-                PoolTokenState::Limited if headroom => 1,
-                _ => return None,
-            };
-            let until = if class == 1 {
-                token
-                    .data
-                    .limited_until
-                    .as_ref()
-                    .map(|at| at.0.clone())
-                    .unwrap_or_default()
-            } else {
-                String::new()
-            };
-            Some((
-                class,
-                until,
-                live(&token.data.token_id),
-                token.data.token_id.0.0.clone(),
-                token.data.token_id.clone(),
-            ))
+        .filter(|token| match token.state {
+            PoolTokenState::Available => true,
+            PoolTokenState::Limited => past(token),
+            PoolTokenState::Withdrawn => false,
         })
-        .collect();
-    admitted.sort_by(|a, b| (a.0, &a.1, a.2, &a.3).cmp(&(b.0, &b.1, b.2, &b.3)));
-    admitted.into_iter().next().map(|(.., id)| id)
+        .min_by(|a, b| {
+            (live(&a.data.token_id), &a.data.token_id.0.0)
+                .cmp(&(live(&b.data.token_id), &b.data.token_id.0.0))
+        })
+        .map(|token| token.data.token_id.clone())
+}
+
+/// The first instant after `now` a Limited token of `tokens` resets, its `limited_until`; none
+/// when no token is Limited past `now` (`story:limit-aware-token-reassignment`). A session no
+/// token has headroom for is resumed then, ahead of its own token's reset when another resets
+/// first.
+#[must_use]
+pub fn first_reset(tokens: &[PoolTokenSnapshot], now: OffsetDateTime) -> Option<OffsetDateTime> {
+    tokens
+        .iter()
+        .filter(|token| token.state == PoolTokenState::Limited)
+        .filter_map(|token| {
+            token
+                .data
+                .limited_until
+                .as_ref()
+                .and_then(|at| instant(&at.0))
+        })
+        .filter(|until| *until > now)
+        .min()
 }
 
 /// The tokens of the host's pool that are not withdrawn.
@@ -405,7 +410,7 @@ fn lease_of(lease: &TokenLeaseSnapshot, token: &PoolTokenSnapshot) -> Lease {
 }
 
 /// One agent start that asks for a lease: its instance, its agent, the owner it asks for, the
-/// actor it runs as, whether the account has headroom again, and the runtime start it belongs to.
+/// actor it runs as, and the runtime start it belongs to.
 #[derive(Debug, Clone)]
 pub struct Start {
     /// The instance whose agent starts.
@@ -416,8 +421,6 @@ pub struct Start {
     pub owner: Option<OperatorName>,
     /// Who leases.
     pub actor: Actor,
-    /// The account has headroom again after a usage limit.
-    pub headroom: bool,
     /// The runtime start ([`runtime_tag`]).
     pub runtime: Option<String>,
 }
@@ -452,7 +455,6 @@ pub fn lease(url: &str, caps: Caps, start: &Start) -> Result<Result<Lease, NoTok
             caps,
             start.owner.as_ref(),
             OffsetDateTime::now_utc(),
-            start.headroom,
         ) else {
             return Ok(Err(NoTokenAvailable {
                 instance: start.instance.clone(),
@@ -1136,14 +1138,12 @@ fn secret_value(
 
 /// The lease of the agent `agent` of `instance` at its start (module documentation), with its
 /// token's value: `None` when the host's pool holds no token, so the start is today's; the role's
-/// `token_owner`'s own token when it names one. `headroom`: the account has headroom again after
-/// a usage limit. A runtime in a box asks conductord ([`hold_dial`]); any other process leases in
+/// `token_owner`'s own token when it names one. A runtime in a box asks conductord ([`hold_dial`]); any other process leases in
 /// the daemon's store and reads the value from the daemon's secrets source.
 fn lease_for_start(
     instance: &Instance,
     role: &Role,
     agent: &str,
-    headroom: bool,
 ) -> Result<Option<Leased>, String> {
     let owner = role.token_owner.as_ref();
     let refusal = |instance: &str| {
@@ -1159,7 +1159,6 @@ fn lease_for_start(
         "call": "lease",
         "agent": agent,
         "owner": owner.map(|owner| &owner.0),
-        "headroom": headroom,
     })) {
         let answer = answer?;
         if answer["empty"] == true {
@@ -1208,7 +1207,6 @@ fn lease_for_start(
         agent: AgentName(agent.to_owned()),
         owner: owner.cloned(),
         actor: crate::actor::agent(instance, agent),
-        headroom,
         runtime: runtime(),
     };
     let lease = match lease(&url, caps, &start) {
@@ -1460,10 +1458,9 @@ pub fn lease_into(
     instance: &Instance,
     role: &Role,
     launch: &mut Launch,
-    headroom: bool,
 ) -> Result<Option<Lease>, String> {
     let name = launch.request.session_name.0.clone();
-    let Some(Leased { lease, value }) = lease_for_start(instance, role, &name, headroom)? else {
+    let Some(Leased { lease, value }) = lease_for_start(instance, role, &name)? else {
         let what = format!("the model_token of instance {}", instance.name.0);
         if let Some(value) = boxed_subscription_token(instance) {
             apply_value(
@@ -1508,15 +1505,65 @@ pub fn lease_into(
     Ok(Some(lease))
 }
 
+/// What a usage-limit stop of an agent did to the host's pool ([`on_limit`],
+/// `story:limit-aware-token-reassignment`).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct LimitAnswer {
+    /// The token the agent held, now Limited, and until when; none when it held no lease.
+    pub limited: Option<(String, OffsetDateTime)>,
+    /// A token of the pool has headroom now: the agent is resumed at once.
+    pub other: bool,
+    /// Else the first instant a token of the pool resets ([`first_reset`]): the agent is resumed
+    /// then.
+    pub first_reset: Option<OffsetDateTime>,
+}
+
+impl LimitAnswer {
+    /// The answer conductord sends a runtime in a box for it ([`pool_call`]).
+    fn to_json(&self) -> Value {
+        let stamp = |at: &OffsetDateTime| at.format(&Rfc3339).ok();
+        json!({
+            "limited": self.limited.is_some(),
+            "token": self.limited.as_ref().map(|(token, _)| token),
+            "until": self.limited.as_ref().and_then(|(_, until)| stamp(until)),
+            "other": self.other,
+            "first_reset": self.first_reset.as_ref().and_then(stamp),
+        })
+    }
+
+    /// The answer `answer` of conductord reads as.
+    fn of_json(answer: &Value) -> Self {
+        let at = |key: &str| answer[key].as_str().and_then(instant);
+        let limited = match (
+            answer["limited"] == true,
+            answer["token"].as_str(),
+            at("until"),
+        ) {
+            (true, Some(token), Some(until)) => Some((token.to_owned(), until)),
+            _ => None,
+        };
+        Self {
+            other: answer["other"] == true,
+            first_reset: at("first_reset"),
+            limited,
+        }
+    }
+}
+
 /// What the loop does on a usage-limit stop of `session` (module documentation): marks its
-/// token Limited until `until` ([`limit`]) and releases its lease; answers whether another token
-/// of the pool has headroom, so the session is resumed at once rather than once the account has
-/// headroom.
+/// token Limited until `until` ([`limit`]) and releases its lease; answers the token and its
+/// reset, whether another token of the pool has headroom, so the session is resumed at once, and
+/// else the first instant a token of the pool resets, so it is resumed then. No probe of the
+/// account is asked: the tokens' state is the answer.
 ///
 /// # Errors
 ///
 /// The store cannot be written, or conductord does not answer.
-pub fn on_limit(instance: &Instance, session: &str, until: Option<OffsetDateTime>) -> Result<bool> {
+pub fn on_limit(
+    instance: &Instance,
+    session: &str,
+    until: Option<OffsetDateTime>,
+) -> Result<LimitAnswer> {
     let until_text = until
         .map(|until| until.format(&Rfc3339))
         .transpose()
@@ -1530,40 +1577,65 @@ pub fn on_limit(instance: &Instance, session: &str, until: Option<OffsetDateTime
         if let Some(error) = answer["error"].as_str() {
             bail!("the host's token pool: {error}");
         }
-        return Ok(answer["other"] == true);
+        return Ok(LimitAnswer::of_json(&answer));
     }
     let Some((url, caps)) = runtime_pool() else {
-        return Ok(false);
+        return Ok(LimitAnswer::default());
     };
-    let agent = AgentName(session.to_owned());
-    if limit(
+    limit_in(
         &url,
+        caps,
         &instance.name,
-        &agent,
+        &AgentName(session.to_owned()),
         crate::actor::agent(instance, session),
         until,
-    )?
-    .is_none()
-    {
-        return Ok(false);
-    }
-    other_available(&url, caps)
+    )
 }
 
-/// Whether a token of the pool at `url` has headroom now.
-fn other_available(url: &str, caps: Caps) -> Result<bool> {
+/// [`limit`] of `agent` in the pool at `url`, and what the pool holds for it then
+/// ([`LimitAnswer`]).
+///
+/// # Errors
+///
+/// The store cannot be written.
+pub fn limit_in(
+    url: &str,
+    caps: Caps,
+    instance: &InstanceName,
+    agent: &AgentName,
+    actor: Actor,
+    until: Option<OffsetDateTime>,
+) -> Result<LimitAnswer> {
+    let Some(token) = limit(url, instance, agent, actor, until)? else {
+        return Ok(LimitAnswer::default());
+    };
     let store = open_store(url)?;
     let tokens = pool(&store);
+    let limited_until = tokens
+        .iter()
+        .find(|found| found.data.token_id == token.token_id)
+        .and_then(|found| found.data.limited_until.as_ref())
+        .and_then(|at| instant(&at.0))
+        .unwrap_or_else(|| limit_end(until, OffsetDateTime::now_utc()));
     let live = store.live_leases();
-    Ok(pick(
+    let now = OffsetDateTime::now_utc();
+    let other = pick(
         &tokens,
         &|id| live.get(&id.0.0).copied().unwrap_or(0),
         caps,
         None,
-        OffsetDateTime::now_utc(),
-        false,
+        now,
     )
-    .is_some())
+    .is_some();
+    Ok(LimitAnswer {
+        limited: Some((token.token_id.0.0, limited_until)),
+        other,
+        first_reset: if other {
+            None
+        } else {
+            first_reset(&tokens, now)
+        },
+    })
 }
 
 /// The agents `<run dir>/tokens-withdrawn.json` names, and the file emptied.
@@ -2027,8 +2099,6 @@ struct PoolRequest {
     #[serde(default)]
     owner: Option<String>,
     #[serde(default)]
-    headroom: bool,
-    #[serde(default)]
     until: Option<String>,
 }
 
@@ -2079,7 +2149,6 @@ pub fn pool_call(daemon: &Daemon<'_>, instance: &str, runtime: &str, request: &[
                 agent: agent.clone(),
                 owner: request.owner.map(OperatorName),
                 actor,
-                headroom: request.headroom,
                 runtime: Some(runtime.to_owned()),
             };
             match lease(daemon.store, caps, &start) {
@@ -2121,10 +2190,17 @@ pub fn pool_call(daemon: &Daemon<'_>, instance: &str, runtime: &str, request: &[
                 Some(Some(until)) => Some(until),
                 Some(None) => return refused("the end of the limit is no RFC 3339 time"),
             };
-            let limited = limit(daemon.store, &found.name, &agent, actor, until)
-                .and_then(|limited| Ok((limited.is_some(), other_available(daemon.store, caps)?)));
-            match limited {
-                Ok((limited, other)) => json!({"limited": limited, "other": limited && other}),
+            match limit_in(daemon.store, caps, &found.name, &agent, actor, until) {
+                Ok(answer) => {
+                    if let Some((token, until)) = &answer.limited {
+                        println!(
+                            "conductord: {instance}: {} limits token {token} until {}",
+                            agent.0,
+                            until.format(&Rfc3339).unwrap_or_default()
+                        );
+                    }
+                    answer.to_json()
+                }
                 Err(error) => refused(&format!("{error:#}")),
             }
         }
@@ -2430,12 +2506,12 @@ mod tests {
         let now = at("2026-11-08T10:00:00Z");
         let even = |_: &TokenId| 0;
         assert_eq!(
-            pick(&tokens, &even, NO_CAP, None, now, false).map(|id| id.0.0),
+            pick(&tokens, &even, NO_CAP, None, now).map(|id| id.0.0),
             Some("a".to_owned())
         );
         let a_used = |id: &TokenId| u64::from(id.0.0 == "a") * 3;
         assert_eq!(
-            pick(&tokens, &a_used, NO_CAP, None, now, false).map(|id| id.0.0),
+            pick(&tokens, &a_used, NO_CAP, None, now).map(|id| id.0.0),
             Some("b".to_owned())
         );
     }
@@ -2449,8 +2525,8 @@ mod tests {
             api_key: 2,
         };
         // A token of no kind is an API key.
-        assert!(pick(&tokens, &|_| 1, caps, None, now, false).is_some());
-        assert!(pick(&tokens, &|_| 2, caps, None, now, false).is_none());
+        assert!(pick(&tokens, &|_| 1, caps, None, now).is_some());
+        assert!(pick(&tokens, &|_| 2, caps, None, now).is_none());
     }
 
     #[test]
@@ -2467,18 +2543,15 @@ mod tests {
         let now = at("2026-11-08T10:00:00Z");
         let alice = OperatorName("alice".to_owned());
         let bob = OperatorName("bob".to_owned());
+        assert_eq!(pick(&tokens, &|_| 0, NO_CAP, Some(&alice), now), None);
         assert_eq!(
-            pick(&tokens, &|_| 0, NO_CAP, Some(&alice), now, false),
-            None
-        );
-        assert_eq!(
-            pick(&tokens, &|_| 0, NO_CAP, Some(&bob), now, false).map(|id| id.0.0),
+            pick(&tokens, &|_| 0, NO_CAP, Some(&bob), now).map(|id| id.0.0),
             Some("b".to_owned())
         );
     }
 
     #[test]
-    fn a_limited_token_is_taken_once_past_or_on_headroom_last() {
+    fn a_limited_token_is_not_picked_before_its_reset() {
         let tokens = [token(
             "a",
             "alice",
@@ -2486,10 +2559,61 @@ mod tests {
             Some("2026-11-08T12:00:00Z"),
         )];
         let before = at("2026-11-08T10:00:00Z");
-        assert_eq!(pick(&tokens, &|_| 0, NO_CAP, None, before, false), None);
-        assert!(pick(&tokens, &|_| 0, NO_CAP, None, before, true).is_some());
+        assert_eq!(pick(&tokens, &|_| 0, NO_CAP, None, before), None);
         let after = at("2026-11-08T12:00:01Z");
-        assert!(pick(&tokens, &|_| 0, NO_CAP, None, after, false).is_some());
+        assert!(pick(&tokens, &|_| 0, NO_CAP, None, after).is_some());
+    }
+
+    #[test]
+    fn with_every_token_limited_the_first_reset_is_the_earliest_ahead() {
+        let tokens = [
+            token(
+                "a",
+                "alice",
+                PoolTokenState::Limited,
+                Some("2026-11-08T15:00:00Z"),
+            ),
+            token(
+                "b",
+                "bob",
+                PoolTokenState::Limited,
+                Some("2026-11-08T11:00:00Z"),
+            ),
+            token("c", "carol", PoolTokenState::Withdrawn, None),
+        ];
+        let now = at("2026-11-08T10:00:00Z");
+        assert_eq!(pick(&tokens, &|_| 0, NO_CAP, None, now), None);
+        assert_eq!(first_reset(&tokens, now), Some(at("2026-11-08T11:00:00Z")));
+        // At the first reset the token that reset is picked, and the next reset is the other's.
+        let then = at("2026-11-08T11:00:00Z");
+        assert_eq!(
+            pick(&tokens, &|_| 0, NO_CAP, None, then).map(|id| id.0.0),
+            Some("b".to_owned())
+        );
+        assert_eq!(first_reset(&tokens, then), Some(at("2026-11-08T15:00:00Z")));
+        assert_eq!(first_reset(&tokens[2..], now), None);
+    }
+
+    #[test]
+    fn a_limit_answer_reads_as_conductord_sent_it_and_names_no_value() {
+        let answer = LimitAnswer {
+            limited: Some(("t-1".to_owned(), at("2026-11-08T15:00:00Z"))),
+            other: false,
+            first_reset: Some(at("2026-11-08T11:00:00Z")),
+        };
+        let sent = answer.to_json();
+        assert_eq!(sent["token"], "t-1");
+        assert_eq!(LimitAnswer::of_json(&sent), answer);
+        // An older conductord answered `limited` and `other` only.
+        let older = LimitAnswer::of_json(&json!({"limited": true, "other": true}));
+        assert_eq!(
+            older,
+            LimitAnswer {
+                limited: None,
+                other: true,
+                first_reset: None
+            }
+        );
     }
 
     #[test]

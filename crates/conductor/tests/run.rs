@@ -18,12 +18,13 @@
 //! `fake/unit.loaded` exists), `gh` (`[]`), `aep` (`plan artifact list` prints
 //! `fake/aep.active` when it is there, run from the directory `fake/aep.cwd` names, else `[]`;
 //! every call is logged to `fake/aep.calls` with its directory), `notify-send` (logged to
-//! `fake/notify.calls`) and `ais` (prints `fake/ais.json`).
+//! `fake/notify.calls`). No `ais` is on `PATH`: the loop asks no usage probe
+//! (`story:limit-aware-token-reassignment`).
 //!
 //! The handlers, the mailbox, the cycle's dispatch v1 and the daily tick are run through the
 //! library in a child of this test binary ([`child`]), with a [`Recorder`] in place of the real
-//! deliverer (which runs `conductor session deliver`, `story:mailbox-send-and-deliver`) and a
-//! headroom read from `fake/headroom`; the handlers are fed fixture watch lines. `run --once`,
+//! deliverer (which runs `conductor session deliver`, `story:mailbox-send-and-deliver`); the
+//! handlers are fed fixture watch lines. `run --once`,
 //! `doctor` and the tick views are run through the built binary.
 
 mod common;
@@ -40,14 +41,17 @@ use anyhow::{Result, bail};
 use conductor_cli::cli::GcArgs;
 use conductor_cli::collect::Collector;
 use conductor_cli::config;
-use conductor_cli::run::{self, Headroom, Seams};
+use conductor_cli::run::{self, Seams};
 use conductor_cli::session::{Deliverer, Delivery};
 use conductor_cli::{snapshot, store};
+use conductor_model::behaviour::{PoolTokenStorage, TokenLeaseStorage};
 use conductor_model::observation::{
     CommitSha, Mergeability, RecordPullRequest, RecordRepository, RepositoryName, SnapshotId,
     SnapshotState, StartSnapshot, Visibility,
 };
+use conductor_model::operator::OperatorName;
 use conductor_model::primitives::{Timestamp, Uuid};
+use conductor_model::token::{PoolTokenState, Seat, TokenId, TokenLeaseState, TokenState};
 use serde_json::{Value, json};
 use time::OffsetDateTime;
 use time::format_description::well_known::Rfc3339;
@@ -113,21 +117,6 @@ impl Deliverer for Recorder {
     }
 }
 
-/// The headroom of a child run: `yes` in `fake/headroom`; each probe is counted, one line in
-/// `fake/headroom.calls`.
-struct FileHeadroom {
-    dir: PathBuf,
-}
-
-impl Headroom for FileHeadroom {
-    fn headroom(&self) -> Result<bool> {
-        let mut calls = fs::read_to_string(self.dir.join("headroom.calls")).unwrap_or_default();
-        calls.push_str("probe\n");
-        fs::write(self.dir.join("headroom.calls"), calls).expect("count a probe");
-        Ok(fs::read_to_string(self.dir.join("headroom")).is_ok_and(|text| text.trim() == "yes"))
-    }
-}
-
 /// The child run of this test binary ([`Case::child`]); a plain run of the suite passes at once.
 /// It fixes the case's config file as the process's instance, builds what `reviews` asks for, and
 /// runs `do`: `lines`, a watch tick over the fixture lines; `cycle`; or `daily` for `day`. With
@@ -152,17 +141,10 @@ fn child() {
         take_reviews(&state, &waiting);
     }
     let deliverer = Recorder { dir: fake.clone() };
-    let file_headroom = FileHeadroom { dir: fake.clone() };
-    let headroom: &dyn Headroom = if spec["ais"] == true {
-        &run::Ais
-    } else {
-        &file_headroom
-    };
     let host = conductor_cli::confine::Host;
     let seams = Seams {
         providers: &host,
         deliverer: &deliverer,
-        headroom,
         handle_request: (spec["decide"] == true)
             .then_some(run::handle_request as run::HandleRequest),
         program: PathBuf::from(spec["program"].as_str().expect("the conductor binary")),
@@ -181,6 +163,10 @@ fn child() {
                 .collect()
         })
         .unwrap_or_default();
+    if spec["do"] == "pool" {
+        println!("{}", json!({"tokens": pool(&spec)}));
+        std::process::exit(0);
+    }
     if spec["do"] == "beside" {
         println!("{}", beside(&lines, &seams));
         std::process::exit(0);
@@ -285,6 +271,49 @@ fn beside(lines: &[String], seams: &Seams<'_>) -> Value {
         "started": started,
         "after": after,
     })
+}
+
+/// The host's pool of a child run (`story:limit-aware-token-reassignment`): a token of each
+/// owner `owners` names contributed to the daemon's store under the case's home, its value in the
+/// case's keychain; answers their ids.
+fn pool(spec: &Value) -> Vec<String> {
+    let home = PathBuf::from(std::env::var_os("HOME").expect("the case's home"));
+    let daemon = config::default_daemon(&home);
+    let file = home.join(".b10x/conductor/conductor.sqlite");
+    fs::create_dir_all(file.parent().expect("a parent")).expect("create the store's directory");
+    let secrets = conductor_cli::secret::open(&daemon.secrets).expect("the case's keychain");
+    spec["owners"]
+        .as_array()
+        .expect("the owners")
+        .iter()
+        .filter_map(Value::as_str)
+        .map(|owner| {
+            let store = store::open_url(&daemon.store.0, conductor_cli::daemon::TENANT)
+                .expect("open the daemon's store");
+            let outcome = conductor_cli::token::contribute(
+                store,
+                &secrets,
+                &conductor_cli::token::Contribution {
+                    actor: conductor_cli::actor::operator(owner),
+                    owner: OperatorName(owner.to_owned()),
+                    seat: Seat(format!("{owner}@example-org.example")),
+                    kind: conductor_model::config::ModelTokenKind::SubscriptionToken,
+                },
+                secrets_core::storage::SecretValue::new(
+                    format!("sk-example-org-{owner}").into_bytes(),
+                )
+                .expect("a value"),
+            )
+            .expect("contribute")
+            .expect("the keychain took the value");
+            match outcome {
+                conductor_model::token::ContributeTokenOutcome::Contributed {
+                    token_contributed,
+                } => token_contributed.token_id.0.0,
+                other => panic!("not contributed: {other:?}"),
+            }
+        })
+        .collect()
 }
 
 /// Takes a complete snapshot into the store under `state` that observes each repository of
@@ -605,7 +634,7 @@ impl Case {
         );
         executable(
             &self.bin().join("ais"),
-            &format!("#!/bin/sh\ncat '{fake}/ais.json'\n"),
+            &format!("#!/bin/sh\necho \"$*\" >> '{fake}/ais.calls'\ncat '{fake}/ais.json'\n"),
         );
         // The cycle's steps, for a cycle run against the store alone: each is logged, none runs.
         executable(
@@ -677,6 +706,10 @@ impl Case {
             .env(config::CONFIG_VARIABLE, self.config())
             .env("PATH", self.path())
             .env(READINGS, self.fake().join("readings"))
+            .env(
+                conductor_cli::secret::TEST_KEYCHAIN_VARIABLE,
+                self.home().join(".test-keychain.ron"),
+            )
             .env(CHILD, spec.to_string())
             .env(run::DECIDER_VARIABLE, "fake")
             .current_dir(self.records())
@@ -1235,14 +1268,13 @@ fn context_over_a_quarter_more_than_the_threshold_restarts_at_once() {
     assert_eq!(case.launched(), ["ex-alpha", "ex-alpha"]);
 }
 
-/// `usage limit:` marks the sessions it names (`usage-limit`); a later tick whose headroom is
-/// back resumes each (`resumed`), and none before.
+/// `usage limit:` marks the sessions it names (`usage-limit`); the first tick past the reset
+/// resumes each (`resumed`), and none before.
 #[test]
-fn a_usage_limit_marks_the_sessions_and_a_tick_with_headroom_resumes_them() {
+fn a_usage_limit_marks_the_sessions_and_the_tick_past_the_reset_resumes_them() {
     let case = Case::new("usage-limit");
     case.ok(&["spawn", "--repository", "alpha"]);
     case.live("alpha", FIRST, false);
-    write(&case.fake().join("headroom"), "no");
 
     let marked = case.tick(&["usage limit: You've hit your limit; 1 sessions: ex-alpha"]);
     assert_eq!(actions(&marked), ["usage-limit"]);
@@ -1250,10 +1282,10 @@ fn a_usage_limit_marks_the_sessions_and_a_tick_with_headroom_resumes_them() {
     assert_eq!(
         actions(&case.tick(&[])),
         Vec::<String>::new(),
-        "no headroom"
+        "before the reset"
     );
 
-    write(&case.fake().join("headroom"), "yes");
+    reset_passed(&case, "ex-alpha");
     let resumed = case.tick(&[]);
     assert_eq!(actions(&resumed), ["resumed"]);
     let calls = case.claude_calls();
@@ -1277,12 +1309,11 @@ fn a_limited_session_over_the_threshold_is_respawned_not_resumed() {
     let case = Case::new("usage-limit-over");
     case.ok(&["spawn", "--repository", "alpha"]);
     case.live("alpha", FIRST, false);
-    write(&case.fake().join("headroom"), "no");
     case.tick(&[
         &format!("context: alpha 210k tokens (session {FIRST_SHORT})"),
         "usage limit: You've hit your limit; 1 sessions: ex-alpha",
     ]);
-    write(&case.fake().join("headroom"), "yes");
+    reset_passed(&case, "ex-alpha");
     let tick = case.tick(&[]);
     assert_eq!(actions(&tick), ["sent", "controller-restarted"], "{tick}");
     assert_eq!(
@@ -1298,7 +1329,7 @@ fn a_limited_session_over_the_threshold_is_respawned_not_resumed() {
 }
 
 /// `story:auto-resume`: a controller the session list shows blocked with no `pid`, whose
-/// repository has an open dispatch, is resumed from its transcript once there is headroom, on
+/// repository has an open dispatch, is resumed from its transcript once its reset passed, on
 /// the controller role's model, and once per stop; it is not spawned afresh.
 #[test]
 fn a_controller_blocked_with_no_pid_is_resumed_once_on_the_same_model() {
@@ -1306,13 +1337,13 @@ fn a_controller_blocked_with_no_pid_is_resumed_once_on_the_same_model() {
     case.ok(&["spawn", "--repository", "alpha"]);
     case.dispatch("alpha");
     case.live("alpha", FIRST, false);
-    write(&case.fake().join("headroom"), "yes");
 
     let marked = case.tick(&[&format!("session exited (blocked): ex-alpha {FIRST_SHORT}")]);
     assert_eq!(actions(&marked), ["usage-limit"], "{marked}");
     let written = case.lines_of(&marked);
     assert_eq!(written[0]["session"], "ex-alpha");
     assert_eq!(written[0]["reason"], "blocked with no pid");
+    reset_passed(&case, "ex-alpha");
 
     let resumed = case.tick(&[]);
     assert_eq!(actions(&resumed), ["resumed"], "{resumed}");
@@ -1332,7 +1363,7 @@ fn a_controller_blocked_with_no_pid_is_resumed_once_on_the_same_model() {
 }
 
 /// `story:auto-resume`: the watch reads a rate-limit error in a controller's transcript tail;
-/// the loop marks the session, and resumes it in the first tick with headroom, once.
+/// the loop marks the session, and resumes it in the first tick past its reset, once.
 #[test]
 fn the_watch_resumes_a_controller_its_transcript_shows_rate_limited() {
     let case = Case::new("watch-resume");
@@ -1348,14 +1379,13 @@ fn the_watch_resumes_a_controller_its_transcript_shows_rate_limited() {
         &case.transcript(&case.checkout("alpha"), FIRST),
         &format!("{error}\n"),
     );
-    write(&case.fake().join("headroom"), "no");
 
     let (marked, _) = case.watch();
     assert_eq!(actions(&marked), ["usage-limit"], "{marked}");
     let (waiting, _) = case.watch();
-    assert_eq!(actions(&waiting), Vec::<String>::new(), "no headroom");
+    assert_eq!(actions(&waiting), Vec::<String>::new(), "before the reset");
 
-    write(&case.fake().join("headroom"), "yes");
+    reset_passed(&case, "ex-alpha");
     let (resumed, _) = case.watch();
     assert_eq!(actions(&resumed), ["resumed"], "{resumed}");
     let (after, _) = case.watch();
@@ -1376,8 +1406,8 @@ fn a_second_usage_limit_after_a_resume_is_reported_in_one_line() {
     let case = Case::new("usage-limit-again");
     case.ok(&["spawn", "--repository", "alpha"]);
     case.live("alpha", FIRST, false);
-    write(&case.fake().join("headroom"), "yes");
     case.tick(&["usage limit: You've hit your limit; 1 sessions: ex-alpha"]);
+    reset_passed(&case, "ex-alpha");
     assert_eq!(actions(&case.tick(&[])), ["resumed"]);
 
     let (again, said) =
@@ -1443,23 +1473,20 @@ fn reset_in(hours: i64) -> (String, OffsetDateTime) {
     (format!("resets {hour}:{:02}{half} (UTC)", at.minute()), at)
 }
 
-/// How many times the child runs probed the headroom.
-fn probes(case: &Case) -> usize {
-    fs::read_to_string(case.fake().join("headroom.calls"))
-        .unwrap_or_default()
-        .lines()
-        .count()
+/// The calls of the `ais` stand-in: the loop asks no usage probe
+/// (`story:limit-aware-token-reassignment`), so a test that finds one fails.
+fn assert_no_probe(case: &Case) {
+    let calls = fs::read_to_string(case.fake().join("ais.calls")).unwrap_or_default();
+    assert!(calls.is_empty(), "the loop asked `ais`: {calls}");
 }
 
-/// A usage limit whose line names its reset keeps that reset; with no `ais` on the host the
-/// session waits for it (the probe is unknown, not an error), and the first tick after it
-/// resumes the session from its transcript with no headroom probe.
+/// A usage limit whose line names its reset keeps that reset; the session waits for it, and the
+/// first tick after it resumes the session from its transcript with no headroom probe.
 #[test]
 fn a_limited_session_is_resumed_at_the_reset_its_line_names_without_a_headroom_probe() {
     let case = Case::new("limit-at-reset");
     case.ok(&["spawn", "--repository", "alpha"]);
     case.live("alpha", FIRST, false);
-    write(&case.fake().join("headroom"), "no");
     let (resets, at) = reset_in(3);
 
     let marked = case.tick(&[&format!(
@@ -1470,17 +1497,15 @@ fn a_limited_session_is_resumed_at_the_reset_its_line_names_without_a_headroom_p
     assert_eq!(limited(&case)["ex-alpha"]["repo"], "alpha");
     assert_eq!(limited(&case)["ex-alpha"]["attempts"], 0);
 
-    fs::remove_file(case.bin().join("ais")).expect("no ais on the host");
-    let (waiting, said) = case.child_said(json!({"do": "lines", "ais": true}));
+    let (waiting, said) = case.child_said(json!({"do": "lines"}));
     assert_eq!(actions(&waiting), Vec::<String>::new(), "{waiting}");
     assert!(!said.contains("ais status"), "{said}");
     assert!(limited(&case).get("ex-alpha").is_some());
 
     reset_passed(&case, "ex-alpha");
-    let before = probes(&case);
     let resumed = case.tick(&[]);
     assert_eq!(actions(&resumed), ["resumed"], "{resumed}");
-    assert_eq!(probes(&case), before, "no headroom probe");
+    assert_no_probe(&case);
     let calls = case.claude_calls();
     assert!(
         calls
@@ -1489,26 +1514,15 @@ fn a_limited_session_is_resumed_at_the_reset_its_line_names_without_a_headroom_p
         "{calls:?}"
     );
     assert!(limited(&case).get("ex-alpha").is_none());
-
-    // The same with no `ais` at all.
-    case.tick(&[&format!(
-        "usage limit: You've hit your limit · {}; 1 sessions: ex-alpha",
-        reset_in(4).0
-    )]);
-    reset_passed(&case, "ex-alpha");
-    let resumed = case.child(json!({"do": "lines", "ais": true}));
-    assert_eq!(actions(&resumed), ["resumed"], "{resumed}");
 }
 
 /// A usage limit after the loop resumed the session at its reset backs off: five minutes after
-/// the second, ten after the third, whatever the headroom says; never before a reset the new
-/// line names.
+/// the second, ten after the third; never before a reset the new line names.
 #[test]
 fn a_second_limit_after_a_resume_at_reset_backs_off() {
     let case = Case::new("limit-backoff");
     case.ok(&["spawn", "--repository", "alpha"]);
     case.live("alpha", FIRST, false);
-    write(&case.fake().join("headroom"), "no");
     case.tick(&[&format!(
         "usage limit: You've hit your limit · {}; 1 sessions: ex-alpha",
         reset_in(3).0
@@ -1523,11 +1537,10 @@ fn a_second_limit_after_a_resume_at_reset_backs_off() {
     assert_eq!(limited(&case)["ex-alpha"]["attempts"], 1);
     let wait = minutes(reset_of(&case, "ex-alpha") - before);
     assert!((4.5..=5.5).contains(&wait), "{wait} minutes");
-    write(&case.fake().join("headroom"), "yes");
     assert_eq!(
         actions(&case.tick(&[])),
         Vec::<String>::new(),
-        "it backs off whatever the headroom"
+        "it backs off"
     );
 
     reset_passed(&case, "ex-alpha");
@@ -1552,6 +1565,168 @@ fn a_second_limit_after_a_resume_at_reset_backs_off() {
     );
 }
 
+// ---------------------------------------------------------------------------------------------
+// story:limit-aware-token-reassignment
+// ---------------------------------------------------------------------------------------------
+
+impl Case {
+    /// The host's pool: a token of each of `owners`, contributed in a child run; their ids.
+    fn pool(&self, owners: &[&str]) -> Vec<String> {
+        let answer = self.child(json!({"do": "pool", "owners": owners}));
+        answer["tokens"]
+            .as_array()
+            .expect("the tokens")
+            .iter()
+            .filter_map(|id| id.as_str().map(str::to_owned))
+            .collect()
+    }
+
+    /// The daemon's store under the case's home, where the host's pool is.
+    fn daemon_store(&self) -> store::Store {
+        store::open_url(
+            &format!(
+                "sqlite:{}",
+                self.home()
+                    .join(".b10x/conductor/conductor.sqlite")
+                    .display()
+            ),
+            conductor_cli::daemon::TENANT,
+        )
+        .expect("open the daemon's store")
+    }
+
+    /// The token `agent` holds a lease on, if any.
+    fn held(&self, agent: &str) -> Option<String> {
+        TokenLeaseStorage::list(&self.daemon_store())
+            .into_iter()
+            .find(|lease| lease.state == TokenLeaseState::Held && lease.data.agent.0 == agent)
+            .map(|lease| lease.data.token_id.0.0)
+    }
+
+    /// The token `id`: its state and until when it is limited.
+    fn token(&self, id: &str) -> (PoolTokenState, Option<OffsetDateTime>) {
+        let token = PoolTokenStorage::get(&self.daemon_store(), &TokenId(Uuid(id.to_owned())))
+            .expect("the token");
+        let until = token
+            .data
+            .limited_until
+            .map(|at| OffsetDateTime::parse(&at.0, &Rfc3339).expect("RFC 3339"));
+        (token.state, until)
+    }
+
+    /// The token `id` limited until `until`, as a usage limit of another session left it.
+    fn limit_token(&self, id: &str, until: OffsetDateTime) {
+        let mut store = self.daemon_store();
+        let mut token =
+            PoolTokenStorage::get(&store, &TokenId(Uuid(id.to_owned()))).expect("the token");
+        token.state = PoolTokenState::Limited;
+        token.data.token_state = TokenState::Limited;
+        token.data.limited_until = Some(Timestamp(until.format(&Rfc3339).expect("the clock")));
+        PoolTokenStorage::put(&mut store, token);
+        store.check().expect("the token is limited");
+    }
+}
+
+/// The instant `line`'s `key` names.
+fn instant_of(line: &Value, key: &str) -> OffsetDateTime {
+    OffsetDateTime::parse(
+        line[key]
+            .as_str()
+            .unwrap_or_else(|| panic!("{key} in {line}")),
+        &Rfc3339,
+    )
+    .expect("RFC 3339")
+}
+
+/// Two tokens in the host's pool, a limit line with a reset on the one the session holds: the
+/// same tick resumes the session from its transcript on the other, and the first is Limited
+/// until the reset the line named. The `usage-limit` line names the token and its reset, the
+/// `resumed` line the token it moved to. No usage probe is asked. Fails before the story: the
+/// resume leased with the account's headroom assumed, and the lines named no token.
+#[test]
+fn a_limited_session_resumes_on_another_pool_token_in_the_same_tick() {
+    let case = Case::new("limit-other-token");
+    let tokens = case.pool(&["alice", "bob"]);
+    case.ok(&["spawn", "--repository", "alpha"]);
+    case.live("alpha", FIRST, false);
+    let first = case.held("ex-alpha").expect("the spawn leased a token");
+    let other = tokens
+        .iter()
+        .find(|token| **token != first)
+        .expect("a second token")
+        .clone();
+    let (resets, at) = reset_in(3);
+
+    let tick = case.tick(&[&format!(
+        "usage limit: You've hit your limit · {resets}; 1 sessions: ex-alpha"
+    )]);
+    assert_eq!(actions(&tick), ["usage-limit", "resumed"], "{tick}");
+    let written = case.lines_of(&tick);
+    assert_eq!(written[0]["token"], json!(first), "{written:?}");
+    assert_eq!(instant_of(&written[0], "resets_at"), at);
+    assert_eq!(written[1]["token"], json!(other), "{written:?}");
+    assert_eq!(case.token(&first), (PoolTokenState::Limited, Some(at)));
+    assert_eq!(case.held("ex-alpha"), Some(other));
+    assert!(
+        case.claude_calls()
+            .iter()
+            .any(|call| call == &format!("--bg --resume {FIRST} -n")),
+        "{:?}",
+        case.claude_calls()
+    );
+    assert!(limited(&case).get("ex-alpha").is_none());
+    assert_no_probe(&case);
+}
+
+/// With every token of the pool limited, until T+5h (the session's own, from its line) and T+1h
+/// (the other's), the session waits for T+1h, ahead of its own reset, and the first tick past it
+/// resumes the session on the token that reset. Fails before the story: the session waited for
+/// its own reset, or for a probe.
+#[test]
+fn with_every_token_limited_a_session_resumes_on_the_token_that_resets_first() {
+    let case = Case::new("limit-first-reset");
+    let tokens = case.pool(&["alice", "bob"]);
+    case.ok(&["spawn", "--repository", "alpha"]);
+    case.live("alpha", FIRST, false);
+    let first = case.held("ex-alpha").expect("the spawn leased a token");
+    let other = tokens
+        .iter()
+        .find(|token| **token != first)
+        .expect("a second token")
+        .clone();
+    let soon = (OffsetDateTime::now_utc() + time::Duration::hours(1))
+        .replace_nanosecond(0)
+        .expect("a whole second");
+    case.limit_token(&other, soon);
+    let (resets, late) = reset_in(5);
+
+    let tick = case.tick(&[&format!(
+        "usage limit: You've hit your limit · {resets}; 1 sessions: ex-alpha"
+    )]);
+    assert_eq!(actions(&tick), ["usage-limit"], "{tick}");
+    assert_eq!(instant_of(&case.lines_of(&tick)[0], "resets_at"), late);
+    assert_eq!(case.token(&first), (PoolTokenState::Limited, Some(late)));
+    assert_eq!(
+        reset_of(&case, "ex-alpha"),
+        soon,
+        "resumed at the first token's reset, ahead of its own"
+    );
+    assert_eq!(actions(&case.tick(&[])), Vec::<String>::new(), "before it");
+
+    // T+1h: the other token's reset passes.
+    case.limit_token(
+        &other,
+        OffsetDateTime::now_utc() - time::Duration::minutes(1),
+    );
+    reset_passed(&case, "ex-alpha");
+    let tick = case.tick(&[]);
+    assert_eq!(actions(&tick), ["resumed"], "{tick}");
+    assert_eq!(case.lines_of(&tick)[0]["token"], json!(other));
+    assert_eq!(case.held("ex-alpha"), Some(other));
+    assert_eq!(case.token(&first).0, PoolTokenState::Limited);
+    assert_no_probe(&case);
+}
+
 /// A `Running` controller whose session a usage limit stopped and whose process is gone gives
 /// its `controllers.max_working` place back: the cycle records it stopped (`usage limit`), keeps
 /// its limit, and does not start it again; at its reset, once a place is free, it is resumed
@@ -1567,7 +1742,6 @@ fn a_cycle_stops_a_limited_session_whose_process_is_gone_and_resumes_it_at_reset
     case.ok(&["spawn", "--repository", "alpha"]);
     case.dispatch("alpha");
     mark_active(&case, "beta");
-    write(&case.fake().join("headroom"), "no");
     case.tick(&[&format!(
         "usage limit: You've hit your limit · {}; 1 sessions: ex-alpha",
         reset_in(3).0
@@ -3796,37 +3970,27 @@ fn an_instance_without_a_conductor_role_is_valid() {
     assert!(output.status.success(), "{}", describe(&output));
 }
 
-/// The `ais` reader: headroom while the active account has reached no limit and no window is
-/// full; none once one is.
+/// `story:limit-aware-token-reassignment`: the loop asks no usage probe. With `ais` on the host
+/// showing an account with headroom, a session limited until a reset ahead stays limited, and
+/// `ais` is never run.
 #[test]
-fn ais_reads_headroom_from_the_active_account() {
+fn a_probe_showing_headroom_resumes_nothing_before_the_reset() {
     let case = Case::new("ais");
     case.ok(&["spawn", "--repository", "alpha"]);
     case.live("alpha", FIRST, false);
     case.tick(&["usage limit: You've hit your limit; 1 sessions: ex-alpha"]);
-    let account = |active: bool, used: f64| {
-        json!({"active": active, "provider": "claude", "health": "ready",
-               "usage": {"limit_reached": used >= 100.0,
-                         "windows": [{"name": "five_hour", "used_percent": used},
-                                     {"name": "seven_day", "used_percent": 40.0}]}})
-    };
     write(
         &case.fake().join("ais.json"),
-        &json!({"version": 1, "accounts": [account(true, 100.0), account(false, 0.0)]}).to_string(),
+        &json!({"version": 1, "accounts": [{"active": true, "provider": "claude",
+                "usage": {"limit_reached": false, "windows": []}}]})
+        .to_string(),
     );
     assert_eq!(
-        actions(&case.child(json!({"do": "lines", "ais": true}))),
+        actions(&case.child(json!({"do": "lines"}))),
         Vec::<String>::new()
     );
-    write(
-        &case.fake().join("ais.json"),
-        &json!({"version": 1, "accounts": [account(false, 100.0), account(true, 12.0)]})
-            .to_string(),
-    );
-    assert_eq!(
-        actions(&case.child(json!({"do": "lines", "ais": true}))),
-        ["resumed"]
-    );
+    assert!(limited(&case).get("ex-alpha").is_some());
+    assert_no_probe(&case);
 }
 
 // ---------------------------------------------------------------------------------------------

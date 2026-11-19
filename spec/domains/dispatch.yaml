@@ -230,7 +230,8 @@ types:
   # at 1.25× the threshold; `controller-restarted`, a controller spawned again from its charter
   # (after a hand-over, a second stall, or a gone session with an open dispatch); `usage-limit`,
   # sessions marked by a usage limit; `resumed`, a marked session resumed at the reset its limit
-  # named, or earlier once headroom is back (story:limit-resume-at-reset);
+  # named (story:limit-resume-at-reset), at once on another token of the host's pool with
+  # headroom, or at the first reset of a token of that pool (story:limit-aware-token-reassignment);
   # `relayed`, a watch line delivered to the live controller as `[REPORT <repo> -] watch: …`, a
   # mailbox `[NEED]` delivered to the live controller of the repository it asks, or the answer to
   # a mailbox `[RESOURCE]`; `red-ci`, a red main with no controller, dispatched or noted;
@@ -301,13 +302,16 @@ types:
   # the line belongs to; `repo` is the repository acted on, or `-` for an action on none (a
   # cleanup, a cycle, a usage limit of a session of no repository). Beside those:
   # - `handover-sent`, `stalled`, `usage-limit`: `session` (the session's name) and `line` (the
-  #   watch line acted on);
+  #   watch line acted on); `usage-limit` also `token` (the id of the pool token the session
+  #   held, never its value) and `resets_at` (until when that token is limited), when the session
+  #   held one (story:limit-aware-token-reassignment);
   # - `handover`: `session`, `reason` (`hand-over file` or `context over 1.25x`) and `path` (the
   #   hand-over file, when one was found);
   # - `controller-restarted`: `session`, `reason` (`handover`, `stalled again`, `gone`, `exited`,
   #   `limit over the context threshold`) and `path` (the resume point appended to the charter,
   #   when any);
-  # - `resumed`: `session`;
+  # - `resumed`: `session`, and `token`, the id of the pool token it was resumed on, when it
+  #   leased one;
   # - `relayed`: `session` (the controller delivered to) and `line` (the watch line, or the
   #   mailbox message's first line);
   # - `red-ci`: `line`, `reason` (`spawned`, `no charter` or why the spawn was refused) and
@@ -356,6 +360,8 @@ types:
       - {name: start_ref, type: Optional<String>}
       - {name: issue, type: Optional<String>}
       - {name: link, type: Optional<String>}
+      - {name: token, type: Optional<String>}
+      - {name: resets_at, type: Optional<Timestamp>}
 
   # A unit of work a work source hands one instance (story:control-plane-work-handler): the
   # repository as the instance's rows name it, the brief, the caller's `reference` for the unit,

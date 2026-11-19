@@ -1,0 +1,13 @@
+{
+  "at": "2026-11-18T16:33:36Z",
+  "actor": "human:unknown",
+  "artifact": "story:limit-aware-token-reassignment",
+  "kind": "story",
+  "revision": 5,
+  "change": {
+    "change": "evidence",
+    "kind": "test_result",
+    "source": "cargo test -p conductor-cli at 78b90c40 in a sandbox without AF_UNIX sockets: --lib token:: 9/9 pass (a_limited_token_is_not_picked_before_its_reset, with_every_token_limited_the_first_reset_is_the_earliest_ahead, a_limit_answer_reads_as_conductord_sent_it_and_names_no_value); --test token_pool 21 pass 8 fail (a_boxed_runtime_marks_its_token_limited_through_conductord passes; the 8 failures are session starts refused LaunchFailed, broker socket); --test run 21 pass 60 fail, all at spawn LaunchFailed before the story's logic (both run.rs acceptance tests compile, need CI); clippy -p conductor-cli --all-targets -D warnings clean; fmt --check clean",
+    "reference": "78b90c40"
+  }
+}

@@ -7,8 +7,11 @@
 //! and total `f_blocks * f_frsize`. The source check reads every file under `crates/*/src` for a
 //! string literal that starts with the word `df`, the way `no_organization.rs` reads for words.
 
+mod common;
+
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::process::Stdio;
 
 use conductor_cli::disk;
 use nix::sys::statvfs::statvfs;
@@ -113,4 +116,51 @@ fn space_of_a_missing_path_is_an_error_naming_it() {
     assert!(text.contains(&path), "{text}");
     // The path itself may hold "df" (a tree named `wt-e83df1…`); the rest of the text may not.
     assert!(!text.replace(&path, "").contains("df"), "{text}");
+}
+
+/// `story:box-disk-path-default`: `snapshot start-snapshot` reads free disk on the instance's
+/// `thresholds.disk_path`, not on `/`: pointed at a path that is not there, it fails naming it,
+/// before a collector runs.
+#[test]
+fn the_snapshot_reads_free_disk_on_the_instance_s_disk_path() {
+    let dir = scratch("snapshot-disk-path");
+    let home = dir.join("home");
+    fs::create_dir_all(&home).expect("create the case's home");
+    let missing = dir.join("not-there");
+    let file = dir.join("conductor.yaml");
+    fs::write(
+        &file,
+        format!(
+            "version: conductor.config/1\n\
+             instances:\n\
+             \x20 - name: one\n\
+             \x20   session_prefix: one\n\
+             \x20   sources: [{{github: example-org}}]\n\
+             \x20   checkouts: {{root: {root:?}, trees: {trees:?}}}\n\
+             \x20   records: {records:?}\n\
+             \x20   state: {state:?}\n\
+             \x20   thresholds: {{disk_path: {missing:?}}}\n",
+            root = dir.join("checkouts"),
+            trees = dir.join("trees"),
+            records = dir.join("records"),
+            state = dir.join("state"),
+        ),
+    )
+    .expect("write the config file");
+    let output = common::conductor(&home)
+        .arg("--config")
+        .arg(&file)
+        .arg("--state-dir")
+        .arg(dir.join("state"))
+        .args(["snapshot", "start-snapshot"])
+        .current_dir(&dir)
+        .stdin(Stdio::null())
+        .output()
+        .expect("conductor runs");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert_eq!(output.status.code(), Some(1), "{stderr}");
+    assert!(
+        stderr.contains(&missing.display().to_string()),
+        "the error names the instance's disk_path: {stderr}"
+    );
 }

@@ -4715,3 +4715,46 @@ fn the_standing_rules_a_session_starts_with_are_read_from_the_file_at_its_start(
         "a file that is gone too"
     );
 }
+
+/// `story:box-disk-path-default`: an instance whose placement opens a box and that writes no
+/// `thresholds.disk_path` reads its disk thresholds on its checkouts root, not on the box's tmpfs
+/// root; one that opens no box reads `/`; a written `disk_path` is kept either way.
+#[test]
+fn a_boxed_instance_with_no_disk_path_reads_its_checkouts_root() {
+    let case = Case::new("box-disk-path");
+    let home = case.dir.join("home");
+    let file = case.write(
+        "boxes.yaml",
+        "version: conductor.config/2\n\
+         daemon: {port: 7400, store: \"sqlite:/srv/conductor.sqlite\"}\n\
+         instances:\n\
+         \x20 - name: boxed\n\
+         \x20   session_prefix: boxed\n\
+         \x20   placement: systemd\n\
+         \x20   sources: [{github: example-org}]\n\
+         \x20   checkouts: {root: ~/boxed, trees: ~/boxed-trees}\n\
+         \x20 - name: unboxed\n\
+         \x20   session_prefix: unboxed\n\
+         \x20   placement: none\n\
+         \x20   sources: [{github: example-org}]\n\
+         \x20   checkouts: {root: ~/unboxed, trees: ~/unboxed-trees}\n\
+         \x20 - name: written\n\
+         \x20   session_prefix: written\n\
+         \x20   placement: systemd\n\
+         \x20   sources: [{github: example-org}]\n\
+         \x20   checkouts: {root: ~/written, trees: ~/written-trees}\n\
+         \x20   thresholds: {disk_path: /srv/data}\n",
+    );
+    let disk_path = |name: &str| {
+        let shown = case.show(&file, &["--instance", name]);
+        let instances = shown["instances"].as_array().expect("instances is a list");
+        instances
+            .iter()
+            .find(|instance| instance["name"] == name)
+            .unwrap_or_else(|| panic!("instance {name}: {shown:#}"))["thresholds"]["disk_path"]
+            .clone()
+    };
+    assert_eq!(disk_path("boxed"), path_text(&home.join("boxed")));
+    assert_eq!(disk_path("unboxed"), "/");
+    assert_eq!(disk_path("written"), "/srv/data");
+}

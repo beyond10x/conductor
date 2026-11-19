@@ -4550,9 +4550,31 @@ impl Reader<'_> {
             Some(value) => self.cadence(&value, &join(path, "cadence")),
             None => Some(default_cadence()),
         };
-        let thresholds = match self.over_global(map, "thresholds") {
+        let thresholds_written = self.over_global(map, "thresholds");
+        let disk_path_written = thresholds_written
+            .as_ref()
+            .and_then(Value::as_object)
+            .is_some_and(|written| Self::get(written, "disk_path").is_some());
+        let thresholds = match thresholds_written {
             Some(value) => self.thresholds(&value, &join(path, "thresholds")),
             None => Some(default_thresholds()),
+        };
+        // A box's `/` and home directory are a tmpfs: absent a written `disk_path`, an instance
+        // whose written placement opens a box reads its disk thresholds on its checkouts root,
+        // where its builds write (`story:box-disk-path-default`). A `conductor.config/1` file
+        // writes no placement, and keeps `/`.
+        let thresholds = match (&placement, &checkouts) {
+            (Some(placement), Some(checkouts))
+                if self.second
+                    && !disk_path_written
+                    && crate::placement::resolve(placement).is_some() =>
+            {
+                thresholds.map(|thresholds| Thresholds {
+                    disk_path: checkouts.root.clone(),
+                    ..thresholds
+                })
+            }
+            _ => thresholds,
         };
         let retention = match Self::get(map, "retention") {
             Some(value) => self.retention(value, &join(path, "retention")),

@@ -22,7 +22,7 @@ use std::time::{Duration, Instant};
 
 use anyhow::bail;
 use conductor_cli::config;
-use conductor_cli::run::{self, Headroom, Seams};
+use conductor_cli::run::{self, Seams};
 use conductor_cli::session::{Deliverer, Delivery};
 use serde_json::{Value, json};
 
@@ -252,15 +252,6 @@ impl Deliverer for Nobody {
     }
 }
 
-/// The headroom of the child tick: always.
-struct Plenty;
-
-impl Headroom for Plenty {
-    fn headroom(&self) -> anyhow::Result<bool> {
-        Ok(true)
-    }
-}
-
 /// The child tick ([`Case::tick`]); a plain run of the suite passes at once.
 #[test]
 fn child() {
@@ -274,7 +265,6 @@ fn child() {
     let seams = Seams {
         providers: &host,
         deliverer: &Nobody,
-        headroom: &Plenty,
         handle_request: None,
         program,
         gc: conductor_cli::gc::gc,

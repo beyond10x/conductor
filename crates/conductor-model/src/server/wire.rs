@@ -1,5 +1,5 @@
 // generated from conductor v1
-// contract digest f9b97474e363529d89efb80bf5ba004e441e796a0dac65b2cc8dcd802f7432be
+// contract digest 64aee187d1d520e67700aff5512c55340b1b4251c879b9eddfac8a9586b70786
 // do not edit: regenerate with `ess synthesize --layout crate`
 //! Every generated declaration, as JSON, in the renderings the published wire contracts fix.
 //!
@@ -6585,6 +6585,14 @@ pub fn encode_conductor_dispatch_dispatch_log_line(value: &crate::dispatch::Disp
         json::member(out, "link");
         json::push_text(out, &*held0);
     }
+    if let Some(held0) = &value.token {
+        json::member(out, "token");
+        json::push_text(out, &*held0);
+    }
+    if let Some(held0) = &value.resets_at {
+        json::member(out, "resets_at");
+        json::push_text(out, &(*held0).0);
+    }
     out.push('}');
 }
 
@@ -6594,7 +6602,7 @@ pub fn encode_conductor_dispatch_dispatch_log_line(value: &crate::dispatch::Disp
 ///
 /// [`json::DecodeError`] naming the path and what the declaration says belongs there.
 pub fn decode_conductor_dispatch_dispatch_log_line(value: &json::Value, at: &str) -> Result<crate::dispatch::DispatchLogLine, json::DecodeError> {
-    json::closed_at(value, at, &["at", "event", "repo", "id", "to", "goal", "brief", "priority", "waits_on", "reason", "evidence", "controller_id", "session_id", "charter_revision", "from", "kind", "first_line", "resource", "amount", "body_path", "session", "grant", "path", "line", "tick_id", "commit", "reference", "start_ref", "issue", "link"])?;
+    json::closed_at(value, at, &["at", "event", "repo", "id", "to", "goal", "brief", "priority", "waits_on", "reason", "evidence", "controller_id", "session_id", "charter_revision", "from", "kind", "first_line", "resource", "amount", "body_path", "session", "grant", "path", "line", "tick_id", "commit", "reference", "start_ref", "issue", "link", "token", "resets_at"])?;
     Ok(crate::dispatch::DispatchLogLine {
         at: {
             let at0 = json::nested(at, "at");
@@ -6798,6 +6806,20 @@ pub fn decode_conductor_dispatch_dispatch_log_line(value: &json::Value, at: &str
             Some(member29) => {
                 let at29 = json::nested(at, "link");
                 Some(json::text_at(member29, &at29, "a string")?.to_owned())
+            }
+        },
+        token: match value.member("token") {
+            None | Some(json::Value::Null) => None,
+            Some(member30) => {
+                let at30 = json::nested(at, "token");
+                Some(json::text_at(member30, &at30, "a string")?.to_owned())
+            }
+        },
+        resets_at: match value.member("resets_at") {
+            None | Some(json::Value::Null) => None,
+            Some(member31) => {
+                let at31 = json::nested(at, "resets_at");
+                Some(crate::primitives::Timestamp(json::timestamp_at(member31, &at31, "an RFC 3339 instant")?.to_owned()))
             }
         },
     })

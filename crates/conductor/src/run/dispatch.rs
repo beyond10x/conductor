@@ -216,7 +216,7 @@ fn reconcile(tick: &mut Tick<'_, '_>) -> Result<Option<String>> {
                              resumed at {}",
                             limited[session.as_str()]["resets_at"]
                                 .as_str()
-                                .unwrap_or("the probe's headroom")
+                                .unwrap_or("its reset")
                         ));
                         continue;
                     }

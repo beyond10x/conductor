@@ -2,7 +2,7 @@
 format: aep.planning-md/3
 id: story:limit-aware-token-reassignment
 kind: story
-status: draft
+status: active
 title: A session at its usage limit moves to a pool token with headroom at once, else to the first token that resets
 summary: The limit line marks the token limited until its reset; the session resumes on another token in the same tick, or on the token whose reset passes first, with no probe
 tags:
@@ -29,7 +29,10 @@ scope:
   path: crates/conductor/tests/run.rs
 - confidence: cited
   path: crates/conductor/tests/token_pool.rs
-revision: 3
+revision: 5
+transitions:
+- {from: "draft", to: "proposed", at: "2026-11-18T14:13:04Z", actor: "human:unknown", revision: 4}
+- {from: "proposed", to: "active", at: "2026-11-18T14:13:05Z", actor: "human:unknown", revision: 5}
 ---
 ## Why
 

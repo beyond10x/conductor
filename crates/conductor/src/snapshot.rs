@@ -119,8 +119,12 @@ use crate::collect::{self, Collector};
 use crate::not_implemented;
 use crate::store::Store;
 
-/// The file system whose free bytes a snapshot records.
-const DISK: &str = "/";
+/// The file system whose free bytes a snapshot records: the active instance's
+/// `thresholds.disk_path`, which the build gate and the watch read too
+/// (`story:box-disk-path-default`).
+fn disk() -> PathBuf {
+    PathBuf::from(&crate::config::active().instance.thresholds.disk_path)
+}
 
 /// What one sense run ended as.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -135,7 +139,8 @@ pub struct Taken {
 }
 
 /// The driver over the store under the state directory `state`, which it opens, creating it when
-/// it is not there: starts a snapshot now, with the bytes free on the file system holding `/`,
+/// it is not there: starts a snapshot now, with the bytes free on the file system holding the
+/// instance's `thresholds.disk_path`,
 /// runs `collectors` in order, each given `state` through [`Recorder::state`], and ends the
 /// snapshot `Complete` when every one answered, or `Failed` naming the first that did not, a
 /// collector that panicked included.
@@ -150,7 +155,7 @@ pub fn take_in(state: &Path, collectors: &[Collector]) -> Result<Taken> {
     let start = StartSnapshot {
         actor: crate::actor::daemon(),
         started_at: Timestamp(now()?),
-        disk_free_bytes: disk_free_bytes(Path::new(DISK))?,
+        disk_free_bytes: disk_free_bytes(&disk())?,
         budget: None,
     };
     drive(crate::store::open(&state)?, Some(&state), start, collectors)
@@ -166,7 +171,7 @@ pub fn take(store: Store, collectors: &[Collector]) -> Result<Taken> {
     let start = StartSnapshot {
         actor: crate::actor::daemon(),
         started_at: Timestamp(now()?),
-        disk_free_bytes: disk_free_bytes(Path::new(DISK))?,
+        disk_free_bytes: disk_free_bytes(&disk())?,
         budget: None,
     };
     drive(store, None, start, collectors)
@@ -993,7 +998,7 @@ pub fn start_snapshot(state: Option<&Path>, args: StartSnapshotArgs) -> Result<E
         };
         let disk_free_bytes = match args.disk_free_bytes {
             Some(bytes) => bytes,
-            None => disk_free_bytes(Path::new(DISK))?,
+            None => disk_free_bytes(&disk())?,
         };
         let start = StartSnapshot {
             actor: crate::actor::daemon(),

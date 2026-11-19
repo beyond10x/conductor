@@ -2184,3 +2184,79 @@ fn doctor_names_a_box_memory_cap_below_its_controllers_share() {
         shown(&output)
     );
 }
+
+/// `story:box-disk-path-default`: a box whose `thresholds.disk_path` lies under none of the
+/// directories the box writes reads its disk thresholds on the box's tmpfs root; doctor names it,
+/// with the checkouts root to write instead, and does not fail. A box that writes no `disk_path`
+/// (its checkouts root) or one under a directory it writes gets no such row.
+#[test]
+fn doctor_names_a_disk_path_on_the_box_s_tmpfs() {
+    let case = Case::new("box-disk-path");
+    case.programs_but(&[]);
+    let mut text = format!(
+        "version: conductor.config/2\ndaemon: {{port: 7300, store: {:?}}}\ninstances:\n",
+        format!("sqlite:{}", case.dir.join("store/shared.sqlite").display())
+    );
+    for (name, thresholds) in [
+        ("alpha", "{disk_path: /}".to_owned()),
+        ("beta", "{}".to_owned()),
+        (
+            "gamma",
+            format!("{{disk_path: {:?}}}", case.dir.join("gamma/cache/builds")),
+        ),
+    ] {
+        let root = case.dir.join(name);
+        for sub in ["checkouts", "state", "records", "cache"] {
+            fs::create_dir_all(root.join(sub)).expect("an instance directory");
+        }
+        text.push_str(&format!(
+            "  - name: {name}\n    placement: systemd\n    session_prefix: {name}\n    \
+             sources: [{{github: example-org}}]\n    \
+             checkouts: {{root: {checkouts:?}, trees: {trees:?}}}\n    \
+             records: {records:?}\n    state: {state:?}\n    cache: {cache:?}\n    \
+             thresholds: {thresholds}\n",
+            checkouts = root.join("checkouts"),
+            trees = root.join("trees"),
+            records = root.join("records"),
+            state = root.join("state"),
+            cache = root.join("cache"),
+        ));
+    }
+    let file = case.dir.join("conductor.yaml");
+    fs::write(&file, text).expect("write the config file");
+    let output = common::conductor(case.home())
+        .arg("doctor")
+        .current_dir(case.work())
+        .env_clear()
+        .env("HOME", case.home())
+        .env("PATH", case.bin())
+        .env("CONDUCTOR_CONFIG", &file)
+        .env(
+            conductor_cli::placement::SOCKET_VARIABLE,
+            case.dir.join("no.sock"),
+        )
+        .stdin(Stdio::null())
+        .output()
+        .expect("conductor runs");
+    let lines = stdout(&output);
+    let disk: Vec<&String> = lines
+        .iter()
+        .filter(|line| line.contains(" disk_path: "))
+        .collect();
+    assert_eq!(
+        disk,
+        [&format!(
+            "box alpha disk_path: / is on the box's tmpfs, under no directory the box writes; \
+             set thresholds.disk_path to one, such as {}",
+            case.dir.join("alpha/checkouts").display()
+        )],
+        "{}",
+        shown(&output)
+    );
+    let verdict = lines.last().cloned().unwrap_or_default();
+    assert!(
+        !verdict.contains("disk_path"),
+        "not a failure: {}",
+        shown(&output)
+    );
+}

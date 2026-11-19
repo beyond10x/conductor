@@ -163,6 +163,10 @@ one edits no config file and restarts nothing. `join` and `leave` need the `join
   cap by default). A controller role's `token_owner` takes that owner's tokens only, and starts
   with `--remote-control <session name>`. With no token with headroom the start is refused
   `NoTokenAvailable`, as with an empty pool.
+- A session that reaches its usage limit marks the token it holds `Limited` until the reset its
+  limit line names. The loop resumes the session from its transcript in the same tick on another
+  token with headroom; with none, at the first instant a token of the pool resets. A `Limited`
+  token is never leased before its reset, and no usage probe is asked.
 - The value reaches the harness once, at its start, in the harness process's own environment:
   `CLAUDE_CODE_OAUTH_TOKEN` for a `SubscriptionToken`, `ANTHROPIC_API_KEY` for an `ApiKey`. The
   session's settings copy names no `apiKeyHelper`. No command prints a pool token, and no log,

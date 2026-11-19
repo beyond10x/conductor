@@ -1120,6 +1120,7 @@ fn the_built_in_instance_keeps_100g_free_and_wakes_from_110g() {
             instance: built_in.name.0.clone(),
             fall_key: built_in.name.0.clone(),
             context_handover: 300_000,
+            disk_path: "/".to_owned(),
             disk_low: 100,
             disk_clear: 110,
             disk_admit: 20,
@@ -1150,6 +1151,7 @@ fn the_settings_are_the_instances_name_and_thresholds() {
             instance: "acme".to_owned(),
             fall_key: "acme".to_owned(),
             context_handover: 150_000,
+            disk_path: "/".to_owned(),
             disk_low: 40,
             disk_clear: 45,
             disk_admit: 30,
@@ -2658,6 +2660,7 @@ fn a_following_watch_asleep_between_passes_lets_another_process_append_within_2s
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
+        .map(|child| Watching(Some(child)))
         .expect("the conductor binary starts");
     // The disk probe writes `disk.free` in the first pass; the usage and decision probes, which
     // read both stores, follow it within the pass. A second later the watch sleeps for 60 s.
@@ -2778,7 +2781,7 @@ impl Case {
     /// Starts `conductor --state-dir <case>/state watch run <args>` from `work/`, with `HOME`
     /// naming `home/` and `PATH` naming `bin/`. `CONDUCTOR_CONFIG` names `config` when one is
     /// given and is removed otherwise; `CONDUCTOR_INSTANCE` is removed.
-    fn start_watch(&self, config: Option<&Path>, args: &[&str]) -> Child {
+    fn start_watch(&self, config: Option<&Path>, args: &[&str]) -> Watching {
         self.start_watch_with(config, args, &[])
     }
 
@@ -2788,7 +2791,7 @@ impl Case {
         config: Option<&Path>,
         args: &[&str],
         envs: &[(&str, &Path)],
-    ) -> Child {
+    ) -> Watching {
         let (home, work, bin) = self.binary_dirs();
         let mut command = common::conductor(&home);
         command
@@ -2805,13 +2808,28 @@ impl Case {
             command.env(config::CONFIG_VARIABLE, config);
         }
         command.envs(envs.iter().copied());
-        command.spawn().expect("the conductor binary starts")
+        Watching(Some(command.spawn().expect("the conductor binary starts")))
     }
 }
 
-/// Waits up to `wait` for `child` to exit, and stops it when it has not: its exit code (`None`
+/// A started watch, stopped when it is dropped unfinished: a case that panics before
+/// [`finish`] leaves no `watch run` behind it, which would hold what the test run inherited
+/// (a build lock's descriptor among them) for as long as it loops.
+struct Watching(Option<Child>);
+
+impl Drop for Watching {
+    fn drop(&mut self) {
+        if let Some(mut child) = self.0.take() {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+    }
+}
+
+/// Waits up to `wait` for the watch to exit, and stops it when it has not: its exit code (`None`
 /// when it was stopped), standard output and standard error.
-fn finish(mut child: Child, wait: Duration) -> (Option<i32>, String, String) {
+fn finish(mut watching: Watching, wait: Duration) -> (Option<i32>, String, String) {
+    let mut child = watching.0.take().expect("a watch finishes once");
     let started = Instant::now();
     let mut exited = child.try_wait().expect("ask after the watch");
     while exited.is_none() && started.elapsed() < wait {

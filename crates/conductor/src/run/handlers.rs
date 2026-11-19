@@ -4,7 +4,7 @@
 //! | watch line | handler | lines |
 //! |---|---|---|
 //! | `context: <repo> <n>k …` at or over `thresholds.context_handover` | deliver `[HANDOVER <repo>] context <n>k` once per controller; over 1.25 times the threshold, at once or in a later tick, once `<checkout>/.git/handoff/` holds a file newer than the delivery and the session is idle, or once `thresholds.silent_session` passed since the delivery, restart the controller ([`Tick::restart_with`]) with the newest hand-over file as the charter's resume point, its line carrying the `context:` line; a later tick restarts only the controller, by its id, and the session the hand-over was asked of ([`handovers`]) | `handover-sent`, `handover`, `controller-restarted` |
-//! | `usage limit: …; <n> sessions: <names>` | mark each session with the reset its text names ([`crate::limit::reset`]), else the token's limit window from now; the first tick past that reset, or an earlier one whose [`Headroom`](super::Headroom) is back, resumes each once (`spawn::resume`), or restarts one a hand-over was asked of as its controller's; a session resumed and stopped again is said in one journal line and backs off ([`crate::limit::backoff`]), resumed at neither the probe's yes nor before a reset its new text names ([`limited`]) | `usage-limit`, `resumed`, `controller-restarted` |
+//! | `usage limit: …; <n> sessions: <names>` | mark the pool token each session holds Limited until the reset its text names ([`crate::limit::reset`]), else the token's limit window from now ([`crate::token::on_limit`]); a session is resumed at once on another token of the host's pool with headroom, else marked to the first reset of a token of that pool, or, with no pool, to its own; the first tick past that reset resumes each once (`spawn::resume`), or restarts one a hand-over was asked of as its controller's; no probe is asked (`story:limit-aware-token-reassignment`); a session resumed and stopped again is said in one journal line and backs off ([`crate::limit::backoff`]), resumed not before a reset its new text names ([`limited`]) | `usage-limit`, `resumed`, `controller-restarted` |
 //! | `session exited (blocked): <name> …` | marked as a usage limit marks it, when its repository has an open dispatch | `usage-limit`, `resumed` |
 //! | `PR checks done: <repo>#…`, `PR merged: <repo>#…` (`story:merge-wakes-idle-controller`), `main CI after merge: <repo>#…` (`story:default-branch-pipeline-wakes-controller`), `CI red on main: <repo> / …`, `CI green again on main: <repo> / …` | deliver `[REPORT <repo> -] watch: <line>` to the running controller; a red `main` with none spawns one when the repository has a charter, within `controllers.max_working` | `relayed`, `red-ci` |
 //! | `session stalled: <name> …`, `session silent: <name> …` | first a delivered check-in; the second time, a restart | `stalled`, `controller-restarted` |
@@ -25,9 +25,9 @@
 //! hand-over was asked of, its repository, the id of the controller it was asked of and of the
 //! session the `context:` line measured, when, in nanoseconds, and the `context:` line),
 //! `limited.json` (each session a usage limit marked: its repository, `resets_at`, the instant it
-//! is resumed at with no probe, `attempts`, the resumes in a row it backs off after, and
-//! `stopped` once the cycle recorded its controller stopped; an entry of an older loop has the
-//! repository alone and waits for the probe), `stalled.json` (each session a check-in was sent)
+//! is resumed at, `attempts`, the resumes in a row it backs off after, and `stopped` once the
+//! cycle recorded its controller stopped; an entry of an older loop has the repository alone and
+//! is resumed in the next tick), `stalled.json` (each session a check-in was sent)
 //! and `resumed.json` ([`crate::limit::RESUMED`]: each session the loop resumed, when, and after
 //! how many limits in a row).
 //!
@@ -60,7 +60,7 @@ use conductor_model::dispatch::{
     StopControllerOutcome,
 };
 use conductor_model::observation::{Harness, RepositoryName};
-use conductor_model::primitives::Uuid;
+use conductor_model::primitives::{Timestamp, Uuid};
 use serde_json::{Value, json};
 use time::OffsetDateTime;
 use time::format_description::well_known::Rfc3339;
@@ -88,7 +88,7 @@ const RESUMED: &str = crate::limit::RESUMED;
 const NOTIFY_BOUND: Duration = Duration::from_secs(10);
 
 /// What a tick finishes first of what earlier ticks began: the `gc` a `disk low` line started,
-/// once it ended; the sessions a usage limit marked, once there is headroom; the hand-overs asked
+/// once it ended; the sessions a usage limit marked, once their reset passed; the hand-overs asked
 /// for; the deliveries kept.
 pub fn pending(tick: &mut Tick<'_, '_>) {
     if let Err(error) = cleaned(tick, false) {
@@ -538,36 +538,41 @@ fn usage_limit(tick: &mut Tick<'_, '_>, line: &str) -> Result<bool> {
         .rsplit_once("sessions: ")
         .map(|(_, names)| names.split_whitespace().map(str::to_owned).collect())
         .unwrap_or_default();
+    let instance = &crate::config::active().instance;
     for name in &names {
         let repo = tick.repo_of(name)?.unwrap_or_else(|| "-".to_owned());
-        let named = mark(tick, name, &repo, line, None)?;
-        on_limit(tick, name, &repo, named);
+        let named = crate::limit::reset(line, OffsetDateTime::now_utc());
+        let pool = crate::token::on_limit(instance, name, named).unwrap_or_else(|error| {
+            tick.note(&format!("mark the token of {name} limited"), &error);
+            crate::token::LimitAnswer::default()
+        });
+        mark(tick, name, &repo, line, None, Some(&pool))?;
+        if pool.other {
+            on_limit(tick, name, &repo);
+        }
     }
     Ok(!names.is_empty())
 }
 
-/// `story:token-pool`: the token `name` ran on is Limited, until `until`, the reset its limit
-/// text named (`story:limit-resume-at-reset`), else for the token's limit window; when another
-/// token of the pool is Available the session is resumed on it now, rather than once the account
-/// has headroom. A hand-over asked of it stays kept (`story:handover-restart-by-controller-id`):
-/// the session asked runs on under its id.
-fn on_limit(tick: &mut Tick<'_, '_>, name: &str, repo: &str, until: Option<OffsetDateTime>) {
-    let instance = &crate::config::active().instance;
-    match crate::token::on_limit(instance, name, until) {
-        Ok(true) if repo != "-" => match resume(tick, repo, name) {
-            Ok(true) => {
-                let attempts =
-                    crate::limit::attempts_of(&read_json(&tick.dir, LIMITED, json!({}))[name]);
-                for file in [LIMITED, STALLED, RESUMED] {
-                    unkeep(tick, file, name);
-                }
-                resumed(tick, name, attempts);
+/// `story:limit-aware-token-reassignment`: the token `name` ran on is Limited
+/// ([`crate::token::on_limit`]) and another token of the host's pool has headroom: the session
+/// is resumed on it now, in the same tick, from its transcript. A hand-over asked of it stays
+/// kept (`story:handover-restart-by-controller-id`): the session asked runs on under its id.
+fn on_limit(tick: &mut Tick<'_, '_>, name: &str, repo: &str) {
+    if repo == "-" {
+        return;
+    }
+    match resume(tick, repo, name) {
+        Ok(true) => {
+            let attempts =
+                crate::limit::attempts_of(&read_json(&tick.dir, LIMITED, json!({}))[name]);
+            for file in [LIMITED, STALLED, RESUMED] {
+                unkeep(tick, file, name);
             }
-            Ok(false) => {}
-            Err(error) => tick.note(&format!("resume {name} on another token"), &error),
-        },
-        Ok(_) => {}
-        Err(error) => tick.note(&format!("mark the token of {name} limited"), &error),
+            resumed(tick, name, attempts);
+        }
+        Ok(false) => {}
+        Err(error) => tick.note(&format!("resume {name} on another token"), &error),
     }
 }
 
@@ -617,29 +622,33 @@ fn exited(tick: &mut Tick<'_, '_>, line: &str, name: &str) -> Result<bool> {
     if !tick.open_dispatch(&repo)? {
         return Ok(false);
     }
-    mark(tick, name, &repo, line, Some("blocked with no pid"))?;
+    mark(tick, name, &repo, line, Some("blocked with no pid"), None)?;
     Ok(true)
 }
 
-/// Marks the session `name` of `repo` stopped by `line` and writes `usage-limit` with `cause`;
-/// answers the reset `line` names ([`crate::limit::reset`]).
+/// Marks the session `name` of `repo` stopped by `line` and writes `usage-limit` with `cause`,
+/// and with the token `pool` limited and its reset (`story:limit-aware-token-reassignment`).
 ///
-/// The mark keeps when the session is resumed with no probe (`resets_at`): the reset `line`
-/// names, else the token's limit window ([`crate::token::LIMIT_WINDOW`]) from now. A session the
+/// The mark keeps when the session is resumed (`resets_at`): when `pool` names no token with
+/// headroom, the first reset of a token of the host's pool ([`crate::token::first_reset`]); with
+/// no pool, the reset `line` names, else the token's limit window
+/// ([`crate::token::LIMIT_WINDOW`]) from now. A session the
 /// loop resumed within [`crate::watch::LIMIT_AGAIN`] is stopped a second time: its line says so,
 /// and so does one journal line, and it backs off: `attempts` is one more than the resumes in a
 /// row before, and `resets_at` is [`crate::limit::backoff`] of it from now, or the reset `line`
-/// names when that is later. A session marked already keeps its mark, its reset moved to the
-/// one `line` names when that is later.
+/// names when that is later. A session marked already keeps its mark, its reset moved as
+/// [`moved_reset`] says.
 fn mark(
     tick: &mut Tick<'_, '_>,
     name: &str,
     repo: &str,
     line: &str,
     cause: Option<&str>,
-) -> Result<Option<OffsetDateTime>> {
+    pool: Option<&crate::token::LimitAnswer>,
+) -> Result<()> {
     let now = OffsetDateTime::now_utc();
     let named = crate::limit::reset(line, now);
+    let first = pool.and_then(|pool| pool.first_reset);
     let last = read_json(&tick.dir, RESUMED, json!({}))[name].clone();
     let again = crate::limit::resumed_at(&last).is_some_and(|at| {
         nanos(SystemTime::now()).saturating_sub(at) < crate::watch::LIMIT_AGAIN.as_nanos()
@@ -648,10 +657,9 @@ fn mark(
     let kept = marked.get(name).filter(|kept| kept.is_object()).cloned();
     let entry = match kept {
         Some(mut kept) => {
-            if let Some(named) = named
-                && resets_at(&kept).is_none_or(|at| named > at)
-            {
-                kept["resets_at"] = json!(stamp(named)?);
+            let attempts = crate::limit::attempts_of(&kept);
+            if let Some(at) = moved_reset(resets_at(&kept), attempts, first, named) {
+                kept["resets_at"] = json!(stamp(at)?);
             }
             kept["repo"] = json!(repo);
             kept
@@ -663,7 +671,7 @@ fn mark(
                 0
             };
             let wait = now + crate::limit::backoff(attempts);
-            let at = match named {
+            let at = match first.or(named) {
                 Some(named) if again => named.max(wait),
                 Some(named) => named,
                 None if again => wait,
@@ -677,6 +685,10 @@ fn mark(
     let mut written = tick.line(DispatchLogEvent::UsageLimit, repo)?;
     written.session = Some(name.to_owned());
     written.line = Some(line.to_owned());
+    if let Some((token, until)) = pool.and_then(|pool| pool.limited.as_ref()) {
+        written.token = Some(token.clone());
+        written.resets_at = Some(Timestamp(stamp(*until)?));
+    }
     written.reason = if again {
         tick.note(
             name,
@@ -691,7 +703,7 @@ fn mark(
         cause.map(str::to_owned)
     };
     tick.write(&written)?;
-    Ok(named)
+    Ok(())
 }
 
 /// `at` as RFC 3339.
@@ -707,9 +719,8 @@ fn resets_at(entry: &Value) -> Option<OffsetDateTime> {
 }
 
 /// The sessions a usage limit marked (`story:limit-resume-at-reset`): each whose reset has
-/// passed, with no probe; each other, not backing off after a second limit, once
-/// [`super::Headroom`] answers yes, asked once per tick and only when such a session waits; an
-/// answer that does not read is no headroom, said in the journal. Each is resumed from its
+/// passed, or whose mark of an older loop names none; no probe is asked
+/// (`story:limit-aware-token-reassignment`). Each is resumed from its
 /// transcript (`spawn::resume`) once per stop, or restarted when a hand-over was asked of it as
 /// its repository's controller ([`stands`]: the checks a hand-over's own restart makes, so a
 /// session started by hand after the delivery is not stopped here either); each forgotten, and
@@ -724,23 +735,10 @@ fn limited(tick: &mut Tick<'_, '_>) -> Result<()> {
         return Ok(());
     };
     let now = OffsetDateTime::now_utc();
-    let mut headroom: Option<bool> = None;
     let asked = read_json(&tick.dir, HANDOVER, json!({}));
     for (session, entry) in marked {
-        let due = resets_at(entry).is_some_and(|at| at <= now);
-        if !due {
-            if crate::limit::attempts_of(entry) > 0 {
-                continue;
-            }
-            let yes = *headroom.get_or_insert_with(|| {
-                tick.seams.headroom.headroom().unwrap_or_else(|error| {
-                    tick.note("read the headroom", &error);
-                    false
-                })
-            });
-            if !yes {
-                continue;
-            }
+        if resets_at(entry).is_some_and(|at| at > now) {
+            continue;
         }
         let repo = entry["repo"].as_str().unwrap_or("-").to_owned();
         let standing = match asked.get(session).filter(|_| repo != "-") {
@@ -835,7 +833,7 @@ fn resume_stopped(tick: &mut Tick<'_, '_>, repo: &str, session: &str) -> Result<
 /// process started after the delivery, by the loop and not by hand, so [`superseded`] takes a
 /// start up to that instant as the loop's own.
 fn resume(tick: &mut Tick<'_, '_>, repo: &str, session: &str) -> Result<bool> {
-    let resumed = crate::spawn::resume(
+    let resumed = crate::spawn::resume_leased(
         tick.config,
         tick.state,
         repo,
@@ -855,6 +853,10 @@ fn resume(tick: &mut Tick<'_, '_>, repo: &str, session: &str) -> Result<bool> {
         }
         let mut written = tick.line(DispatchLogEvent::Resumed, repo)?;
         written.session = Some(session.to_owned());
+        written.token = resumed
+            .as_ref()
+            .and_then(|(_, lease)| lease.as_ref())
+            .map(|lease| lease.token_id.0.0.clone());
         tick.write(&written)?;
     }
     Ok(resumed.is_some())
@@ -1565,4 +1567,62 @@ fn deliveries(tick: &mut Tick<'_, '_>) -> Result<()> {
         left.extend(made(tick, item)?.kept(item.clone()));
     }
     write_json(&tick.dir, PENDING, &Value::Array(left)).context("keep the deliveries left")
+}
+
+/// The reset a session marked already moves to when it is stopped again, or `None` to keep
+/// `kept`: the first reset of the host's pool, `first`, when there is one, since a token with
+/// headroom then lets it resume on that token; but a kept mark that backs off (`attempts` above
+/// zero) moves only later, so a session stopped again after a resume does not lose its backoff.
+/// With no pool, the reset `named` by its line, when that is later than `kept`.
+fn moved_reset(
+    kept: Option<OffsetDateTime>,
+    attempts: u32,
+    first: Option<OffsetDateTime>,
+    named: Option<OffsetDateTime>,
+) -> Option<OffsetDateTime> {
+    let later = |at: OffsetDateTime| kept.is_none_or(|kept| at > kept).then_some(at);
+    match (first, named) {
+        (Some(first), _) if attempts == 0 => Some(first),
+        (Some(first), _) => later(first),
+        (None, Some(named)) => later(named),
+        (None, None) => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::moved_reset;
+    use time::{Duration, OffsetDateTime};
+
+    fn at(hours: i64) -> OffsetDateTime {
+        OffsetDateTime::UNIX_EPOCH + Duration::hours(hours)
+    }
+
+    #[test]
+    fn a_marked_session_moves_to_the_pool_s_earlier_first_reset() {
+        assert_eq!(
+            moved_reset(Some(at(100)), 0, Some(at(2)), None),
+            Some(at(2))
+        );
+    }
+
+    #[test]
+    fn a_backed_off_mark_keeps_its_later_reset_over_the_pool_s_first_reset() {
+        assert_eq!(moved_reset(Some(at(10)), 2, Some(at(2)), None), None);
+        assert_eq!(
+            moved_reset(Some(at(10)), 2, Some(at(12)), None),
+            Some(at(12))
+        );
+    }
+
+    #[test]
+    fn with_no_pool_a_marked_session_moves_only_to_a_later_named_reset() {
+        assert_eq!(moved_reset(Some(at(10)), 0, None, Some(at(4))), None);
+        assert_eq!(
+            moved_reset(Some(at(10)), 0, None, Some(at(12))),
+            Some(at(12))
+        );
+        assert_eq!(moved_reset(None, 0, None, Some(at(4))), Some(at(4)));
+        assert_eq!(moved_reset(Some(at(10)), 0, None, None), None);
+    }
 }

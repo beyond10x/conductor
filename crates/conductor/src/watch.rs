@@ -32,7 +32,7 @@
 //! | review, with each `main` CI read | the pull requests that wait for review in the newest complete snapshot, counted per repository as the board counts them ([`crate::status::waiting_in`]), against `controllers.max_open_reviews` ([`Settings::max_open_reviews`], `0` no limit) | `review full: <repo> <k>/<n>` once when a repository reaches its limit, `review open: <repo>` once when it falls under it (`story:review-limit`) |
 //! | Gates hooks, with each `main` CI read | the repositories the board names `stale gates hooks` in the newest complete snapshot ([`crate::status::stale_gates_hooks`]) | `gates hooks stale: <n> checkouts` once per new snapshot that finds any (`story:gates-hooks-fresh`) |
 //! | Workspace file, with each `main` CI read | the repositories the newest complete snapshot records as `NotInWorkspace` ([`crate::status::unlisted_repositories`]) | `workspace stale: <repo>`, one line each, once per new snapshot (`story:snapshot-unlisted-repository`) |
-//! | free disk | `statvfs` on `/` ([`crate::disk::space`]) | `disk low: <n>G free on /`, `disk admit: <n>G free on / (builds wait)`, `disk gate stop: <n>G free on / (gates stop)` |
+//! | free disk | `statvfs` on `thresholds.disk_path` ([`crate::disk::space`]) | `disk low: <n>G free on <disk_path>`, `disk admit: <n>G free on <disk_path> (builds wait)`, `disk gate stop: <n>G free on <disk_path> (gates stop)` |
 //! | usage | the usage readings of the complete snapshots of the store under the state directory ([`crate::collect::usage::Forecast`], [`Watch::with_usage`]) | `usage: pool runs out ~<hour>, next reset <minute>`, once per change of the forecast hour (`usage.hour`; `story:usage-probe`) |
 //! | escalated decision requests | the decision requests in state `Escalated` (class O or H) of the store under the state directory ([`crate::status::unanswered`], [`Watch::with_decisions`]) | `escalated <O\|H> <request-id> <question>` in the first pass that finds one; `unanswered <O\|H> <request-id> <minutes>` once, in the first pass [`UNANSWERED_AFTER`] (30 minutes) or more after that one (`escalated.seen`; `story:decisions-notify`), and once more in the first pass at or after the deadline its escalation recorded, `<minutes>` counted from the pass that printed its escalation (`story:decisions-page`); `answered <request-id> <choice>` once, in the first pass after a printed request was answered, from the Decisions page or by conductor, its decision's choice on one line, and nothing for one withdrawn (`story:decisions-batch-answer`) |
 //!
@@ -404,7 +404,8 @@ pub struct Sources {
     /// `headRefOid` and `statusCheckRollup`; filled in as [`Sources::runs`] is
     /// (`story:watch-pr-checks`).
     pub pulls: Vec<String>,
-    /// The path on whose file system free disk is read: `/`.
+    /// The path on whose file system free disk is read: the instance's `thresholds.disk_path`
+    /// (`story:box-disk-path-default`).
     pub disk: PathBuf,
     /// Reads the bytes free on the file system holding [`Sources::disk`]: the `available` of
     /// [`crate::disk::space`], or the readings [`crate::gc::reclaim::free_bytes`] is pointed at.
@@ -425,7 +426,7 @@ impl Sources {
     /// root, as before a config file existed; the owner of the instance's first `github` source,
     /// whose run lists `gh` prints for the Active repositories of the store under `state` (none
     /// for an instance without a `github` or a `gitlab` source; a `gitlab` source's are read
-    /// through [`Watch::with_gitlab`]); the free bytes `statvfs` reads on `/`;
+    /// through [`Watch::with_gitlab`]); the free bytes `statvfs` reads on its `thresholds.disk_path`;
     /// `notify-send -u critical`; the system clock; and [`BOUND`].
     #[must_use]
     pub fn new(home: PathBuf, active: &Active, state: PathBuf) -> Self {
@@ -481,7 +482,7 @@ impl Sources {
                 "--json",
                 "number,headRefOid,statusCheckRollup",
             ]),
-            disk: PathBuf::from("/"),
+            disk: PathBuf::from(&instance.thresholds.disk_path),
             free_bytes: crate::gc::reclaim::free_bytes,
             notify: ["notify-send", "-u", "critical"]
                 .map(OsString::from)
@@ -725,17 +726,21 @@ pub struct Settings {
     pub fall_key: String,
     /// Tokens of a session's context at or above which it is reported: `thresholds.context_handover`.
     pub context_handover: u64,
-    /// Free GiB on `/` under which it is reported: `thresholds.disk_low`.
+    /// The path whose free disk the thresholds below read and the disk lines name:
+    /// `thresholds.disk_path` (`story:box-disk-path-default`).
+    pub disk_path: String,
+    /// Free GiB on [`Settings::disk_path`] under which it is reported: `thresholds.disk_low`.
     pub disk_low: u64,
-    /// Free GiB on `/` from which a further fall is reported again: `thresholds.disk_clear`.
+    /// Free GiB on [`Settings::disk_path`] from which a further fall is reported again:
+    /// `thresholds.disk_clear`.
     pub disk_clear: u64,
-    /// Free GiB on `/` under which conductor starts no build, reported as `disk admit`, and from
+    /// Free GiB on [`Settings::disk_path`] under which conductor starts no build, reported as `disk admit`, and from
     /// which a further fall is reported again: `thresholds.disk_admit`.
     pub disk_admit: u64,
-    /// Free GiB on `/` under which the full-gate watchdog stops a gate, reported as `disk gate
+    /// Free GiB on [`Settings::disk_path`] under which the full-gate watchdog stops a gate, reported as `disk gate
     /// stop`: `thresholds.gate_stop`.
     pub gate_stop: u64,
-    /// Free GiB on `/` from which a further fall under [`Settings::gate_stop`] is reported
+    /// Free GiB on [`Settings::disk_path`] from which a further fall under [`Settings::gate_stop`] is reported
     /// again: `thresholds.gate_resume`.
     pub gate_resume: u64,
     /// How long a live controller, and each of its sub-agents, may write nothing to its
@@ -767,6 +772,7 @@ impl Settings {
             instance: instance.name.0.clone(),
             fall_key: crate::host::fall_key(instance),
             context_handover: count(thresholds.context_handover.0),
+            disk_path: thresholds.disk_path.clone(),
             disk_low: count(thresholds.disk_low.0),
             disk_clear: count(thresholds.disk_clear.0),
             disk_admit: count(thresholds.disk_admit.0),
@@ -2692,24 +2698,25 @@ impl Watch {
                 .with_context(|| format!("write {}", kept.display()))?;
         }
         let free = bytes.div_ceil(1 << 30);
+        let on = &self.settings.disk_path;
         let floors = [
             (
                 DISK_LOW,
                 self.settings.disk_low,
                 self.settings.disk_clear,
-                format!("disk low: {free}G free on /"),
+                format!("disk low: {free}G free on {on}"),
             ),
             (
                 DISK_ADMIT,
                 self.settings.disk_admit,
                 self.settings.disk_admit,
-                format!("disk admit: {free}G free on / (builds wait)"),
+                format!("disk admit: {free}G free on {on} (builds wait)"),
             ),
             (
                 GATE_STOP,
                 self.settings.gate_stop,
                 self.settings.gate_resume,
-                format!("disk gate stop: {free}G free on / (gates stop)"),
+                format!("disk gate stop: {free}G free on {on} (gates stop)"),
             ),
         ];
         let mut fell_under_admit = false;
