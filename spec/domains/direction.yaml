@@ -60,19 +60,21 @@ types:
     fields:
       - {name: format, type: Optional<String>}
 
-  # One row of the `Rules` view (`conductor rules show`): one numbered item of the instance's
-  # `rules.md` in its records directory, read when it is asked for and never stored. An item is a
-  # line that opens with its number and `. ` at the start of the line, and every line after it up
-  # to the next such line, the next heading or the next line that starts at the margin; blank lines
-  # at its end are not part of it. `text` is the item byte for byte as the file holds it, ending in
-  # a newline. `title` is its bold lead without the asterisks, or else its first sentence, without
-  # a final full stop. `section` is the path of headings above it, outermost first, joined by
-  # ` / `; the file's title, its `#` heading, is no section. `source` is what follows its
+  # One row of the `Rules` view (`conductor rules show`): one item of the instance's `rules.md` in
+  # its records directory, read when it is asked for and never stored. An item is a line that
+  # opens at the start of the line with its number and `. `, or, under a heading of level 2 or
+  # deeper, with `- ` (an unnumbered item, story:rules-show-unnumbered-items), and every line after
+  # it up to the next such line, the next heading or the next line that starts at the margin; blank
+  # lines at its end are not part of it. `item` is its number, absent for an unnumbered item.
+  # `text` is the item byte for byte as the file holds it, ending in a newline. `title` is its bold
+  # lead without the asterisks, or else its first sentence, without a final full stop, both read
+  # after its number or its `- `. `section` is the path of headings above it, outermost first,
+  # joined by ` / `; the file's title, its `#` heading, is no section. `source` is what follows its
   # `Source:` line, on one line, when it has one.
   - name: conductor.direction.RulesRow
     kind: struct
     fields:
-      - {name: item, type: Integer}
+      - {name: item, type: Optional<Integer>}
       - {name: title, type: String}
       - {name: section, type: String}
       - {name: source, type: Optional<String>}
@@ -86,14 +88,17 @@ types:
   # heading for one release, `director` a heading `conductor`, `maintainer` one `conductor-dev`
   # and `lead` one `controller` or `repository controller`, and a heading matched by the other
   # name is noted on standard error (story:role-name-aliases); without either it prints every item, and both together are refused. `format` is
-  # text (the items verbatim, one blank line between two) or json (a list of `RulesRow`). A number
-  # no item holds, or a heading the file does not hold, is refused (`RulesRefused`) and nothing is
-  # printed. `brief` prints, instead of each item verbatim, one line per item: its number, `. ` and
-  # its `title` (`RulesRow`), so a session reads a section's titles and asks for an item whole with
+  # text (the items verbatim, one blank line between two) or json (a list of `RulesRow`). `item`
+  # names numbered items only. A number no item holds, or a heading with no item under it, is
+  # refused (`RulesRefused`) and nothing is printed; the refusal names the headings that have an
+  # item under them, never the one it refuses. `brief` prints, instead of each item verbatim, one
+  # line per item: its number and `. `, or `- ` for an unnumbered item, and its `title`
+  # (`RulesRow`), so a session reads a section's titles and asks for an item whole with
   # `item` (story:conductor-context-budget); with `format` json it is refused, a row already
   # carrying its `title`. `changed_since` is a git revision of the records directory: of the items
   # selected, only those whose text differs from the item of that number in that revision's
-  # `rules.md`, or that it does not hold, are printed, and the numbers it held that the file no
+  # `rules.md`, or that it does not hold (an unnumbered item: that no item of the revision has its
+  # text), are printed, and the numbers it held that the file no
   # longer holds are named on one line of standard error; a revision that does not resolve is
   # refused (`RevisionNotFound`) and nothing is printed. `role` (story:rules-into-code) is a role's
   # name, `all`, `conductor`, `controller`, `worker` or `maintainer`: it reads that role's rule
@@ -113,8 +118,8 @@ types:
       - {name: role, type: Optional<String>}
 
   # Why `conductor rules show` printed nothing and exited 1: `RuleItemNotFound`, no item of
-  # rules.md has a number it was given; `RuleSectionNotFound`, no heading has the text it was
-  # given; `RevisionNotFound`, the records directory's git does not resolve the revision
+  # rules.md has a number it was given; `RuleSectionNotFound`, no heading with an item under it
+  # has the text it was given; `RevisionNotFound`, the records directory's git does not resolve the revision
   # `changed_since` names.
   - name: conductor.direction.RulesRefusal
     kind: enum

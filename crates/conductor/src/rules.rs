@@ -3,9 +3,10 @@
 //! `conductor.direction.Rules` and `conductor.direction.RulesRow`.
 //!
 //! It reads `rules.md` only: it writes nothing and opens no store. An item is a line that opens
-//! with its number and `. ` at the margin, and every line after it up to the next such line, the
-//! next heading or the next line that starts at the margin; blank lines at its end are not part
-//! of it. It is printed byte for byte as the file holds it, so a worker brief carries an item as
+//! with its number and `. ` at the margin, or, under a section heading, with `- ` (an unnumbered
+//! item, `story:rules-show-unnumbered-items`), and every line after it up to the next such line,
+//! the next heading or the next line that starts at the margin; blank lines at its end are not
+//! part of it. It is printed byte for byte as the file holds it, so a worker brief carries an item as
 //! the file says it, wherever it sits, instead of an excerpt cut by line numbers.
 //!
 //! `--item 43,49,51` prints those items in the order given; `--section <heading>` every item under
@@ -19,7 +20,7 @@
 //! file no longer holds ([`changed`]). A number no item holds, a heading the file does not hold,
 //! or a revision the records' git does not resolve, is refused on one line of
 //! standard error naming it, and nothing is printed; a heading's refusal names, on that line, every
-//! section heading the file has (`story:rules-section-names`). For one release a role's name
+//! section heading with an item under it (`story:rules-section-names`), never the one it refuses. For one release a role's name
 //! and its old name read each other's heading, `director` a section headed `conductor`, with a
 //! note on standard error naming both (`story:role-name-aliases`, [`role_headings`]).
 
@@ -46,8 +47,8 @@ pub const RULES_FILE: &str = "rules.md";
 /// One item of `rules.md` as [`parse`] finds it, with the headings above it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Item {
-    /// Its number.
-    pub number: i64,
+    /// Its number; none for an unnumbered item, a `- ` bullet.
+    pub number: Option<i64>,
     /// The headings above it, outermost first.
     pub headings: Vec<String>,
     /// Its lines, byte for byte, each ending in a newline.
@@ -69,7 +70,7 @@ impl Item {
 }
 
 /// An item being read: its number, the headings above it and its lines so far.
-type Open<'a> = (i64, Vec<String>, Vec<&'a str>);
+type Open<'a> = (Option<i64>, Vec<String>, Vec<&'a str>);
 
 /// Every item of `text`, in file order. The file's title, a `#` heading, is no section: the
 /// headings above an item are those of level 2 and deeper.
@@ -89,7 +90,11 @@ pub fn parse(text: &str) -> Vec<Item> {
             }
             continue;
         }
-        if let Some(number) = item_number(line) {
+        let number = item_number(line).map(Some).or_else(|| {
+            // A bullet at the margin is an item under a section heading only.
+            (line.starts_with("- ") && !headings.is_empty()).then_some(None)
+        });
+        if let Some(number) = number {
             close(&mut open, &mut items);
             let path = headings.iter().map(|(_, text)| text.clone()).collect();
             open = Some((number, path, vec![line]));
@@ -126,10 +131,12 @@ fn close(open: &mut Option<Open<'_>>, items: &mut Vec<Item>) {
     });
 }
 
-/// Every section heading of `text`: the headings of level 2 and deeper, in file order, each once
-/// (a heading that differs from an earlier one only in case is that one, as `--section` reads it).
+/// Every section heading of `text` that `--section` can print: the headings of level 2 and
+/// deeper with an item under them, their subsections' included, in file order, each once (a
+/// heading that differs from an earlier one only in case is that one, as `--section` reads it).
 #[must_use]
 pub fn sections(text: &str) -> Vec<String> {
+    let items = parse(text);
     let mut sections: Vec<String> = Vec::new();
     for line in text.lines() {
         if let Some((level, heading)) = heading(line)
@@ -137,6 +144,11 @@ pub fn sections(text: &str) -> Vec<String> {
             && !sections
                 .iter()
                 .any(|seen| seen.to_lowercase() == heading.to_lowercase())
+            && items.iter().any(|item| {
+                item.headings
+                    .iter()
+                    .any(|above| above.to_lowercase() == heading.to_lowercase())
+            })
         {
             sections.push(heading);
         }
@@ -171,13 +183,13 @@ fn item_number(line: &str) -> Option<i64> {
     }
 }
 
-/// The item's bold lead without the asterisks, or else its first sentence; without a final full
-/// stop either way.
+/// The item's bold lead without the asterisks, or else its first sentence, read after its number
+/// or its `- `; without a final full stop either way.
 fn title(text: &str) -> String {
     let first = text.lines().next().unwrap_or_default();
     let body = first
-        .split_once(". ")
-        .map_or("", |(_, body)| body)
+        .strip_prefix("- ")
+        .unwrap_or_else(|| first.split_once(". ").map_or("", |(_, body)| body))
         .trim_start();
     let lead = body
         .strip_prefix("**")
@@ -193,18 +205,22 @@ fn title(text: &str) -> String {
     lead.trim_end_matches(['.', ':']).to_owned()
 }
 
-/// The item's number and title on one line, `<n>. <title>` ([`title`]): its bold lead without
-/// the asterisks, or else its first sentence, without a final full stop
-/// (`story:conductor-context-budget`).
+/// The item's number and title on one line, `<n>. <title>`, or `- <title>` for an unnumbered
+/// item ([`title`]): its bold lead without the asterisks, or else its first sentence, without a
+/// final full stop (`story:conductor-context-budget`).
 #[must_use]
 pub fn brief(item: &Item) -> String {
     let title = title(&item.text.split_whitespace().collect::<Vec<_>>().join(" "));
-    format!("{}. {title}", item.number)
+    match item.number {
+        Some(number) => format!("{number}. {title}"),
+        None => format!("- {title}"),
+    }
 }
 
 /// Of `chosen`, the items whose text differs from the item of the same number in `before`, or
-/// that `before` does not hold; and, in order, the numbers of `before`'s items that `still`
-/// (the file's every item) no longer holds and that `was_chosen` keeps.
+/// that `before` does not hold (an unnumbered item: that no item of `before` has its text); and,
+/// in order, the numbers of `before`'s numbered items that `still` (the file's every item) no
+/// longer holds and that `was_chosen` keeps.
 #[must_use]
 pub fn changed<'a>(
     chosen: Vec<&'a Item>,
@@ -215,15 +231,15 @@ pub fn changed<'a>(
     let kept = chosen
         .into_iter()
         .filter(|item| {
-            !before
-                .iter()
-                .any(|old| old.number == item.number && old.text == item.text)
+            !before.iter().any(|old| {
+                (item.number.is_none() || old.number == item.number) && old.text == item.text
+            })
         })
         .collect();
     let mut gone: Vec<i64> = before
         .iter()
         .filter(|old| was_chosen(old) && !still.iter().any(|item| item.number == old.number))
-        .map(|old| old.number)
+        .filter_map(|old| old.number)
         .collect();
     gone.dedup();
     (kept, gone)
@@ -353,7 +369,10 @@ pub fn select<'a>(items: &'a [Item], sections: &[String], input: &Rules) -> Resu
                 let Ok(number) = word.parse::<i64>() else {
                     bail!("{COMMAND}: --item {word:?} is not an item number");
                 };
-                let found: Vec<&Item> = items.iter().filter(|item| item.number == number).collect();
+                let found: Vec<&Item> = items
+                    .iter()
+                    .filter(|item| item.number == Some(number))
+                    .collect();
                 if found.is_empty() {
                     missing.push(number.to_string());
                 }
@@ -479,7 +498,7 @@ pub fn rules_show(args: &RulesShowArgs) -> Result<ExitCode> {
                 .collect()
         });
         let was_chosen = |old: &Item| match (&numbers, &wanted) {
-            (Some(numbers), _) => numbers.contains(&old.number),
+            (Some(numbers), _) => old.number.is_some_and(|number| numbers.contains(&number)),
             (None, Some(wanted)) => old
                 .headings
                 .iter()
