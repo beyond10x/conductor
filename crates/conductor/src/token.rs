@@ -2229,6 +2229,21 @@ pub fn serve_pool_call(
     Ok(())
 }
 
+/// Reads one pool call from `stream` after its greeting and answers it `{"empty": true}`: the
+/// answer of a conductord that serves no config file, and so holds no pool.
+///
+/// # Errors
+///
+/// The request cannot be read or the answer written.
+pub fn serve_no_pool(stream: &mut TcpStream) -> Result<()> {
+    stream.set_read_timeout(Some(DIAL_TIMEOUT))?;
+    let mut line = Vec::new();
+    BufReader::new((&*stream).take(DIAL_ANSWER_MAX)).read_until(b'\n', &mut line)?;
+    stream.write_all(format!("{}\n", json!({"empty": true})).as_bytes())?;
+    stream.flush()?;
+    Ok(())
+}
+
 // ---------------------------------------------------------------------------------------------
 // The CLI
 // ---------------------------------------------------------------------------------------------
@@ -2395,7 +2410,7 @@ pub fn leave(args: &LeaveArgs, daemon: Option<&str>) -> Result<ExitCode> {
 /// a boxed instance names its placement.
 pub fn token_reveal(config: Option<&Path>, args: &TokenRevealArgs) -> Result<ExitCode> {
     const WHAT: &str = "token reveal";
-    let name = args.model_token.trim();
+    let name = args.model_token.as_deref().unwrap_or_default().trim();
     let refuse = |line: String| {
         eprintln!("conductor: {WHAT}: {line}");
         Ok(ExitCode::FAILURE)

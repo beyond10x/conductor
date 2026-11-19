@@ -152,7 +152,22 @@ fn pool() {
         conductor_cli::daemon::TENANT,
     )
     .expect("open the daemon's store");
+    // Each token's value is kept in the daemon's secrets source, where a start that leases it
+    // reads it (story:host-token-pool).
+    let environment = config::Environment::from_process().expect("the child's environment");
+    let daemon = config::load(None, &environment)
+        .expect("the case's config file")
+        .config
+        .daemon;
+    let secrets = conductor_cli::secret::open(&daemon.secrets).expect("the daemon's secrets");
     for id in ["0001", "0002"] {
+        secrets
+            .keep(
+                &SecretName(format!("claude-token/{id}")),
+                secrets_core::storage::SecretValue::new(format!("value-{id}").into_bytes())
+                    .expect("a value"),
+            )
+            .expect("keep the token's value");
         PoolTokenStorage::put(
             &mut store,
             PoolTokenSnapshot {

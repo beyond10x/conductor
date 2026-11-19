@@ -743,10 +743,14 @@ fn harness_double(case: &Case) {
              printf '%s\\n' \"$@\" > '{argv}'\n\
              printf '%s' \"${{{OAUTH}-}}\" > '{oauth}'\n\
              printf '%s' \"${{{OAUTH}+set}}\" > '{set}'\n\
+             printf '%s' \"${{{API_KEY}-}}\" > '{apikey}'\n\
+             printf '%s' \"${{{API_KEY}+set}}\" > '{apikey_set}'\n\
              echo 'session 0190a1b2-0000-7000-8000-000000000001'\n",
             argv = harness.join("argv").display(),
             oauth = harness.join("oauth").display(),
             set = harness.join("oauth-set").display(),
+            apikey = harness.join("apikey").display(),
+            apikey_set = harness.join("apikey-set").display(),
         ),
     )
     .expect("write the harness double");
@@ -1096,7 +1100,7 @@ fn a_files_source_subscription_pool_token_reaches_the_harness_in_its_variable() 
     let started = start_built(&case, "director");
     assert_eq!(started.status.code(), Some(0), "{}", said(&started));
     let rows = case.tokens();
-    assert_eq!(rows[0]["state"], "Leased", "{rows:?}");
+    assert_eq!(rows[0]["leases"], 1, "{rows:?}");
     assert_eq!(
         oauth_of(&case).as_deref(),
         Some(MARKER),
@@ -1760,7 +1764,11 @@ fn pool_call(address: &str, instance: &str, token: &str, request: &Value) -> Opt
     stream
         .set_read_timeout(Some(Duration::from_secs(30)))
         .expect("a read timeout");
-    write!(stream, "CONDUCTOR-POOL/1 {instance} {token}\n{request}\n").expect("send the call");
+    // A connection the daemon closed on the greeting may refuse the request line itself: that is
+    // a call closed unanswered too.
+    if write!(stream, "CONDUCTOR-POOL/1 {instance} {token}\n{request}\n").is_err() {
+        return None;
+    }
     let mut answer = String::new();
     let _ = stream.read_to_string(&mut answer);
     serde_json::from_str(answer.trim()).ok()

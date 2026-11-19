@@ -1253,7 +1253,7 @@ pub struct LeaveArgs {
 pub struct TokenRevealArgs {
     /// The instance whose model_token to print, for an agent at a placement with no box
     #[arg(long, value_name = "INSTANCE")]
-    pub model_token: String,
+    pub model_token: Option<String>,
 }
 
 // `conductor token`: the instance's token pool (`story:token-pool`).
