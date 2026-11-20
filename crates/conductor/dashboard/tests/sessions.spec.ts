@@ -72,4 +72,36 @@ describe('SessionsPanel', () => {
       '—',
     ]);
   });
+
+  it("names in the director's row why no director runs in its box and when it starts next", () => {
+    const data = fixture();
+    Object.assign(data.sessions[0]!, {
+      exited: true,
+      status: null,
+      state: 'not running',
+      cwd: null,
+      kind: null,
+      started_at: null,
+      started_ago: null,
+      director: {
+        state: 'Waiting',
+        attempts: 3,
+        next_start_at: '2026-10-13T09:40:00Z',
+        reason: 'session start: refused: LaunchFailed: role "director": no claude',
+      },
+    });
+    const wrapper = mount(SessionsPanel, { props: { data } });
+    expect(rows(wrapper)[0]?.slice(0, 3)).toEqual([
+      'ex-conductor',
+      'conductor',
+      'not running: the runtime starts it at 2026-10-13T09:40:00Z; last start failed: session ' +
+        'start: refused: LaunchFailed: role "director": no claude',
+    ]);
+    data.sessions[0]!.director = { state: null, attempts: 0, next_start_at: null, reason: null };
+    const untried = mount(SessionsPanel, { props: { data } });
+    expect(rows(untried)[0]?.[2]).toBe('not running: the runtime has not tried yet');
+    data.sessions[0]!.director = null;
+    const unboxed = mount(SessionsPanel, { props: { data } });
+    expect(rows(unboxed)[0]?.[2]).toBe('not running');
+  });
 });
