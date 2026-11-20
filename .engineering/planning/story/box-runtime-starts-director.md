@@ -22,7 +22,11 @@ scope:
 - confidence: inferred
   path: crates/conductor/roles/director.md
 - confidence: cited
+  path: crates/conductor/src/agent/claude_code.rs
+- confidence: cited
   path: crates/conductor/src/alert.rs
+- confidence: cited
+  path: crates/conductor/src/dashboard/health.rs
 - confidence: cited
   path: crates/conductor/src/dashboard/sessions.rs
 - confidence: cited
@@ -37,6 +41,8 @@ scope:
   path: crates/conductor/src/run/director.rs
 - confidence: cited
   path: crates/conductor/src/run/handlers.rs
+- confidence: cited
+  path: crates/conductor/src/session.rs
 - confidence: cited
   path: crates/conductor/tests/box_session.rs
 - confidence: cited
@@ -58,10 +64,16 @@ scope:
 - confidence: cited
   path: spec/domains/session.yaml
 - confidence: inferred
+  path: website/data/status.json
+- confidence: inferred
   path: website/docs/concepts/roles.md
 - confidence: inferred
   path: website/docs/guides/run-isolated.md
-revision: 5
+- confidence: inferred
+  path: website/docs/reference
+- confidence: inferred
+  path: website/docs/status.md
+revision: 8
 ---
 ## Why
 
@@ -104,7 +116,9 @@ On main:
   `session.rs:1407`). `conductor role show --role director` prints it. The `claude-code` kind
   writes it to `<state>/sessions/<session>.profile.md`, which the box writes, so the session
   starts with `--append-system-prompt-file` and no `--agent`. A role whose own `profile` or
-  `agent` is set keeps it.
+  `agent` is set keeps it. Once `profile_name` answers `Some("director")`, `harness_args`
+  (`session.rs:1575-1590`) and `claude_code::write_profile` (`agent/claude_code.rs:169`) take
+  that path for every director, boxed or not; `agent/claude_code.rs` needs no edit.
 - **The keeper.** Each watch tick of a runtime that runs in its instance's box
   (`collect::checkouts::in_box`) runs a keeper, `run/director.rs`, after `handlers::pending`. The
   keeper acts only when the instance has a director role (`config::director`). A director runs
@@ -113,56 +127,92 @@ On main:
   `start_maintainer` does (`run/handlers.rs:1061-1092`). That covers `--config`, `--state-dir`,
   the daemon actor and the box's subscription token. The session starts in the box, in the
   records directory, under `<session_prefix>-director`.
+- **One director.** The keeper takes `STARTS` (`run.rs:1200`) and re-reads the registry under
+  it. `session start` already refuses `SessionRunning` while a live registry entry holds any of
+  `config::director_names` (`session.rs:1488-1504`, `:1779-1784`); it now holds an exclusive lock
+  on `<state>/sessions/<session name>.start.lock` from that check until the launch has written its
+  registry entry, because `STARTS` is one process's and a hand start is another. So a hand start
+  and the keeper cannot both start one.
+- **A runtime restart starts no second director.** The keeper counts a live adopted pid in the
+  registry as running, whoever started it, so a runtime restarted by the daemon finds the
+  director it started before and starts none.
+- **The `<session_prefix>-conductor` alias.** With a checkout named `conductor` under
+  `checkouts.root`, `config::director_names` leaves out `<session_prefix>-conductor`
+  (`config.rs:2179-2199`): that controller's live session is not counted as the director, and the
+  keeper starts the director beside it.
 - **"Keeps it running."** A director that ended, was stopped by hand, or never started is
   started again:
-  - `attempts` counts the starts since the last session that lived at least
-    `limit::BACKOFF_MOST` (1 hour). Before the next start the keeper waits
-    `limit::backoff(attempts - 1)` after the last start.
-  - So the first start, and the first restart after an end, happen at once, as a gone controller
-    is restarted at once (`run/handlers.rs:947-962`). Each further early end waits 5, 10, 20, 40,
-    then 60 minutes, as a session the loop resumed backs off.
+  - `attempts` (n) counts the starts since the last session that lived at least
+    `limit::BACKOFF_MOST` (1 hour). Before start n+1 the keeper waits
+    `limit::backoff(n.saturating_sub(1))` after the last start.
+  - So the first start, and the first restart after an end, happen at once (waits 0, 0), as a
+    gone controller is restarted at once (`run/handlers.rs:947-962`). Each further early end
+    waits 5, 10, 20, 40, then 60 minutes, as a session the loop resumed backs off.
   - A failed start (the command exits non-zero, or its session is gone by the next tick) counts
     as an attempt.
   - While `limited.json` marks the director's session, the keeper waits until that mark's resume
     instant and then starts a fresh session. It does not resume the old transcript.
+    `handlers::limited` (`run/handlers.rs:733`) forgets a mark without a repository once its
+    reset passes, before the keeper runs, so the keeper copies the reset instant into
+    `DirectorKeep.next_start_at` (state `Limited`) when it first sees the mark and waits on its
+    own copy.
+  - A limited director whose process stays alive (a usage-limited `claude -p` may idle) is a
+    live registry entry: the keeper leaves it alone. It does not stop it at the reset and does not
+    start a second; it starts one only once that entry is gone.
+  - A director stopped by `session stop` or by a pause is not restarted until it is resumed: the
+    keeper writes state `Stopped` and starts nothing while the stop or pause holds.
   - Each start writes a dispatch log line `director-started`, with `session` and `reason`
     (`none ran`, `gone`, `failed: <line>`) and `tick_id`.
   - After 3 failed starts in a row, the keeper raises the alert `director-not-started` once while
-    the failures last (`crate::alert`). It keeps trying at the back-off cap.
-  - The keeper's state is written to `<state>/run/director.json` as a `DirectorKeep`. The only
-    way to stop the keeping is to remove the director role from the instance's `roles`.
+    the failures last (`crate::alert`); its `reason` names the start's failure line, and the
+    unreadable path when the start failed on a file it could not read. It keeps trying at the
+    back-off cap.
+  - The keeper's state is written to `<state>/run/director.json` as a `DirectorKeep`. Only the
+    keeper writes it. The keeping ends when the director role is removed from the instance's
+    `roles`; a stop or pause only holds it (state `Stopped`).
 - **Doctor.** Doctor's director line reads `director.json`:
   - `director <instance>: <session> runs in its box`, or
   - `director <instance>: no director session runs in its box (<session>); the runtime starts it
     <at once | again at <t>>[: last start failed: <reason>]`.
   - When `director.json` is missing: `…; the runtime has not tried yet`.
+  - In state `Stopped`: `…; stopped, the runtime starts it again once it is resumed`.
 
-  It is still a report line, not a failure.
+  It is still a report line, not a failure. `director.json` is read only: a missing file is "not
+  tried yet" and is never created by doctor or the dashboard (Rule 7). `doctor::check_in`
+  (`doctor.rs:1485`) gains the director lines, so the dashboard's health view
+  (`dashboard/health.rs:208`) names a missing director too.
 - **The dashboard.** `/v1/data.json`'s director row (role `conductor`) carries
   `director: {state, attempts, next_start_at, reason}` from `director.json` for a boxed instance,
   and `null` for an unboxed one. The Sessions panel shows that reason in the row instead of a bare
   `not running`.
-- **Unboxed instances are unchanged.** For placement `none`, or a `/1` file, the keeper does
-  nothing: no start, no `director.json`, no `director-started` line. The director is still
-  started by hand with `session start --role director`, and doctor and the dashboard show what
-  they show today.
+- **Unboxed: the keeper does nothing; a hand `session start --role director` now also starts
+  from the carried profile instead of `--agent conductor`.** For placement `none`, or a `/1`
+  file, there is no start by the runtime, no `director.json` and no `director-started` line. The
+  director is still started by hand, and its start now carries `--append-system-prompt-file`
+  with the carried profile and no `--agent`, unless the role names its own `profile` or `agent`.
+  `website/docs/concepts/roles.md` says so.
 
 ## Specification (modelled first)
 
 - `spec/domains/session.yaml`:
-  - `conductor.session.DirectorState`, an enum `[Running, Waiting, Limited]`.
+  - `conductor.session.DirectorState`, an enum `[Running, Waiting, Limited, Stopped]`.
   - `conductor.session.DirectorKeep`, a struct with `session` (`conductor.config.SessionName`),
     `state`, `attempts` (Integer), `started_at` (Optional Timestamp), `next_start_at` (Optional
     Timestamp) and `reason` (Optional String). It is the keeper's record in `<state>/run/`, which
     doctor and the dashboard read.
   - The `session start` comment names the runtime as the director's starter in a box.
+  - `SessionStartRefusal`: the refusal of a second director is the existing `SessionRunning`;
+    its comment says it covers every `config::director_names` and is checked under the start
+    lock. No `AlreadyRunning` variant beside it, which would name the same refusal twice.
 - `spec/domains/dispatch.yaml`: `DispatchLogEvent` gains `DirectorStarted` (`director-started`)
-  with its fields, and the `alert` conditions gain `director-not-started`.
+  with its fields. The `alert` line's `condition` list (`dispatch.yaml:362`:
+  `unit-left-to-operator`, `box-not-recreated`, `need-unroutable`) gains `director-not-started`;
+  `subject` the instance's name.
 - `spec/domains/agent.yaml`: the `ShowRole` comment lists `director` among the profiles the binary
   carries.
-- Then `ess specify validate --path spec`, `task regen`, and re-pinning `source_digest` in
-  `crates/conductor/http.yaml`. No new command, view or error: the keeper is loop behaviour, and
-  `/v1/data.json` is not bound.
+- Then `ess specify validate --path spec`, `task regen`, re-pinning `source_digest` in
+  `crates/conductor/http.yaml`, and `task docs-generate`. No new command, view or error: the
+  keeper is loop behaviour, and `/v1/data.json` is not bound.
 
 ## Acceptance (fail on main)
 
@@ -176,17 +226,35 @@ On main:
   session is killed, and the next tick starts it again with reason `gone`. After a second early
   end, `director.json` reads `Waiting`, `attempts` 2 and `next_start_at` = last start + 5
   minutes, and no third start happens in that tick.
-- `crates/conductor/src/run/director.rs` unit tests, on an injected clock:
-  `the_keeper_backs_off_after_starts_that_end_early` (0, 5, 10, 20, 40, 60, 60 minutes),
-  `a_director_that_lived_an_hour_is_started_again_at_once`,
-  `a_limited_director_waits_for_its_mark`, and
-  `three_failed_starts_raise_director_not_started_once`.
-- `tests/runtime_loop.rs` `an_unboxed_runtime_starts_no_director`: this holds on main and guards
-  the boundary. No start, no `director.json`, no `director-started` line.
+- `crates/conductor/src/run/director.rs` unit tests, on an injected clock and an injected
+  registry:
+  - `the_keeper_backs_off_after_starts_that_end_early` (0, 0, 5, 10, 20, 40, 60, 60 minutes: the
+    wait before each start);
+  - `a_director_that_lived_an_hour_is_started_again_at_once`;
+  - `a_limited_director_waits_for_its_mark`: the mark is gone from `limited.json` before the
+    reset; the keeper waits on its own copy in `DirectorKeep`, then starts once;
+  - `a_limited_director_that_stays_alive_is_not_started_twice`: the child provider counts the
+    session live while its pid runs; past the reset the keeper neither stops it nor starts a
+    second;
+  - `a_stopped_director_is_not_restarted_until_resumed`: after `session stop` or a pause the
+    state is `Stopped` and no start happens; after the resume the next tick starts it;
+  - `a_live_adopted_director_is_not_started_again`: a fresh keeper (a runtime restart) with a
+    live registry entry it did not start writes `Running` and starts none;
+  - `the_conductor_controller_is_not_counted_as_the_director`: with a `conductor` checkout and a
+    live `<session_prefix>-conductor`, the keeper starts `<session_prefix>-director`;
+  - `three_failed_starts_raise_director_not_started_once`, its reason naming the unreadable path.
+- `crates/conductor/src/session.rs` unit test
+  `an_unboxed_hand_start_of_the_director_starts_from_the_carried_profile`: placement `none`,
+  `harness_args` for the director carry `--append-system-prompt-file` and no `--agent conductor`.
+- `tests/box_session.rs` `a_hand_start_refuses_while_the_keepers_director_runs`: with the
+  keeper's director live, `session start --role director` exits 1 naming `SessionRunning`, and
+  the registry holds one director entry.
 - `tests/doctor.rs` `doctor_says_when_the_runtime_starts_the_missing_director`: with a
   `director.json` in `Waiting` and a failure reason, the line names the next start and the reason.
   The text "nothing starts one there yet" is gone. Update
   `doctor_names_a_boxed_instance_without_a_director_session`.
+- `tests/doctor.rs` `the_health_view_names_a_missing_director`: `doctor::check_in` holds the
+  director line for a boxed instance with no director, and no `director.json` is created.
 - `tests/dashboard_sessions.rs` `the_director_row_names_why_no_director_runs_in_its_box`: the row
   carries `director` from `director.json` for a boxed instance, and `null` for an unboxed one.
 - `crates/conductor/dashboard/tests/sessions.spec.ts`: the panel shows the reason and the next
@@ -196,6 +264,11 @@ On main:
   `role_show_prints_…` cover it. `tests/profiles.rs`: 5 profiles shipped, `director.md` capped at
   60 lines, and none of the retired loop words.
 
+Guards (hold on main):
+
+- `tests/runtime_loop.rs` `an_unboxed_runtime_starts_no_director`: no start, no
+  `director.json`, no `director-started` line.
+
 ## Boundaries
 
 - No hand-over at a context threshold for the director. The `context:` handler stays a
@@ -203,7 +276,8 @@ On main:
 - Starting the session goes through `session start`; it is not moved onto `conductor.agent`'s
   `StartAgent`, which the runtime does not use yet.
 - No mount for a role's own `profile` or `settings` file in the box. A director role that names
-  one outside the box's roots fails its start, which the keeper reports and backs off.
+  one outside the box's roots fails its start, which the keeper reports and backs off; the alert
+  names the unreadable path.
 - The keeper does not route the loop's mailbox or decisions to the director. Messages to
   `conductor` stay the loop's.
 - The `conductor` role word on the dashboard and the `<session_prefix>-conductor` alias stay as
@@ -216,12 +290,16 @@ On main:
 - `crates/conductor/roles/director.md` (new), `crates/conductor/src/role.rs`
 - `crates/conductor/src/run.rs`, `crates/conductor/src/run/director.rs` (new),
   `crates/conductor/src/run/handlers.rs` (shared role start; `gone` leaves the director to the
-  keeper), `crates/conductor/src/records.rs`, `crates/conductor/src/alert.rs`
-- `crates/conductor/src/doctor.rs`
+  keeper), `crates/conductor/src/records.rs` (only if `dispatch_line` needs the new event's
+  fields), `crates/conductor/src/alert.rs`
+- `crates/conductor/src/session.rs` (`DIRECTOR_PROMPT` doc, the `harness_args` comment, the
+  start lock); `crates/conductor/src/agent/claude_code.rs` (read only, no edit)
+- `crates/conductor/src/doctor.rs` (`check_in`), `crates/conductor/src/dashboard/health.rs`
 - `crates/conductor/src/dashboard/sessions.rs`; `crates/conductor/dashboard/src/types.ts`,
   `src/panels/SessionsPanel.vue`, `tests/sessions.spec.ts`, `ux/fixtures.ts`, `dist/`
 - tests: `crates/conductor/tests/box_session.rs`, `runtime_loop.rs`, `doctor.rs`,
   `dashboard_sessions.rs`, `roles.rs`, `profiles.rs`
 - docs: `AGENTS.md` (Who reads this, Layout: roles), `docs/design/conductor-run.md` § 4 (the
   director profile is back, for the boxed session only), `website/docs/concepts/roles.md`,
-  `website/docs/guides/run-isolated.md`
+  `website/docs/guides/run-isolated.md`; generated by `task docs-generate`:
+  `website/docs/reference/**`, `website/docs/status.md`, `website/data/status.json`
