@@ -174,6 +174,29 @@ fn the_supervisor_watches_with_conductor_supervisor_watch() {
     );
 }
 
+/// `story:supervisor-cap-through-config-owner` (issue #264): a cap decision stays the
+/// supervisor's, and it is carried out through the config file's owner when the host's own file
+/// names one, not by a direct edit of the config file. The row stays one line of the table, and
+/// the profile file, counted as written, stays within its cap of 463 lines.
+#[test]
+fn the_supervisor_carries_out_a_cap_through_the_config_files_owner() {
+    let text = profile("supervisor.md");
+    assert!(
+        text.contains(
+            "a cap such as `controllers.max_working` (carried out through the config file's \
+             owner when the host's own file names one)"
+        ),
+        "supervisor.md: a cap is carried out through the config file's owner when the host's \
+         own file names one"
+    );
+    let written = fs::read_to_string(agents().join("supervisor.md")).expect("read the profile");
+    let lines = written.lines().count();
+    assert!(
+        lines <= 463,
+        "supervisor.md: {lines} lines, over its cap of 463"
+    );
+}
+
 /// `story:roles-in-the-binary`: a harness permission prompt is refused with `Escape` and the pane
 /// checked; no key that selects an option answers it. On a three-option prompt `2` and `Down`
 /// then `Enter` both select "Yes, and don't ask again", which approves the call. The prompt is
