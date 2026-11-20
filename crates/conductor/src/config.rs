@@ -7089,15 +7089,22 @@ pub fn globals_document(globals: &Globals) -> Yaml {
             )]),
         ),
     ]);
-    // `globals.supervisor` (story:supervisor-watch-command), where the file writes it.
-    if let (Some(supervisor), Yaml::Mapping(map)) = (&globals.supervisor, &mut document) {
-        let mut shown = serde_yaml::Mapping::new();
-        for (key, file) in [("inbox", &supervisor.inbox), ("outbox", &supervisor.outbox)] {
-            if let Some(file) = file {
-                shown.insert(Yaml::from(key), text(file));
-            }
-        }
-        map.insert(Yaml::from("supervisor"), Yaml::Mapping(shown));
+    // `globals.supervisor` (story:supervisor-watch-command), where the file writes it; `null`
+    // when it writes none, as every field the specification declares is shown.
+    if let Yaml::Mapping(map) = &mut document {
+        let shown = globals
+            .supervisor
+            .as_ref()
+            .map_or(Yaml::Null, |supervisor| {
+                let mut shown = serde_yaml::Mapping::new();
+                for (key, file) in [("inbox", &supervisor.inbox), ("outbox", &supervisor.outbox)] {
+                    if let Some(file) = file {
+                        shown.insert(Yaml::from(key), text(file));
+                    }
+                }
+                Yaml::Mapping(shown)
+            });
+        map.insert(Yaml::from("supervisor"), shown);
     }
     document
 }
