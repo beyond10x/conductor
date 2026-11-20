@@ -12,6 +12,9 @@
 //!   instance directories, and `.cache/b10x/conductor`, the default cache of an instance;
 //! - `b10x-gates`, the name of the Gates scanner the guard and `task check` call, and
 //!   `B10X_GATES_POLICY`, the variable that names its policy;
+//! - `b10x/b10x-bot`, the stem of the two files `b10x-gates bot` reads under its config directory
+//!   (`b10x-bot.json` and its key), which doctor names for a boxed instance
+//!   (`story:box-records-commit-config-home`);
 //! - `github.com/beyond10x/eventlog`, where the store's crates are published;
 //! - `github.com/beyond10x/secrets`, where the secrets source's crates are published
 //!   (`story:secrets-source`);
@@ -48,7 +51,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-const ALLOWED: [&str; 18] = [
+const ALLOWED: [&str; 19] = [
     ".b10x/conductor",
     ".b10x/./conductor",
     "~/.b10x",
@@ -56,6 +59,7 @@ const ALLOWED: [&str; 18] = [
     ".cache/b10x/conductor",
     "b10x-gates",
     "b10x_gates_policy",
+    "b10x/b10x-bot",
     "github.com/beyond10x/eventlog",
     "github.com/beyond10x/secrets",
     "github.com/beyond10x/aep",

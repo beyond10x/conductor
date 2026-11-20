@@ -2304,25 +2304,33 @@ fn bot_route_rows(case: &Case, placement: &str, extra: &str) -> (PathBuf, Vec<St
     (root, rows)
 }
 
+/// The bot route's config and key, by their index in `doctor::BOT_ROUTE_FILES`.
+const CONFIG: usize = 0;
+const KEY: usize = 1;
+
+/// Writes the bot route's `file` under the config directory `dir`; doctor reads only the path.
+fn put(dir: &Path, file: usize) {
+    let path = dir.join(conductor_cli::doctor::BOT_ROUTE_FILES[file].0);
+    fs::create_dir_all(path.parent().expect("a parent")).expect("the box config directory");
+    fs::write(path, "x\n").expect("the bot route's file");
+}
+
 /// The row naming the bot route's `file` missing under the config directory `dir`.
-fn bot_route_row(dir: &Path, file: &str) -> String {
+fn bot_route_row(dir: &Path, file: usize) -> String {
+    let (path, what) = conductor_cli::doctor::BOT_ROUTE_FILES[file];
     format!(
         "box alpha bot route: {} is not there; put the bot route's {} there (the records \
          commit in the box runs b10x-gates with XDG_CONFIG_HOME {}: box.env's, else \
          <cache>/xdg-config)",
-        dir.join("b10x").join(file).display(),
-        if file.ends_with(".json") {
-            "config"
-        } else {
-            "key"
-        },
+        dir.join(path).display(),
+        what,
         dir.display()
     )
 }
 
 /// `story:box-records-commit-config-home`: a boxed instance on `forge.route: gates` whose box
 /// config directory (`<cache>/xdg-config` when `box.env` names no `XDG_CONFIG_HOME`) holds no
-/// `b10x/b10x-bot.json`, or no key beside it, gets a row `box <instance> bot route:` naming the
+/// bot config, or no key beside it, gets a row `box <instance> bot route:` naming the
 /// path to put it at; reported, not a failure.
 #[test]
 fn doctor_names_a_boxed_gates_instance_without_a_bot_key_in_its_config_dir() {
@@ -2331,19 +2339,15 @@ fn doctor_names_a_boxed_gates_instance_without_a_bot_key_in_its_config_dir() {
     let dir = root.join("cache/xdg-config");
     assert_eq!(
         rows,
-        [
-            bot_route_row(&dir, "b10x-bot.json"),
-            bot_route_row(&dir, "b10x-bot.private-key.pem")
-        ]
+        [bot_route_row(&dir, CONFIG), bot_route_row(&dir, KEY)]
     );
 
     // The config there, the key it uses not: the key's row alone.
     let case = Case::new("box-bot-route-no-key");
     let dir = case.dir.join("alpha/cache/xdg-config");
-    fs::create_dir_all(dir.join("b10x")).expect("the box config directory");
-    fs::write(dir.join("b10x/b10x-bot.json"), "{}\n").expect("the bot's config");
+    put(&dir, CONFIG);
     let (_, rows) = bot_route_rows(&case, "systemd", "");
-    assert_eq!(rows, [bot_route_row(&dir, "b10x-bot.private-key.pem")]);
+    assert_eq!(rows, [bot_route_row(&dir, KEY)]);
 }
 
 /// `story:box-records-commit-config-home`: `box.env`'s `XDG_CONFIG_HOME` is the box's config
@@ -2353,27 +2357,22 @@ fn doctor_names_a_boxed_gates_instance_without_a_bot_key_in_its_config_dir() {
 fn doctor_reads_the_bot_key_under_box_env_xdg_config_home() {
     let case = Case::new("box-bot-route-env");
     let named = case.dir.join("bot-config");
-    fs::create_dir_all(named.join("b10x")).expect("the box config directory");
-    fs::write(named.join("b10x/b10x-bot.json"), "{}\n").expect("the bot's config");
-    fs::write(named.join("b10x/b10x-bot.private-key.pem"), "key\n").expect("the bot's key");
+    put(&named, CONFIG);
+    put(&named, KEY);
     let extra = format!("    box: {{env: {{XDG_CONFIG_HOME: {named:?}}}}}\n");
     let (_, rows) = bot_route_rows(&case, "systemd", &extra);
     assert!(rows.is_empty(), "{rows:?}");
 
     let case = Case::new("box-bot-route-env-elsewhere");
-    let cache = case.dir.join("alpha/cache/xdg-config/b10x");
-    fs::create_dir_all(&cache).expect("the default config directory");
-    fs::write(cache.join("b10x-bot.json"), "{}\n").expect("the bot's config");
-    fs::write(cache.join("b10x-bot.private-key.pem"), "key\n").expect("the bot's key");
+    let cache = case.dir.join("alpha/cache/xdg-config");
+    put(&cache, CONFIG);
+    put(&cache, KEY);
     let named = case.dir.join("bot-config");
     let extra = format!("    box: {{env: {{XDG_CONFIG_HOME: {named:?}}}}}\n");
     let (_, rows) = bot_route_rows(&case, "systemd", &extra);
     assert_eq!(
         rows,
-        [
-            bot_route_row(&named, "b10x-bot.json"),
-            bot_route_row(&named, "b10x-bot.private-key.pem")
-        ]
+        [bot_route_row(&named, CONFIG), bot_route_row(&named, KEY)]
     );
 }
 
