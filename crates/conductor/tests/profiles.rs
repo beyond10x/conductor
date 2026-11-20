@@ -204,11 +204,14 @@ fn the_supervisor_starts_a_boxed_controller_through_a_cycle() {
 /// controller of a boxed instance is started through `conductor instance cycle`, since `spawn` on
 /// the host refuses it, and the host's CLI version is compared with each instance's binary. The
 /// director's, back for the boxed session the runtime starts (`story:box-runtime-starts-director`),
-/// is held at 60 lines.
+/// is held at 60 lines. The controller's rose from 120 to 122 with
+/// `story:person-wait-and-pause-hold-restarts` (issue #258): the rule for work left only to
+/// persons (`blocked person: …`, no hand-over) is two wrapped lines, and no other rule was
+/// shortened for it.
 #[test]
 fn each_profile_stays_under_its_line_cap() {
     for (name, cap) in [
-        ("controller.md", 120),
+        ("controller.md", 122),
         ("maintainer.md", 60),
         ("director.md", 60),
         ("supervisor.md", 463),
@@ -267,6 +270,27 @@ fn a_controller_writes_its_hand_over_file_reports_it_and_stops() {
         assert!(
             text.contains(phrase),
             "controller.md: the hand-over holds {phrase:?}"
+        );
+    }
+}
+
+/// `story:person-wait-and-pause-hold-restarts` (issue #258): a controller whose work is left only
+/// to persons reports `blocked person: …`, after `unblocked` when blocked for another reason, ends
+/// its turn and writes no hand-over, which is for `[HANDOVER]` and a wave's close with work left;
+/// the next input starts it again, and still waiting it reports again. The words `waits on` keep
+/// the supervisor watch's idle check from counting it idle.
+#[test]
+fn a_controller_waiting_only_on_persons_reports_blocked_person_and_writes_no_hand_over() {
+    let text = profile("controller.md");
+    for phrase in [
+        "at a wave's close with work left",
+        "Work left only to persons: report `blocked person: waits on <who> for <what>` \
+         (`unblocked` first if blocked otherwise), end the turn, no hand-over; still waiting at \
+         the next input: report again.",
+    ] {
+        assert!(
+            text.contains(phrase),
+            "controller.md: the person wait holds {phrase:?}"
         );
     }
 }

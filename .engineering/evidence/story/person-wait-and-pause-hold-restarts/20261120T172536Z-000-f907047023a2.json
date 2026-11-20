@@ -1,0 +1,13 @@
+{
+  "at": "2026-11-20T17:25:36Z",
+  "actor": "human:unknown",
+  "artifact": "story:person-wait-and-pause-hold-restarts",
+  "kind": "story",
+  "revision": 7,
+  "change": {
+    "change": "evidence",
+    "kind": "test_result",
+    "source": "at 35a1e22a3: unit test run::handlers::tests::a_person_reason_is_read_by_its_first_word passes (failed first: did not compile); tests/profiles.rs 36 passed (new: a_controller_waiting_only_on_persons_reports_blocked_person_and_writes_no_hand_over); docs_start_conductor, docs_forge, message_read, decide_class, no_organization pass; cargo clippy -p conductor-cli --all-targets -D warnings clean; ess specify validate valid, no spec change; the 21 new tests/run.rs cases compile and need CI (box refuses AF_UNIX: every spawn-driven run.rs test fails here at the fixture's spawn)",
+    "reference": "github:beyond10x/conductor#258"
+  }
+}
