@@ -2,7 +2,7 @@
 format: aep.planning-md/3
 id: story:resumed-controller-done-held
 kind: story
-status: active
+status: implemented
 title: A resumed controller is told its dispatch first, a done right after a resume is held, and a done dispatch can be reopened
 summary: A resumed controller gets its open dispatch as first input; a done within ten minutes of a resume or on a blocked dispatch is held; dispatch reopen-dispatch and a controller's withdrawal before the next cycle undo a wrong done
 tags:
@@ -51,10 +51,11 @@ scope:
   path: spec/scenarios/reopen-dispatch.yaml
 - confidence: cited
   path: website/docs/reference
-revision: 8
+revision: 9
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-19T21:21:06Z", actor: "human:unknown", revision: 7}
 - {from: "proposed", to: "active", at: "2026-11-19T21:21:07Z", actor: "human:unknown", revision: 8}
+- {from: "active", to: "implemented", at: "2026-11-19T23:23:19Z", actor: "human:unknown", revision: 9, decided_on: {"recorded":{"test_result":1}}}
 ---
 ## Why
 
