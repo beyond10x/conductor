@@ -8,7 +8,10 @@
 //! its id on one line. A refused command exits 1 with one line on standard error: the command, the
 //! error the specification declares, and what it means. A flag left out is named on standard error
 //! (exit 1) before any store is opened. `--input-json` is not read yet, and answers
-//! [`NotImplemented`](crate::NotImplemented).
+//! [`NotImplemented`](crate::NotImplemented), except by `raise-decision-request` and
+//! `escalate-request` (`story:decision-request-input-json`): they read their input fields from one
+//! JSON object on standard input, keyed by the specification's field names, each value checked by
+//! its flag's parser, and then take the flags' path ([`input_json`]).
 //!
 //! **Ids.** A request's id comes from the controller's message and is never allocated; one a
 //! request already has is refused (`RequestExists`), naming it, and nothing is written. Given no
@@ -195,17 +198,32 @@ const DECISION_COLUMNS: [&str; 16] = [
 ///
 /// # Errors
 ///
-/// A flag is missing, `--input-json` is given ([`NotImplemented`](crate::NotImplemented)), the
-/// store does not open or keep the request, or it already holds a request with this id.
+/// A flag is missing, the input `--input-json` reads is refused ([`input_json`]), the store does
+/// not open or keep the request, or it already holds a request with this id.
 pub fn raise_decision_request(
     state: Option<&Path>,
     args: RaiseDecisionRequestArgs,
 ) -> Result<ExitCode> {
     const COMMAND: &str = "decision raise-decision-request";
-    flags_only(
-        args.input_json,
-        "decision raise-decision-request --input-json",
-    )?;
+    let args = match args.input_json {
+        Some(JsonInput::Stdin) => {
+            let given = [
+                ("--request-id", args.request_id.is_some()),
+                ("--repository", args.repository.is_some()),
+                ("--question", args.question.is_some()),
+                ("--options", args.options.is_some()),
+                ("--recommendation", args.recommendation.is_some()),
+                ("--raised-at", args.raised_at.is_some()),
+                ("--blocker", args.blocker.is_some()),
+                ("--classification-rule", args.classification_rule.is_some()),
+                ("--actor", args.actor.is_some()),
+            ];
+            let (read, _) = input_json::<RaiseDecisionRequestArgs>(COMMAND, &RAISE_FIELDS, &given)?;
+            chosen_from_json(COMMAND, read.actor.as_deref())?;
+            read
+        }
+        None => args,
+    };
     let input = RaiseDecisionRequest {
         actor: crate::actor::chosen(),
         request_id: RequestId(flag(COMMAND, "--request-id", args.request_id)?),
@@ -1146,8 +1164,8 @@ fn not_escalated(request: &RequestId, state: DecisionRequestState) -> String {
 ///
 /// # Errors
 ///
-/// A flag is missing, `--input-json` is given ([`NotImplemented`](crate::NotImplemented)), the
-/// file `--dry-run` names cannot be read, the store does not open or keep the move, or the
+/// A flag is missing, the input `--input-json` reads is refused ([`input_json`]), the file
+/// `--dry-run` names cannot be read, the store does not open or keep the move, or the
 /// specification refuses it: `NotEscalatable`, `DryRunMissing` (class H with neither `--dry-run`
 /// nor `--no-dry-run`, `story:hand-item-dry-run`), `RequestNotFound`, `RequestStateConflict`.
 pub fn escalate_request(state: Option<&Path>, args: EscalateRequestArgs) -> Result<ExitCode> {
@@ -1175,7 +1193,32 @@ fn escalate(
     measured: Option<String>,
 ) -> Result<ExitCode> {
     const COMMAND: &str = "decision escalate-request";
-    flags_only(args.input_json, "decision escalate-request --input-json")?;
+    let (args, measured) = match args.input_json {
+        Some(JsonInput::Stdin) => {
+            let given = [
+                ("--request-id", args.request_id.is_some()),
+                ("--escalation-class", args.escalation_class.is_some()),
+                ("--reason", args.reason.is_some()),
+                ("--dry-run", args.dry_run.is_some()),
+                ("--no-dry-run", args.no_dry_run.is_some()),
+                ("--kind", args.kind.is_some()),
+                ("--lettered-options", args.lettered_options.is_some()),
+                ("--recommended-letters", args.recommended_letters.is_some()),
+                ("--default-letters", args.default_letters.is_some()),
+                ("--deadline", args.deadline.is_some()),
+                ("--actor", args.actor.is_some()),
+            ];
+            let (read, verbatim) =
+                input_json::<EscalateRequestArgs>(COMMAND, &ESCALATE_FIELDS, &given)?;
+            chosen_from_json(COMMAND, read.actor.as_deref())?;
+            // `dry_run` is the dry run's text, not a file; a caller's measured text stands first.
+            let dry_run = verbatim
+                .into_iter()
+                .find_map(|(key, text)| (key == "dry_run").then_some(text));
+            (read, measured.or(dry_run))
+        }
+        None => (args, measured),
+    };
     let request_id = RequestId(flag(COMMAND, "--request-id", args.request_id)?);
     let escalation_class = class(
         COMMAND,
@@ -2651,6 +2694,201 @@ fn request_held(command: &str, request: &RequestId) -> Result<ExitCode> {
         "{command}: request {:?} already exists; nothing was written",
         request.0
     )
+}
+
+/// The JSON type an input field's value takes under `--input-json`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Shape {
+    /// A string, the text its flag takes.
+    Text,
+    /// A string the handler takes as it is, not through its flag: `dry_run`, the dry run's text
+    /// where the flag names a file.
+    Verbatim,
+    /// A JSON array, re-encoded to the text its flag takes.
+    Array,
+    /// An actor as `--actor` takes it: a string in the form the records print, or one object.
+    Actor,
+}
+
+/// One input field `--input-json` reads: the specification's name of it, the flag that takes it,
+/// the JSON type of its value, and whether the command needs it.
+struct Field {
+    key: &'static str,
+    flag: &'static str,
+    shape: Shape,
+    required: bool,
+}
+
+const fn field(key: &'static str, flag: &'static str, shape: Shape, required: bool) -> Field {
+    Field {
+        key,
+        flag,
+        shape,
+        required,
+    }
+}
+
+/// The input fields of `conductor.decision.RaiseDecisionRequest`.
+const RAISE_FIELDS: [Field; 9] = [
+    field("request_id", "--request-id", Shape::Text, true),
+    field("repository", "--repository", Shape::Text, true),
+    field("question", "--question", Shape::Text, true),
+    field("options", "--options", Shape::Text, true),
+    field("recommendation", "--recommendation", Shape::Text, true),
+    field("raised_at", "--raised-at", Shape::Text, true),
+    field("blocker", "--blocker", Shape::Text, false),
+    field(
+        "classification_rule",
+        "--classification-rule",
+        Shape::Text,
+        false,
+    ),
+    field("actor", "--actor", Shape::Actor, false),
+];
+
+/// The input fields of `conductor.decision.EscalateRequest`.
+const ESCALATE_FIELDS: [Field; 11] = [
+    field("request_id", "--request-id", Shape::Text, true),
+    field("escalation_class", "--escalation-class", Shape::Text, true),
+    field("reason", "--reason", Shape::Text, true),
+    field("dry_run", "--dry-run", Shape::Verbatim, false),
+    field("no_dry_run", "--no-dry-run", Shape::Text, false),
+    field("kind", "--kind", Shape::Text, false),
+    field(
+        "lettered_options",
+        "--lettered-options",
+        Shape::Array,
+        false,
+    ),
+    field(
+        "recommended_letters",
+        "--recommended-letters",
+        Shape::Text,
+        false,
+    ),
+    field("default_letters", "--default-letters", Shape::Text, false),
+    field("deadline", "--deadline", Shape::Text, false),
+    field("actor", "--actor", Shape::Actor, false),
+];
+
+/// Reads `--input-json -` of `command` (`story:decision-request-input-json`): one JSON object on
+/// standard input whose keys are `fields`, each value given to its flag's own parser, so the
+/// answer is the input the same flags would have given; and the [`Shape::Verbatim`] values by
+/// key, which no flag reads. A `null` value is no value. Refused before any store is opened, one
+/// line naming what is wrong: a flag of `given` that was given beside `--input-json`, standard
+/// input that is no JSON object, a key that is no field, a value of the wrong JSON type or one its
+/// flag's parser refuses, a missing field the command needs.
+fn input_json<A: clap::Args + clap::FromArgMatches>(
+    command: &str,
+    fields: &[Field],
+    given: &[(&str, bool)],
+) -> Result<(A, Vec<(&'static str, String)>)> {
+    use std::io::Read as _;
+    if let Some((flag, _)) = given.iter().find(|(_, given)| *given) {
+        bail!(
+            "{command}: {flag} is given beside --input-json; give each input field in one or \
+             the other"
+        );
+    }
+    let mut text = String::new();
+    std::io::stdin()
+        .read_to_string(&mut text)
+        .with_context(|| format!("{command}: --input-json: read standard input"))?;
+    let object = match serde_json::from_str::<Value>(&text) {
+        Ok(Value::Object(object)) => object,
+        Ok(_) => bail!("{command}: --input-json: standard input is no JSON object"),
+        Err(error) => bail!("{command}: --input-json: standard input is no JSON object: {error}"),
+    };
+    let parser = || A::augment_args(clap::Command::new("input-json").no_binary_name(true));
+    let mut argv = Vec::new();
+    let mut verbatim = Vec::new();
+    for (key, value) in object {
+        let Some(field) = fields.iter().find(|field| field.key == key) else {
+            let keys: Vec<&str> = fields.iter().map(|field| field.key).collect();
+            bail!(
+                "{command}: --input-json: the key {key:?} is no input field; the fields are {}",
+                keys.join(", ")
+            );
+        };
+        let text = match (field.shape, value) {
+            (_, Value::Null) => continue,
+            (Shape::Text | Shape::Verbatim | Shape::Actor, Value::String(text)) => text,
+            (Shape::Array, value @ Value::Array(_)) | (Shape::Actor, value @ Value::Object(_)) => {
+                value.to_string()
+            }
+            (shape, value) => {
+                let wanted = match shape {
+                    Shape::Text | Shape::Verbatim => "a string",
+                    Shape::Array => "a JSON array",
+                    Shape::Actor => "a string or a JSON object",
+                };
+                bail!(
+                    "{command}: --input-json: the key {:?} holds {value}, not {wanted}",
+                    field.key
+                );
+            }
+        };
+        if field.shape == Shape::Verbatim {
+            verbatim.push((field.key, text));
+            continue;
+        }
+        let argument = format!("{}={text}", field.flag);
+        if let Err(error) = parser().try_get_matches_from([argument.as_str()]) {
+            bail!(
+                "{command}: --input-json: the key {:?} holds {text:?}, which {} refuses: {}",
+                field.key,
+                field.flag,
+                parser_says(&error)
+            );
+        }
+        argv.push(argument);
+    }
+    for field in fields.iter().filter(|field| field.required) {
+        let held = argv
+            .iter()
+            .any(|argument| argument.starts_with(&format!("{}=", field.flag)))
+            || verbatim.iter().any(|(key, _)| *key == field.key);
+        if !held {
+            bail!(
+                "{command}: --input-json: the key {:?} is missing",
+                field.key
+            );
+        }
+    }
+    let matches = parser()
+        .try_get_matches_from(&argv)
+        .map_err(|error| anyhow!("{command}: --input-json: {}", parser_says(&error)))?;
+    let read = A::from_arg_matches(&matches)
+        .map_err(|error| anyhow!("{command}: --input-json: {}", parser_says(&error)))?;
+    Ok((read, verbatim))
+}
+
+/// What a flag's parser said in refusing a value, on one line: its own words, or the values it
+/// allows.
+fn parser_says(error: &clap::Error) -> String {
+    use clap::error::{ContextKind, ContextValue};
+    if let Some(source) = std::error::Error::source(error) {
+        return source.to_string();
+    }
+    match error.get(ContextKind::ValidValue) {
+        Some(ContextValue::Strings(values)) => format!("it is none of {}", values.join(", ")),
+        _ => error.kind().to_string(),
+    }
+}
+
+/// Fixes the actor of this process from the `actor` key `--input-json` read, as `--actor` would
+/// have ([`crate::actor::choose`]); without one the actor already chosen stands.
+fn chosen_from_json(command: &str, actor: Option<&str>) -> Result<()> {
+    let Some(actor) = actor else {
+        return Ok(());
+    };
+    crate::actor::choose(Some(actor), false).map_err(|error| {
+        let error = format!("{error:#}");
+        anyhow!(
+            "{command}: --input-json: the key \"actor\": {}",
+            error.strip_prefix("--actor: ").unwrap_or(&error)
+        )
+    })
 }
 
 /// Refuses `--input-json`, which no handler reads yet, as `what` not implemented.

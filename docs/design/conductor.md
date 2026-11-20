@@ -491,7 +491,9 @@ the `cli:` block of `spec/components.yaml` plus the local commands of `crates/co
 Not implemented yet; each answers exit 2:
 
 - `snapshot publish-board` and `snapshot boards` (the generated `STATUS.md`);
-- `--input-json -` on every command that offers it;
+- `--input-json -` on every command that offers it, except `decision raise-decision-request` and
+  `decision escalate-request`, which read their input fields from one JSON object on standard
+  input, keyed by the specification's field names (`story:decision-request-input-json`);
 - `guard record-guard-decision` without `--from-pre-tool-use`;
 - starting the controller's session from `controller start-controller`, which records the
   controller only: `conductor spawn` starts the session and records it.
