@@ -84,8 +84,7 @@
         "event": "started",
         "event_at": "2026-10-13T09:25:00Z",
         "event_ago": "5m"
-      },
-      "director": null
+      }
     },
     {
       "name": "ex-beta",
@@ -106,8 +105,7 @@
         "event": "done",
         "event_at": "2026-10-13T09:00:00Z",
         "event_ago": "30m"
-      },
-      "director": null
+      }
     }
   ],
   "watch": {
