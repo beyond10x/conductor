@@ -2,7 +2,7 @@
 format: aep.planning-md/3
 id: story:collector-failure-stays-its-own
 kind: story
-status: active
+status: implemented
 title: A collector that still fails fails only its own rows
 summary: One failing collector fails the whole snapshot today; the snapshot should keep every other collector rows
 refs:
@@ -83,10 +83,11 @@ scope:
   path: website/docs/guides/run-isolated.md
 - confidence: cited
   path: website/docs/reference
-revision: 7
+revision: 8
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-20T12:16:16Z", actor: "human:unknown", revision: 5}
 - {from: "proposed", to: "active", at: "2026-11-20T12:16:16Z", actor: "human:unknown", revision: 6}
+- {from: "active", to: "implemented", at: "2026-11-20T14:31:47Z", actor: "human:unknown", revision: 8, decided_on: {"recorded":{"test_result":1}}}
 ---
 ## Why
 

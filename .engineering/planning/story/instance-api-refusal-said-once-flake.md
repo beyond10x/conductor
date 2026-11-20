@@ -2,7 +2,7 @@
 format: aep.planning-md/3
 id: story:instance-api-refusal-said-once-flake
 kind: story
-status: active
+status: implemented
 title: A dialing runtime says its refusal once, on every run
 summary: instance_api refusal-said-once test counts a substring two lines carry; whether the pool probe prints the second depends on a reset versus a clean close
 relations:
@@ -14,10 +14,11 @@ scope:
   path: crates/conductor/tests/instance_api.rs
 - confidence: cited
   path: crates/conductor/tests/token_pool.rs
-revision: 8
+revision: 9
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-20T12:18:40Z", actor: "human:unknown", revision: 6}
 - {from: "proposed", to: "active", at: "2026-11-20T12:18:40Z", actor: "human:unknown", revision: 7}
+- {from: "active", to: "implemented", at: "2026-11-20T14:31:48Z", actor: "human:unknown", revision: 9, decided_on: {"recorded":{"test_result":1}}}
 ---
 ## Why
 
