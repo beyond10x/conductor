@@ -201,8 +201,8 @@ impl Files {
 }
 
 /// Whether `pid` is a live process of the session `id`: it exists, is no zombie, and, where
-/// `/proc` shows it, its command line names `id`, so a pid the system gave another process since
-/// does not count.
+/// `/proc` shows it, its command line names `id` or is empty ([`names_session`]), so a pid the
+/// system gave another process since does not count.
 #[must_use]
 pub fn alive(pid: u32, id: &str) -> bool {
     let Ok(raw) = i32::try_from(pid) else {
@@ -222,11 +222,20 @@ pub fn alive(pid: u32, id: &str) -> bool {
         return false;
     }
     match fs::read(proc.join("cmdline")) {
-        Ok(cmdline) => cmdline
-            .split(|byte| *byte == 0)
-            .any(|word| word == id.as_bytes()),
+        Ok(cmdline) => names_session(&cmdline, id),
         Err(_) => true,
     }
+}
+
+/// Whether the command line `cmdline` (`/proc/<pid>/cmdline`, words ended by NUL) names `id`.
+/// An empty one does: a process reads so between the close-on-exec that ends `Command::spawn`
+/// and the moment the kernel sets up the new image's arguments, so a session just started would
+/// otherwise read as ended (`the session ended as it started`) while it runs on.
+fn names_session(cmdline: &[u8], id: &str) -> bool {
+    cmdline.is_empty()
+        || cmdline
+            .split(|byte| *byte == 0)
+            .any(|word| word == id.as_bytes())
 }
 
 /// Every entry of the registry `dir`, oldest first; an entry that does not read is left out.
@@ -830,6 +839,21 @@ mod tests {
         .expect("write");
         assert_eq!(status(&output), "idle");
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn an_empty_command_line_is_a_process_still_in_its_exec() {
+        // Between the close-on-exec that ends `Command::spawn` and the new image's arguments,
+        // `/proc/<pid>/cmdline` reads empty: the session is starting, not gone.
+        assert!(names_session(b"", "id-1"));
+        assert!(names_session(
+            b"/bin/sh\0claude\0--session-id\0id-1\0",
+            "id-1"
+        ));
+        assert!(!names_session(
+            b"/bin/sh\0claude\0--session-id\0id-2\0",
+            "id-1"
+        ));
     }
 
     #[test]
