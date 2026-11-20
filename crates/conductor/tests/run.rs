@@ -3969,6 +3969,87 @@ fn the_mailbox_keeps_every_handled_name_when_a_file_sorting_before_them_arrives(
     assert_eq!(names, ["0001.md", "0005.md", "0009.md"], "{handled}");
 }
 
+/// Issue #229 (`story:mailbox-rejection-once-dated`): a `[DECISION-REQUEST]` with its options on
+/// one line, so no lettered option, sent with `conductor message send`, is refused once over two
+/// ticks, with the decider seam and without it: one journal line, one `refused` answer for the
+/// controller of the repository it names (kept for its next start, as none runs), and the message
+/// the store recorded `Rejected`, not left `Received`. Without the seam the request is raised
+/// before it is refused, so a row of it is kept.
+#[test]
+fn a_decision_request_with_no_lettered_option_is_refused_once_and_its_sender_told_once() {
+    for decide in [true, false] {
+        let case = Case::new(if decide {
+            "mail-no-option-decide"
+        } else {
+            "mail-no-option"
+        });
+        let file = case.dir.join("request.md");
+        write(
+            &file,
+            "[DECISION-REQUEST alpha R-7] Release now?\n\
+             Options: A) release now (cost: none). B) hold the tag (cost: a day).\n\
+             Recommendation: A\n",
+        );
+        let message = case
+            .ok(&[
+                "message",
+                "send",
+                "--to",
+                "conductor",
+                "--from",
+                "ex-alpha",
+                "--text",
+                &file.display().to_string(),
+            ])
+            .trim()
+            .to_owned();
+        let mut said = Vec::new();
+        for _ in 0..2 {
+            let (_, stderr) = case.child_said(json!({"do": "lines", "decide": decide}));
+            said.extend(journal(&stderr));
+        }
+        let refusals: Vec<&String> = said
+            .iter()
+            .filter(|line| line.contains("lists no lettered option"))
+            .collect();
+        assert_eq!(refusals.len(), 1, "decide {decide}: {said:?}");
+        assert!(
+            case.deliveries().is_empty(),
+            "decide {decide}: no controller runs"
+        );
+        let told: Vec<String> = kept(&case)
+            .iter()
+            .filter(|item| item["repo"] == "alpha")
+            .map(|item| {
+                item["text"]
+                    .as_str()
+                    .unwrap_or_default()
+                    .lines()
+                    .next()
+                    .unwrap_or_default()
+                    .to_owned()
+            })
+            .collect();
+        assert_eq!(told.len(), 1, "decide {decide}: {told:?}");
+        assert!(
+            told[0].starts_with("[REPORT alpha -] refused: ")
+                && told[0].contains("lists no lettered option"),
+            "decide {decide}: {told:?}"
+        );
+        let messages = case.view(&["message", "messages"]);
+        let row = messages
+            .iter()
+            .find(|row| row["message_id"] == message.as_str())
+            .unwrap_or_else(|| panic!("decide {decide}: {message} is recorded: {messages:?}"));
+        assert_eq!(row["state"], "Rejected", "decide {decide}: {row}");
+        let raised = case
+            .view(&["decision", "requests"])
+            .iter()
+            .any(|row| row["request_id"] == "R-7");
+        assert_eq!(raised, !decide, "decide {decide}: the request raised");
+    }
+}
+
 /// `story:idle-controller-yields-place`, a cycle at `controllers.max_working`: alpha's controller,
 /// started by hand for no dispatch, runs (its session idle with `idle`, else busy) while beta,
 /// Active with a charter, waits for a place; with `dispatch` alpha has an open dispatch. Answers
