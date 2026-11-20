@@ -571,3 +571,10 @@ No onboarding run is due: 1.22.1 changes nothing onboarding runs. It builds on m
 supervisor watch waits on inotify only on Linux and sleeps between its reads elsewhere. 1.22.0
 has no release archives, since its macOS builds failed. The release also holds back a controller
 whose dispatch waits only on persons, and a paused controller, from every restart the loop makes.
+
+## v1.22.2
+
+No onboarding run is due: 1.22.2 changes nothing onboarding runs. `conductor config put` and the
+instance calls change only the text of the named path or instance item, keeping the file's style
+and comments, and a put the file already holds commits nothing; the supervisor profile carries a
+cap decision out through the config file's owner when the host's own file names one.

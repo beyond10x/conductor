@@ -2,7 +2,7 @@
 format: aep.planning-md/3
 id: story:config-put-touches-only-its-path
 kind: story
-status: active
+status: implemented
 title: config put edits only the named path and keeps the file's style
 summary: A put rewrites the whole config file in block style; it should change only the path's text, comments and style kept
 tags:
@@ -29,10 +29,11 @@ scope:
   path: website/docs/concepts/config.md
 - confidence: cited
   path: website/docs/guides/configure-an-instance.md
-revision: 7
+revision: 8
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-20T21:31:02Z", actor: "human:unknown", revision: 5}
 - {from: "proposed", to: "active", at: "2026-11-20T21:31:02Z", actor: "human:unknown", revision: 6}
+- {from: "active", to: "implemented", at: "2026-11-20T22:37:25Z", actor: "human:unknown", revision: 8, decided_on: {"recorded":{"test_result":2}}}
 ---
 ## Why
 

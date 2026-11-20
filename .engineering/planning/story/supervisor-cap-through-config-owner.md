@@ -2,7 +2,7 @@
 format: aep.planning-md/3
 id: story:supervisor-cap-through-config-owner
 kind: story
-status: active
+status: implemented
 title: The supervisor carries out a cap decision through the config file's owner
 summary: The supervisor profile's cap example says the change goes through the config file's owner when the host names one
 tags:
@@ -17,10 +17,11 @@ scope:
   path: crates/conductor/roles/supervisor.md
 - confidence: cited
   path: crates/conductor/tests/profiles.rs
-revision: 6
+revision: 7
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-20T21:31:02Z", actor: "human:unknown", revision: 5}
 - {from: "proposed", to: "active", at: "2026-11-20T21:31:02Z", actor: "human:unknown", revision: 6}
+- {from: "active", to: "implemented", at: "2026-11-20T22:37:26Z", actor: "human:unknown", revision: 7, decided_on: {"recorded":{"test_result":1}}}
 ---
 ## Why
 
