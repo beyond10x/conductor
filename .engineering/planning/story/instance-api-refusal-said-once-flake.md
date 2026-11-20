@@ -2,7 +2,7 @@
 format: aep.planning-md/3
 id: story:instance-api-refusal-said-once-flake
 kind: story
-status: draft
+status: active
 title: A dialing runtime says its refusal once, on every run
 summary: instance_api refusal-said-once test counts a substring two lines carry; whether the pool probe prints the second depends on a reset versus a clean close
 relations:
@@ -16,7 +16,10 @@ scope:
   path: crates/conductor/tests/instance_api.rs
 - confidence: cited
   path: crates/conductor/tests/token_pool.rs
-revision: 2
+revision: 7
+transitions:
+- {from: "draft", to: "proposed", at: "2026-11-20T12:18:40Z", actor: "human:unknown", revision: 6}
+- {from: "proposed", to: "active", at: "2026-11-20T12:18:40Z", actor: "human:unknown", revision: 7}
 ---
 ## Why
 
@@ -48,27 +51,48 @@ code before and after.
 
 ## Outcome
 
-- A refused pool call reads the same however the close arrives: a reset before any answer and an
-  end of stream before any answer both give the `closed the connection unanswered` error
-  (`token.rs` `ask_pool`), or the listener drains or half-closes a refused pool connection so it
-  always ends cleanly; the design picks one, the test holds the result either way.
+- A refused pool call reads the same however the close arrives, decided on the runtime's side in
+  `token.rs` `ask_pool`: once connected, a reset or broken pipe on writing the greeting or request
+  (`ask conductord: ...`, `token.rs:1168-1170`, the rarer third variant of the same race), a reset
+  on reading before any answer byte (`token.rs:1171-1175`), and an end of stream before any answer
+  byte (`token.rs:1176-1181`) all give the one existing error `the host's token pool: conductord
+  closed the connection unanswered: this runtime's start is not the one it routes`, byte for byte,
+  with no io cause appended: `keep_probing` says a line each time the error text changes
+  (`token.rs:1121-1126`), so two texts for one refusal would still print twice.
+- The dial-in listener is not changed to drain or half-close a refused connection: it would read
+  an unauthenticated peer's bytes after refusing it, and the runtime-side mapping removes the race
+  without it.
+- Other io errors (connect refused, timeouts, an answer that is no JSON) keep their own texts.
 - The test counts the line it means: the dialer's refusal (`before any request`) exactly once, and
-  the probe's refusal line at most once, each matched by text no other line carries.
+  the probe's refusal (`closed the connection unanswered`) at most once, each matched by text no
+  other line carries.
 
 ## Acceptance (tests that fail on the current code)
 
 - `tests/token_pool.rs` `a_refused_pool_call_reads_the_same_whether_the_close_resets_or_ends`: a
   test listener that reads the greeting line, waits (by `peek`) until the request is in its buffer,
-  then drops the stream (a reset), and one that reads the request too before dropping (an end of
-  stream); `token::hold_dial` at each and `token::probe_pool` answer the same error both times. On
-  main the first answers `read conductord's answer: Connection reset by peer`: it fails on every run.
+  then drops the stream with it unread (a reset, deterministic on Linux), and one that reads the
+  request too before dropping (an end of stream); `token::hold_dial` at each and
+  `token::probe_pool` answer `Some(Err(e))` with the same `e` both times, equal to the
+  `closed the connection unanswered` text. On main the first answers `read conductord's answer:
+  Connection reset by peer`: it fails on every run.
 - `tests/instance_api.rs` `a_dialing_runtime_says_a_refusal_once_and_a_surplus_dial_not_at_all`
-  rewritten as above; with the product change it holds whichever way the probe's connection closes.
+  rewritten: `before any request` counted exactly 1, `closed the connection unanswered` at most 1,
+  and the log holds no `read conductord's answer` and no `ask conductord` line; with the product
+  change it holds whichever way the probe's connection closes.
+- The other tests that touch a refused pool call still pass unchanged: `tests/token_pool.rs`
+  `a_session_process_cannot_lease_or_reveal_a_token_it_does_not_hold` (its own `pool_call`, which
+  matches no text) and `tests/instance_upgrade.rs`'s refused-protocol test (matches `refused` and
+  `CONDUCTOR-POOL/1`, not the pool error). No product code matches either text (`grep` of `src/`).
 
 ## Boundaries
 
-- No change to what the dial-in listener says in its journal, to `Said`'s once-per-cause rule, or to
-  the dialer's retry and its line.
-- No change to the pool protocol's lines (`POOL_HELLO`, the JSON request and answer).
+- No change to what the dial-in listener reads, says in its journal, or how it closes; to `Said`'s
+  once-per-cause rule; or to the dialer's retry and its line.
+- No change to the pool protocol's lines (`POOL_HELLO`, the JSON request and answer), to
+  `keep_probing`'s cadence (`PROBE_EVERY`) or to how `lease`, `release_for_stop` and the limit call
+  propagate a pool error: only the text of a reset-before-answer error changes, to the one an end
+  of stream already gives.
+- No specification change: the error is a runtime log and error text, not a modelled error.
 - The new test holds the process's one dial as the other dial tests of `tests/token_pool.rs` do
   (the `DIALED` lock, `:1719-1721`), serialized with them.
