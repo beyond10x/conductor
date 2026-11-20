@@ -141,6 +141,10 @@ fn child() {
             .map(|(repo, count)| (repo.clone(), count.as_i64().unwrap_or(0)))
             .collect();
         take_reviews(&state, &waiting);
+        if spec["forge_failed"] == true {
+            let repositories = waiting.iter().map(|(repo, _)| repo.clone()).collect();
+            take_forge_failed(&state, repositories);
+        }
     }
     let deliverer = Recorder { dir: fake.clone() };
     let host = conductor_cli::confine::Host;
@@ -357,6 +361,33 @@ fn take_reviews(state: &Path, waiting: &[(String, i64)]) {
     };
     let taken = snapshot::take_from(store, start, &[collector]).expect("the snapshot ends");
     assert_eq!(taken.state, SnapshotState::Complete, "{taken:?}");
+}
+
+/// Takes a complete snapshot after [`take_reviews`]'s into the store under `state` that observes
+/// each of `repositories` active and whose `github` collector did not answer, so it holds no pull
+/// request (`story:collector-failure-stays-its-own`).
+fn take_forge_failed(state: &Path, repositories: Vec<String>) {
+    let observed = Collector::new("repositories", move |recorder| {
+        let snapshot = recorder.snapshot().clone();
+        for repository in &repositories {
+            recorder.repository(RecordRepository {
+                snapshot_id: snapshot.clone(),
+                ..observation(repository)
+            })?;
+        }
+        Ok(())
+    });
+    let github = Collector::new("github", |_| bail!("the source did not answer"));
+    let store = store::open(state).expect("open the case's store");
+    let start = StartSnapshot {
+        actor: conductor_cli::actor::daemon(),
+        started_at: Timestamp("2026-10-17T08:30:00Z".to_owned()),
+        disk_free_bytes: PLENTY.try_into().unwrap_or(i64::MAX),
+        budget: None,
+    };
+    let taken = snapshot::take_from(store, start, &[observed, github]).expect("the snapshot ends");
+    assert_eq!(taken.state, SnapshotState::Complete, "{taken:?}");
+    assert_eq!(taken.failed.len(), 1, "{taken:?}");
 }
 
 /// A repository observed active: three real commits in seven days, not archived.
@@ -3793,6 +3824,37 @@ fn a_merge_human_repository_at_its_review_limit_is_not_spawned() {
         "{summary}"
     );
     assert!(summary.contains("spawned beta"), "{summary}");
+}
+
+/// `story:collector-failure-stays-its-own`: the newest snapshot's `github` run failed, so it holds
+/// no pull request; the one before holds alpha's at `controllers.max_open_reviews`. The cycle
+/// still counts alpha's reviews full, from the newest snapshot whose forge collectors answered,
+/// and spawns beta only.
+#[test]
+fn a_failed_forge_collector_is_not_read_as_no_open_reviews() {
+    let case = Case::new("forge-failed-reviews");
+    case.configure("{provider: none}", "{max_working: 4, max_open_reviews: 2}");
+    write(
+        &case.charter("alpha"),
+        "# Charter: alpha\n\nKeep main green.\n\nmerge: human\n",
+    );
+    write(
+        &case.charter("beta"),
+        "# Charter: beta\n\nKeep main green.\n\nmerge: human\n",
+    );
+    let tick = case.child(json!({
+        "do": "cycle",
+        "reviews": {"alpha": 2, "beta": 1},
+        "forge_failed": true,
+        "program": case.bin().join("conductor-steps"),
+    }));
+    assert_eq!(case.launched(), ["ex-beta"], "{tick}");
+    let cycle = case.lines_of(&tick);
+    let summary = cycle[0]["line"].as_str().expect("the cycle's line");
+    assert!(
+        summary.contains("alpha waits: 2/2 pull requests"),
+        "{summary}"
+    );
 }
 
 /// `story:spawn-without-dispatch-reports`, second observation: a controller the loop starts has a

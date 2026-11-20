@@ -7,6 +7,7 @@
 
 mod active;
 mod common;
+mod failed;
 
 use std::collections::BTreeMap;
 use std::fs;
@@ -40,7 +41,7 @@ fn case_dir(case: &str) -> PathBuf {
 }
 
 /// Takes one snapshot started at `started_at` that observes `repositories`, into the store under
-/// `state`; with `fails`, its collector then answers an error, so the snapshot ends `Failed`.
+/// `state`; with `fails`, the snapshot ends `Failed` ([`failed::snapshot`]).
 fn snapshot_of(state: &Path, started_at: &str, repositories: &[&str], fails: bool) {
     active::isolate();
     let inputs: Vec<RecordRepository> = repositories
@@ -73,12 +74,29 @@ fn snapshot_of(state: &Path, started_at: &str, repositories: &[&str], fails: boo
             wave_reason: None,
         })
         .collect();
+    if fails {
+        failed::snapshot(
+            state,
+            started_at,
+            "the forge did not answer",
+            |store, snapshot| {
+                for input in inputs {
+                    failed::repository(
+                        store,
+                        snapshot,
+                        RecordRepository {
+                            snapshot_id: snapshot.clone(),
+                            ..input
+                        },
+                    );
+                }
+            },
+        );
+        return;
+    }
     let collector = Collector::new("repositories", move |recorder| {
         for input in &inputs {
             recorder.repository(input.clone())?;
-        }
-        if fails {
-            anyhow::bail!("the forge did not answer");
         }
         Ok(())
     });
@@ -91,12 +109,7 @@ fn snapshot_of(state: &Path, started_at: &str, repositories: &[&str], fails: boo
     };
     let taken =
         snapshot::take_from(store, start, &[collector]).expect("the driver ends the snapshot");
-    let expected = if fails {
-        SnapshotState::Failed
-    } else {
-        SnapshotState::Complete
-    };
-    assert_eq!(taken.state, expected, "{taken:?}");
+    assert_eq!(taken.state, SnapshotState::Complete, "{taken:?}");
 }
 
 /// Runs `conductor --state-dir <root>/state <args>` with no config file.

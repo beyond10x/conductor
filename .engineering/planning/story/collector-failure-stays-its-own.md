@@ -20,6 +20,10 @@ scope:
 - confidence: cited
   path: crates/conductor/src/collect/github.rs
 - confidence: cited
+  path: crates/conductor/src/config.rs
+- confidence: cited
+  path: crates/conductor/src/dashboard/health.rs
+- confidence: cited
   path: crates/conductor/src/repository.rs
 - confidence: cited
   path: crates/conductor/src/run/dispatch.rs
@@ -30,18 +34,56 @@ scope:
 - confidence: cited
   path: crates/conductor/src/store/observations.rs
 - confidence: cited
+  path: crates/conductor/src/store/snapshot.rs
+- confidence: cited
+  path: crates/conductor/tests/adv_dispatch_unknown_repository_w49.rs
+- confidence: cited
+  path: crates/conductor/tests/adv_snapshot.rs
+- confidence: cited
   path: crates/conductor/tests/collect_github.rs
+- confidence: cited
+  path: crates/conductor/tests/collect_sessions.rs
+- confidence: cited
+  path: crates/conductor/tests/collect_stores.rs
+- confidence: cited
+  path: crates/conductor/tests/collector_bounds.rs
+- confidence: cited
+  path: crates/conductor/tests/dashboard.rs
+- confidence: cited
+  path: crates/conductor/tests/dashboard_overview.rs
+- confidence: cited
+  path: crates/conductor/tests/dashboard_repo.rs
+- confidence: cited
+  path: crates/conductor/tests/failed
+- confidence: cited
+  path: crates/conductor/tests/followup_w06.rs
+- confidence: cited
+  path: crates/conductor/tests/instance_sources.rs
 - confidence: cited
   path: crates/conductor/tests/observation_retention.rs
 - confidence: cited
+  path: crates/conductor/tests/repository_marks.rs
+- confidence: cited
   path: crates/conductor/tests/run.rs
+- confidence: cited
+  path: crates/conductor/tests/shipped.rs
 - confidence: cited
   path: crates/conductor/tests/snapshot.rs
 - confidence: cited
+  path: crates/conductor/tests/status.rs
+- confidence: cited
+  path: crates/conductor/tests/watch.rs
+- confidence: cited
   path: spec/domains/observation.yaml
 - confidence: cited
+  path: spec/ess-inputs.yaml
+- confidence: cited
   path: spec/scenarios
-revision: 6
+- confidence: cited
+  path: website/docs/guides/run-isolated.md
+- confidence: cited
+  path: website/docs/reference
+revision: 7
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-20T12:16:16Z", actor: "human:unknown", revision: 5}
 - {from: "proposed", to: "active", at: "2026-11-20T12:16:16Z", actor: "human:unknown", revision: 6}

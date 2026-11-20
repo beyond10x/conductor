@@ -243,6 +243,7 @@ Usage: conductor snapshot complete-snapshot [OPTIONS]
 | Argument | Required | Default | Meaning |
 |---|---|---|---|
 | `--snapshot-id <SNAPSHOT_ID>` | no | none | SnapshotId |
+| `--failed-collectors <FAILED_COLLECTORS>` | no | none | list of string, a JSON array: the collectors whose run ended `Failed` |
 | `--actor <ACTOR>` | no | none | Actor, as the records print it (`human:<name>`, `agent:<instance>/<role>/<name>`, `daemon`) or one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`, `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`; default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the operator |
 | `--input-json <INPUT_JSON>` | no | none | Read the input fields from standard input, as one JSON object One of `-`. |
 
@@ -313,6 +314,7 @@ Usage: conductor snapshot record-collector-run [OPTIONS]
 | `--outcome <OUTCOME>` | no | none | CollectorRunOutcome One of `Completed`, `Failed`, `OverBudget`. |
 | `--read-bytes <READ_BYTES>` | no | none | integer |
 | `--written-bytes <WRITTEN_BYTES>` | no | none | integer |
+| `--reason <REASON>` | no | none | string: the error a `Failed` run answered |
 | `--actor <ACTOR>` | no | none | Actor, as the records print it (`human:<name>`, `agent:<instance>/<role>/<name>`, `daemon`) or one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`, `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`; default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the operator |
 | `--input-json <INPUT_JSON>` | no | none | Read the input fields from standard input, as one JSON object One of `-`. |
 

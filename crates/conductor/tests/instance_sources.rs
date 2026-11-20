@@ -860,8 +860,7 @@ fn a_repository_two_owners_list_fails_each_collector_naming_both() {
     let instance = case.instance("[{github: acme}, {github: other}]");
     let log = case.log("gh");
     let clash = |taken: &Taken| {
-        assert_eq!(taken.state, SnapshotState::Failed, "{:?}", taken.reason);
-        let reason = taken.reason.clone().unwrap_or_default();
+        let reason = collector_failed(taken);
         assert!(
             ["alpha", "acme", "other"]
                 .iter()
@@ -1350,7 +1349,7 @@ fn without_a_readable_catalog_catalog_membership_is_absent() {
     }
 }
 
-/// A catalog whose directory names no repository on `origin/main` fails the snapshot naming the
+/// A catalog whose directory names no repository on `origin/main` fails its collector naming the
 /// repository and the directory, rather than recording every repository as outside it.
 #[test]
 fn a_catalog_that_names_no_repository_fails_the_snapshot() {
@@ -1362,8 +1361,7 @@ fn a_catalog_that_names_no_repository_fails_the_snapshot() {
         "    catalog: {repository: registry, path: entries}\n",
     );
     let taken = take_repositories(&case, &instance);
-    assert_eq!(taken.state, SnapshotState::Failed, "{taken:?}");
-    let reason = taken.reason.as_deref().unwrap_or_default();
+    let reason = collector_failed(&taken);
     assert!(
         reason.contains("registry") && reason.contains("catalogs no repository under entries"),
         "{reason}"
@@ -1724,4 +1722,16 @@ fn a_session_outside_the_include_list_stays_redacted() {
             session("s-top", None, "~/src", None, "Waiting"),
         ]
     );
+}
+
+/// The one collector of `taken` that did not answer, as `<collector>: <error>`: the snapshot
+/// completes, and only that collector's run failed (`story:collector-failure-stays-its-own`).
+fn collector_failed(taken: &conductor_cli::snapshot::Taken) -> String {
+    assert_eq!(
+        taken.state,
+        conductor_model::observation::SnapshotState::Complete,
+        "{taken:?}"
+    );
+    assert_eq!(taken.failed.len(), 1, "one collector failed: {taken:?}");
+    taken.failed[0].clone()
 }

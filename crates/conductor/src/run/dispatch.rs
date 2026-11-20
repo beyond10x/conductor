@@ -403,14 +403,19 @@ fn read(tick: &Tick<'_, '_>) -> Result<Read> {
         .map(|held| held.data.repository.0)
         .collect();
     let snapshots = SnapshotStorage::list(&store);
-    let newest = crate::status::newest_complete(&snapshots, None);
-    let complete = newest.is_some();
-    let full = newest.map_or_else(Default::default, |held| {
-        crate::status::review_full(
-            &crate::status::waiting_in(&store, held),
-            instance.controllers.max_open_reviews,
-        )
-    });
+    let complete = crate::status::newest_complete(&snapshots, None).is_some();
+    // A forge collector that did not answer left its snapshot without pull requests: the reviews
+    // are counted in the newest snapshot every forge collector answered
+    // (`story:collector-failure-stays-its-own`).
+    let full = crate::status::newest_forge_complete(&store, &snapshots).map_or_else(
+        Default::default,
+        |held| {
+            crate::status::review_full(
+                &crate::status::waiting_in(&store, held),
+                instance.controllers.max_open_reviews,
+            )
+        },
+    );
     store
         .check()
         .context("read the repositories and controllers")?;

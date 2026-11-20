@@ -11,12 +11,12 @@
 
 mod active;
 mod common;
+mod failed;
 
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Output, Stdio};
 
-use anyhow::bail;
 use conductor_cli::collect::Collector;
 use conductor_cli::repository;
 use conductor_cli::snapshot::{self, Taken};
@@ -62,6 +62,31 @@ impl Case {
     fn take(&self, collectors: &[Collector]) -> Taken {
         let store = store::open(&self.state()).expect("open the store");
         snapshot::take(store, collectors).expect("the driver ends the snapshot")
+    }
+
+    /// A failed snapshot, started now, in which each repository of `observed` was recorded
+    /// ([`failed::snapshot`]).
+    fn failed(&self, observed: &[(&str, i64, bool)]) -> SnapshotId {
+        let now = time::OffsetDateTime::now_utc()
+            .format(&time::format_description::well_known::Rfc3339)
+            .expect("now in RFC 3339");
+        failed::snapshot(
+            &self.state(),
+            &now,
+            "the run was killed",
+            |store, snapshot| {
+                for &(name, real, archived) in observed {
+                    failed::repository(
+                        store,
+                        snapshot,
+                        RecordRepository {
+                            snapshot_id: snapshot.clone(),
+                            ..observation(name, real, archived)
+                        },
+                    );
+                }
+            },
+        )
     }
 
     /// A complete snapshot in which each repository of `observed` was recorded.
@@ -158,11 +183,6 @@ fn recording(observed: &[(&str, i64, bool)]) -> Collector {
         }
         Ok(())
     })
-}
-
-/// A collector that does not answer.
-fn silent() -> Collector {
-    Collector::new("github", |_| bail!("the fixture source does not answer"))
 }
 
 /// One repository's state; the recorder files it under the snapshot it fills.
@@ -368,8 +388,7 @@ fn a_mark_overrides_activity_computed_from_the_newest_complete_snapshot() {
 
     // A failed snapshot is not the newest complete one: `y`'s activity still reads from
     // snapshot 2.
-    let failed = case.take(&[recording(&[("y", 0, false)]), silent()]);
-    assert_eq!(failed.state, SnapshotState::Failed, "{failed:?}");
+    case.failed(&[("y", 0, false)]);
     assert_eq!(
         case.activity()[1],
         computed("y", Activity::Active),
@@ -466,8 +485,7 @@ fn a_mark_overrides_activity_computed_from_the_newest_complete_snapshot() {
 #[test]
 fn without_a_complete_snapshot_only_marks_are_answered() {
     let case = Case::new("no_complete_snapshot");
-    let failed = case.take(&[recording(&[("x", 3, false)]), silent()]);
-    assert_eq!(failed.state, SnapshotState::Failed, "{failed:?}");
+    case.failed(&[("x", 3, false)]);
     assert_eq!(case.activity(), [], "a failed snapshot computes nothing");
 
     quiet(
@@ -512,6 +530,7 @@ fn stored(case: &Case, id: &str, state: SnapshotState, started_at: &str, real_co
                 started_at: Timestamp(started_at.to_owned()),
                 disk_free_bytes: 1,
                 failure_reason: None,
+                failed_collectors: Vec::new(),
             },
         },
     );
