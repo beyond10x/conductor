@@ -1895,7 +1895,7 @@ fn disk_path_line(
 
 /// The bot route's files under the box config directory, each with what it is: the bot's config
 /// and the key `b10x-gates` reads beside it.
-const BOT_ROUTE_FILES: [(&str, &str); 2] = [
+pub const BOT_ROUTE_FILES: [(&str, &str); 2] = [
     ("b10x/b10x-bot.json", "config"),
     ("b10x/b10x-bot.private-key.pem", "key"),
 ];

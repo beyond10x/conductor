@@ -840,7 +840,7 @@ fn the_records_commit_runs_the_bot_route_with_the_instance_gates_policy() {
 /// none and `box.env` names none; to `box.env`'s value when it names one, in the daily tick as
 /// in `--commit-records`.
 #[test]
-fn the_records_commit_passes_the_box_config_dir_to_b10x_gates_when_the_runtime_has_none() {
+fn the_records_commit_passes_the_box_config_dir_to_the_bot_route_when_the_runtime_has_none() {
     let case = Case::new("box-config-home", true);
     case.configure(None, Some("{provider: systemd}"));
     let day = today();
