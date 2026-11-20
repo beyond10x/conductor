@@ -1,0 +1,13 @@
+{
+  "at": "2026-11-20T21:55:58Z",
+  "actor": "human:unknown",
+  "artifact": "story:config-put-touches-only-its-path",
+  "kind": "story",
+  "revision": 6,
+  "change": {
+    "change": "evidence",
+    "kind": "test_result",
+    "source": "cargo test -p conductor-cli: --lib config::edit 15/15; --test config_globals 14/14; --test tuner 4/4; no_organization 4/4; isolated_home 7/7; instance_routes 14/16 locally (the new each_instance_change_touches_only_its_own_item passes; the 2 failures bind a Unix socket, needs CI); instance_api, dashboard_config, rev3/sec_standing_rules fail only on Unix-socket binds (needs CI); clippy --all-targets -D warnings clean; the 8 new integration tests fail on main's source",
+    "reference": "commit 4c6dfd895"
+  }
+}
