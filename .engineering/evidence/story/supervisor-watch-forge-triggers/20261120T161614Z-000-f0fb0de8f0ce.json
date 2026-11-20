@@ -1,0 +1,13 @@
+{
+  "at": "2026-11-20T16:16:14Z",
+  "actor": "human:unknown",
+  "artifact": "story:supervisor-watch-forge-triggers",
+  "kind": "story",
+  "revision": 11,
+  "change": {
+    "change": "evidence",
+    "kind": "test_result",
+    "source": "cargo test -p conductor-cli --test supervisor_watch_forge (6 passed), --test supervisor_watch (21), --test watch (80), --test profiles (36), --test roles, isolated_home, no_organization, placement every_process; cargo clippy -p conductor-cli --all-targets -D warnings clean",
+    "reference": "crates/conductor/tests/supervisor_watch_forge.rs"
+  }
+}
