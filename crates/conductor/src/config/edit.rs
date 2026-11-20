@@ -177,10 +177,12 @@ fn apply(text: &str, splice: Option<Splice>) -> String {
     out
 }
 
-/// The file's lines: each one's byte range, without its line break.
+/// The file's lines: each one's byte range, without its line break, and whether it is a line of
+/// a block scalar's content.
 struct Text<'t> {
     text: &'t str,
     lines: Vec<Range<usize>>,
+    scalar: Vec<bool>,
 }
 
 impl<'t> Text<'t> {
@@ -192,7 +194,12 @@ impl<'t> Text<'t> {
             lines.push(start..end);
             start = end + 1;
         }
-        let this = Self { text, lines };
+        let scalar = vec![false; lines.len()];
+        let mut this = Self {
+            text,
+            lines,
+            scalar,
+        };
         for at in 0..this.lines.len() {
             let line = this.line(at);
             let word = line.split([' ', '#']).next().unwrap_or_default();
@@ -203,7 +210,14 @@ impl<'t> Text<'t> {
                 return Err("a tab in the indentation".to_owned());
             }
         }
+        this.scalar = scalar_lines(&this);
         Ok(this)
+    }
+
+    /// Whether the line `at` holds YAML content: a block scalar's line (one that starts with `#`
+    /// included), or a line that is not blank and not a comment.
+    fn content(&self, at: usize) -> bool {
+        self.scalar[at] || content(self.line(at))
     }
 
     fn line(&self, at: usize) -> &'t str {
@@ -244,10 +258,53 @@ fn indent(line: &str) -> usize {
     line.len() - line.trim_start_matches(' ').len()
 }
 
-/// Whether the line holds YAML content: not blank, not a comment.
+/// Whether the line, read alone, holds YAML content: not blank, not a comment.
 fn content(line: &str) -> bool {
     let rest = line.trim();
     !rest.is_empty() && !rest.starts_with('#')
+}
+
+/// The lines of the text's block scalars: every line that is not blank below a key or a dash whose
+/// value opens with `|` or `>`, while it is indented deeper than that key or dash. Such a line is
+/// the scalar's content even where it starts with `#`.
+fn scalar_lines(lines: &Text<'_>) -> Vec<bool> {
+    let mut out = vec![false; lines.lines.len()];
+    let mut open: Option<usize> = None;
+    for (at, slot) in out.iter_mut().enumerate() {
+        let line = lines.line(at);
+        if let Some(col) = open {
+            if line.trim().is_empty() {
+                continue;
+            }
+            if indent(line) > col {
+                *slot = true;
+                continue;
+            }
+        }
+        open = opens_scalar(line);
+    }
+    out
+}
+
+/// The column of the key or dash on `line` whose value opens a block scalar, if one does.
+fn opens_scalar(line: &str) -> Option<usize> {
+    if !content(line) {
+        return None;
+    }
+    let mut col = indent(line);
+    while is_dash(&line[col..]) {
+        let next = col + 1 + indent(&line[col + 1..]);
+        if line[next..].starts_with(['|', '>']) {
+            return Some(col);
+        }
+        if next >= line.len() {
+            return None;
+        }
+        col = next;
+    }
+    let entry = entry_at(line, col, 0).ok()?;
+    let found = entry.inline?;
+    (found.kind == Kind::Open && matches!(line.as_bytes()[found.start], b'|' | b'>')).then_some(col)
 }
 
 fn is_dash(rest: &str) -> bool {
@@ -332,11 +389,18 @@ fn quoted_end(line: &str, start: usize) -> Option<usize> {
     None
 }
 
+/// Whether the byte `at` of `line` opens a comment: a `#` after a space or a tab.
+fn comment_at(line: &[u8], at: usize) -> bool {
+    line[at] == b'#' && at > 0 && matches!(line[at - 1], b' ' | b'\t')
+}
+
 /// The end of a plain scalar starting at `start`: before a comment or the line's end, its
-/// trailing spaces trimmed.
+/// trailing spaces and tabs trimmed.
 fn plain_end(line: &str, start: usize) -> usize {
-    let rest = &line[start..];
-    let cut = rest.find(" #").map_or(line.len(), |at| start + at);
+    let bytes = line.as_bytes();
+    let cut = (start + 1..bytes.len())
+        .find(|&at| comment_at(bytes, at))
+        .unwrap_or(line.len());
     start + line[start..cut].trim_end().len()
 }
 
@@ -384,7 +448,7 @@ fn entry_at(line: &str, col: usize, at: usize) -> Result<Entry, Why> {
             .ok_or_else(|| format!("no key on line {}", at + 1))?
     };
     let text = rest[..colon].trim_end();
-    if text.contains(" #") {
+    if text.contains(" #") || text.contains("\t#") {
         return Err(format!("no key on line {}", at + 1));
     }
     let after = col + colon + 1;
@@ -403,7 +467,7 @@ fn entries(lines: &Text<'_>, block: &Block) -> Result<Vec<Entry>, Why> {
     let mut out: Vec<Entry> = Vec::new();
     for at in block.first..block.end {
         let line = lines.line(at);
-        if !content(line) {
+        if !lines.content(at) {
             continue;
         }
         let column = indent(line);
@@ -423,7 +487,7 @@ fn entries(lines: &Text<'_>, block: &Block) -> Result<Vec<Entry>, Why> {
 
 /// The first line of content in `range`.
 fn first_content(lines: &Text<'_>, range: Range<usize>) -> Option<usize> {
-    range.into_iter().find(|&at| content(lines.line(at)))
+    range.into_iter().find(|&at| lines.content(at))
 }
 
 /// One item of a flow collection: its key (in a mapping), the byte its text starts at, and its
@@ -466,7 +530,7 @@ fn token(line: &str, start: usize) -> Result<usize, Why> {
                 let stop = match bytes[at] {
                     b',' | b'{' | b'}' | b'[' | b']' => true,
                     b':' => matches!(bytes.get(at + 1), None | Some(b' ' | b',' | b'}' | b']')),
-                    b'#' => at > start && bytes[at - 1] == b' ',
+                    b'#' => at > start && comment_at(bytes, at),
                     _ => false,
                 };
                 if stop {
@@ -785,12 +849,23 @@ fn remove_block(
 ) -> Result<Splice, Why> {
     let entry = &all[index];
     if Some(entry.line) == block.dash {
-        // The first key of a list item: the next key moves up onto the dash line.
+        // The first key of a list item: the next key moves up onto the dash line, and the
+        // comment and blank lines between the two follow it, below the dash line.
         return Ok(match all.get(index + 1) {
-            Some(next) => Splice {
-                range: lines.start(entry.line) + block.col..lines.start(next.line) + block.col,
-                with: String::new(),
-            },
+            Some(next) => {
+                let between = &lines.text[lines.after(entry.last)..lines.start(next.line)];
+                match between.strip_suffix('\n') {
+                    None => Splice {
+                        range: lines.start(entry.line) + block.col
+                            ..lines.start(next.line) + block.col,
+                        with: String::new(),
+                    },
+                    Some(between) => Splice {
+                        range: lines.start(entry.line) + block.col..lines.end(next.line),
+                        with: format!("{}\n{between}", &lines.line(next.line)[block.col..]),
+                    },
+                }
+            }
             None => Splice {
                 range: lines.start(entry.line) + block.col..lines.end(entry.last),
                 with: "{}".to_owned(),
@@ -895,7 +970,7 @@ fn block_items(lines: &Text<'_>, entry: &Entry) -> Result<Vec<Item>, Why> {
     let mut spans: Vec<(usize, usize)> = Vec::new();
     for at in first..=entry.last {
         let line = lines.line(at);
-        if !content(line) {
+        if !lines.content(at) {
             continue;
         }
         let here = indent(line);
@@ -1401,6 +1476,83 @@ instances:
         )
         .expect_err("a line break");
         assert!(why.contains("line break"), "{why}");
+    }
+
+    /// The text of `put` of `to` (none: a removal) at `path` under `scope` of `file`.
+    fn put_text(file: &str, scope: Scope<'_>, path: &str, to: Option<&str>) -> String {
+        let to = to.map(value);
+        put(file, scope, path, to.as_ref()).expect("an edit")
+    }
+
+    #[test]
+    fn a_comment_after_a_tab_is_kept() {
+        let new = put_text(
+            "globals:\n  a: b\t# keep me\n",
+            Scope::Global,
+            "a",
+            Some("2"),
+        );
+        assert_eq!(new, "globals:\n  a: 2\t# keep me\n");
+        let new = put_text(
+            "globals:\n  t: {a: b, c: d}\t# keep me\n",
+            Scope::Global,
+            "t.a",
+            Some("2"),
+        );
+        assert_eq!(new, "globals:\n  t: {a: 2, c: d}\t# keep me\n");
+    }
+
+    #[test]
+    fn a_block_scalar_line_that_starts_with_a_hash_is_its_content() {
+        // Removing the scalar takes its last line too.
+        let new = put_text(
+            "globals:\n  n: |\n    text\n    # last\n  a: 1\n",
+            Scope::Global,
+            "n",
+            None,
+        );
+        assert_eq!(new, "globals:\n  a: 1\n");
+        // A key added after it goes after its last line, not into it.
+        let file = "globals:\n  n: |\n    text\n    # last\n";
+        let new = put_text(file, Scope::Global, "a", Some("1"));
+        assert_eq!(new, format!("{file}  a: 1\n"));
+        // An instance whose last key is such a scalar is removed whole.
+        let file = "version: x\ninstances:\n  - name: one\n    standing_rules: |\n      text\n      \
+                    # last\n  - name: two\n";
+        let new = whole(file, Whole::Remove("one")).expect("an edit");
+        assert_eq!(new, "version: x\ninstances:\n  - name: two\n");
+        // An instance added after it goes after its last line.
+        let file = "instances:\n  - name: one\n    standing_rules: |\n      text\n      # last\n";
+        let mut map = Mapping::new();
+        map.insert(Yaml::from("name"), Yaml::from("two"));
+        let new = whole(file, Whole::Add(&map)).expect("an edit");
+        assert_eq!(new, format!("{file}  - name: two\n"));
+        // A comment below the scalar, at its key's column, is a comment still.
+        let file = "globals:\n  n: |\n    text\n  # about a\n  a: 1\n";
+        let new = put_text(file, Scope::Global, "n", None);
+        assert_eq!(new, "globals:\n  # about a\n  a: 1\n");
+    }
+
+    #[test]
+    fn removing_the_first_key_on_a_dash_line_keeps_the_comments_under_it() {
+        let file = "instances:\n  - name: one\n    roles:\n      - role: director\n        \
+                    # pinned\n        model: opus\n";
+        let new = put_text(file, Scope::Role("one", "director"), "role", None);
+        assert_eq!(
+            new,
+            "instances:\n  - name: one\n    roles:\n      - model: opus\n        # pinned\n"
+        );
+        let file = "instances:\n  - name: one\n    # pinned\n\n    placement: systemd\n    \
+                    cadence:\n      watch: 5m\n";
+        let new = put_text(file, Scope::Instance("one"), "name", None);
+        assert_eq!(
+            new,
+            "instances:\n  - placement: systemd\n    # pinned\n\n    cadence:\n      watch: 5m\n"
+        );
+        // With no comment between, the next key moves up as before.
+        let file = "instances:\n  - name: one\n    placement: systemd\n";
+        let new = put_text(file, Scope::Instance("one"), "name", None);
+        assert_eq!(new, "instances:\n  - placement: systemd\n");
     }
 
     #[test]

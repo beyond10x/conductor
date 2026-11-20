@@ -10,8 +10,10 @@
 //! lines are kept. Where the text cannot be edited so (a shape the locator does not read on the
 //! path, or an edit that does not read back as the change), the file is written whole, as YAML
 //! writes the changed tree, and one line `config put: <yaml path>: <why>; the file is written
-//! whole` goes to standard error and into the commit's body. A change that leaves the text as it
-//! was writes and commits nothing; its revision is recorded with an empty `commit`. A file in no
+//! whole` goes to standard error and into the commit's body. A change whose value tree the file
+//! already holds (the same value in any quoting, or a removal of a path the file lacks) leaves the
+//! text as it was, byte for byte, and writes and commits nothing; its revision is recorded with an
+//! empty `commit`. A file in no
 //! git checkout, or one its checkout ignores, is written and not committed: its
 //! revision's `commit` is empty. A commit that fails puts the old text back, when the file still
 //! holds this run's text, and nothing is recorded. One run at a time reads, writes, commits and
@@ -451,6 +453,8 @@ pub fn put_config_written(
             format!("is not {VERSION_2}: run conductor config migrate first"),
         )));
     }
+    // The tree the file holds now: a change that leaves it as it was keeps the text byte for byte.
+    let held = yaml.clone();
     let value = input.value.as_deref().map(|text| {
         serde_yaml::from_str::<Yaml>(text).unwrap_or_else(|_| Yaml::from(text.to_owned()))
     });
@@ -500,8 +504,15 @@ pub fn put_config_written(
         Level::Instance => edit::Scope::Instance(instance),
         Level::Role => edit::Scope::Role(instance, role),
     };
-    let edited = edit::put(&old, at, &input.path, value.as_ref());
-    let (new, whole) = edit::checked(edited, &yaml).context("write the changed config as YAML")?;
+    // A change whose tree the file already holds keeps its text, whatever the edit or the whole
+    // rewrite would make of it (another quoting of the same value, a shape the locator cannot
+    // edit).
+    let (new, whole) = if yaml == held {
+        (old.clone(), None)
+    } else {
+        let edited = edit::put(&old, at, &input.path, value.as_ref());
+        edit::checked(edited, &yaml).context("write the changed config as YAML")?
+    };
     let config = match parse(&new, home) {
         Ok(config) => config,
         Err(problems) => {

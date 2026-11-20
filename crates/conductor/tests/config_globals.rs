@@ -1010,3 +1010,70 @@ fn the_same_value_put_twice_writes_and_commits_nothing_the_second_time() {
     assert_eq!(fs::read_to_string(&file).expect("read"), text);
     assert_eq!(git(&case.dir, &["rev-parse", "HEAD"]), head);
 }
+
+#[test]
+fn a_put_whose_tree_the_file_already_holds_commits_nothing_whatever_its_text() {
+    // The same value in another quoting: the edit would change its text, the tree is the same.
+    let case = Case::new("put-noop-quoted");
+    let text = STYLED.replace("{disk_low: 20G}", "{disk_low: \"20G\"}");
+    let file = committed(&case, &text);
+    let head = git(&case.dir, &["rev-parse", "HEAD"]);
+    let output = put(
+        &case,
+        &file,
+        &["global", "--path", "thresholds.disk_low", "--value", "20G"],
+    );
+    assert!(
+        stdout(&output).contains("unchanged: the file already holds that value"),
+        "{}",
+        describe(&output)
+    );
+    assert_eq!(fs::read_to_string(&file).expect("read"), text);
+    assert_eq!(git(&case.dir, &["rev-parse", "HEAD"]), head);
+    // The same value on a path the locator cannot edit: no whole rewrite either.
+    let case = Case::new("put-noop-fallback");
+    let text = STYLED.replace(
+        "controllers: {max_working: 4, max_subagents: 2}   # caps",
+        "controllers: &caps {max_working: 4, max_subagents: 2}",
+    );
+    let file = committed(&case, &text);
+    let head = git(&case.dir, &["rev-parse", "HEAD"]);
+    let output = put(
+        &case,
+        &file,
+        &[
+            "instance",
+            "--instance",
+            "one",
+            "--path",
+            "controllers.max_working",
+            "--value",
+            "4",
+        ],
+    );
+    assert_eq!(stderr(&output), "", "{}", describe(&output));
+    assert!(
+        stdout(&output).contains("unchanged: the file already holds that value"),
+        "{}",
+        describe(&output)
+    );
+    assert_eq!(fs::read_to_string(&file).expect("read"), text);
+    assert_eq!(git(&case.dir, &["rev-parse", "HEAD"]), head);
+}
+
+#[test]
+fn removing_a_path_the_file_lacks_says_the_file_holds_no_such_path() {
+    let case = Case::new("put-remove-missing");
+    let file = committed(&case, STYLED);
+    let head = git(&case.dir, &["rev-parse", "HEAD"]);
+    let output = put(&case, &file, &["global", "--path", "cadence.sweep"]);
+    let said = stdout(&output);
+    assert!(
+        said.contains("unchanged: the file holds no cadence.sweep at that level"),
+        "{}",
+        describe(&output)
+    );
+    assert!(!said.contains("already holds that value"), "{said}");
+    assert_eq!(fs::read_to_string(&file).expect("read"), STYLED);
+    assert_eq!(git(&case.dir, &["rev-parse", "HEAD"]), head);
+}

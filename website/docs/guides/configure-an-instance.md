@@ -124,7 +124,7 @@ $ conductor config put --level instance --instance personal --path thresholds.si
 | `--reason` | written into the commit body and the revision. Required |
 
 It prints the revision id, the key, the level and the commit, or `unchanged` when the file already
-holds that value. Only the key's text changes, in the file's own style, and its comments are kept;
+holds that value (in any quoting) or, for a removal, holds no such key. Only the key's text changes, in the file's own style, and its comments are kept;
 where a shape on the path prevents that (an anchor, alias or tag, a value over more than one line),
 the file is written whole and one line on standard error and in the commit says why. A change
 that would not validate writes nothing. An agent's change is

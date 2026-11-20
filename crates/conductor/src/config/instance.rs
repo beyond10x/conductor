@@ -10,8 +10,9 @@
 //! story:config-put-touches-only-its-path): a replaced or added item is YAML's block writing of the
 //! mapping, indented to the list's items, and a removed item's lines go; every other line, its
 //! comments included, is kept. Where the text cannot be edited so, the file is written whole and
-//! one line naming why goes to standard error and into the commit's body. A change that leaves the
-//! text as it was writes and commits nothing.
+//! one line naming why goes to standard error and into the commit's body. A change whose value tree
+//! the file already holds (a replace with the same mapping, in any style) leaves the text as it
+//! was and writes and commits nothing.
 //!
 //! They share [`super::put`]'s lock, its write by rename and its commit: one run at a time reads,
 //! writes, commits and records, and a commit that fails puts the old text back. A refusal writes,
@@ -270,6 +271,8 @@ fn change(
             format!("is not {VERSION_2}: run conductor config migrate first"),
         )));
     }
+    // The tree the file holds now: a change that leaves it as it was keeps the text byte for byte.
+    let held = yaml.clone();
     let Some(root) = yaml.as_mapping_mut() else {
         return Ok(Err(invalid("the file", "is not a mapping")));
     };
@@ -302,13 +305,19 @@ fn change(
     }
     // The text of that one item alone, where the locator can edit it and the edit reads back as
     // the changed tree; else the tree written whole, and why.
-    let edited = match (asked.change, mapping.as_ref()) {
-        (Change::Add, Some(mapping)) => edit::whole(&old, edit::Whole::Add(mapping)),
-        (Change::Put, Some(mapping)) => edit::whole(&old, edit::Whole::Put(name, mapping)),
-        (Change::Remove, _) => edit::whole(&old, edit::Whole::Remove(name)),
-        (Change::Add | Change::Put, None) => Err("no mapping".to_owned()),
+    // A change whose tree the file already holds (a replace with the mapping the item holds, in
+    // any style) keeps the text as it was.
+    let (new, whole) = if yaml == held {
+        (old.clone(), None)
+    } else {
+        let edited = match (asked.change, mapping.as_ref()) {
+            (Change::Add, Some(mapping)) => edit::whole(&old, edit::Whole::Add(mapping)),
+            (Change::Put, Some(mapping)) => edit::whole(&old, edit::Whole::Put(name, mapping)),
+            (Change::Remove, _) => edit::whole(&old, edit::Whole::Remove(name)),
+            (Change::Add | Change::Put, None) => Err("no mapping".to_owned()),
+        };
+        edit::checked(edited, &yaml).context("write the changed config as YAML")?
     };
-    let (new, whole) = edit::checked(edited, &yaml).context("write the changed config as YAML")?;
     if let Err(problems) = parse(&new, home) {
         return Ok(Err(Refusal::Invalid(problems)));
     }

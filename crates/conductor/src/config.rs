@@ -7936,7 +7936,12 @@ pub fn put(config: Option<&Path>, args: &PutConfigArgs) -> Result<ExitCode> {
             revision,
             unchanged,
         }) => {
-            let commit = if unchanged {
+            let commit = if unchanged && input.value.is_none() {
+                format!(
+                    "unchanged: the file holds no {} at that level",
+                    revision.path
+                )
+            } else if unchanged {
                 "unchanged: the file already holds that value".to_owned()
             } else if revision.commit.is_empty() {
                 format!("not committed: {} is in no git checkout", file.display())

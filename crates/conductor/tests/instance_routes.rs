@@ -659,6 +659,25 @@ fn each_instance_change_touches_only_its_own_item() {
     case.assert_valid();
 }
 
+/// story:config-put-touches-only-its-path: a replace with the mapping the file already holds,
+/// written in another style, leaves the file's text as it was.
+#[test]
+fn a_replace_with_the_mapping_the_file_holds_leaves_its_text() {
+    let case = Case::new("same-mapping");
+    let before = case.text();
+    let identity = fake_identity();
+    let listener = serve_tls(&case, api(&case, Some(&identity)));
+    let replaced = tls(
+        &listener,
+        "PUT",
+        "/v1/instances/alpha",
+        &[OWNER],
+        Some(&json!({"mapping": case.mapping("alpha", "alpha"), "reason": "the same mapping"})),
+    );
+    assert_eq!(replaced.status, 200, "{replaced:?}");
+    assert_eq!(case.text(), before);
+}
+
 /// A bearer without the grant changes no instance: refused with the grant's name.
 #[test]
 fn a_person_without_the_grant_is_refused_by_its_name() {
