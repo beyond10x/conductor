@@ -514,3 +514,10 @@ No onboarding run is due: 1.19.0 changes nothing onboarding runs. `SETUP.md`, `c
 `conductor doctor`, the install path and the prerequisites are as in 1.18.0; the release adds the
 config key `controllers.unit_merge`, a gone box recreated, a `[NEED]` opening a unit of work, the
 records check's quoted fields, a refused message recorded, and the guard's repository words.
+
+## v1.19.1
+
+No onboarding run is due: 1.19.1 changes nothing onboarding runs. `SETUP.md`, `conductor setup`,
+`conductor doctor`, the install path and the prerequisites are as in 1.19.0; the release puts every
+dispatch's brief in a spawned controller's charter and makes `resume-controller` report only a
+session that runs.

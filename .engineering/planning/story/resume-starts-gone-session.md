@@ -2,7 +2,7 @@
 format: aep.planning-md/3
 id: story:resume-starts-gone-session
 kind: story
-status: active
+status: implemented
 title: resume-controller reports a session only once it lives
 summary: A resume refuses outside the box and answers only once the resumed session is live
 refs:
@@ -27,10 +27,11 @@ scope:
   path: crates/conductor/tests/run_handover.rs
 - confidence: cited
   path: crates/conductor/tests/spawn.rs
-revision: 5
+revision: 6
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-20T03:08:41Z", actor: "human:unknown", revision: 2}
 - {from: "proposed", to: "active", at: "2026-11-20T03:08:42Z", actor: "human:unknown", revision: 3}
+- {from: "active", to: "implemented", at: "2026-11-20T04:22:43Z", actor: "human:unknown", revision: 6, decided_on: {"recorded":{"test_result":1}}}
 ---
 ## Why
 
