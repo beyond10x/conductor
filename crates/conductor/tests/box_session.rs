@@ -711,6 +711,155 @@ fn a_controller_runs_through_spawn_deliver_stop_and_resume_without_a_unix_socket
     assert_eq!(case.sockets(), Vec::<PathBuf>::new());
 }
 
+/// Issue #226 (`story:resume-starts-gone-session`): a controller whose session died unstopped (its
+/// box restarted) and was then paused keeps the session's output, with the `init` line its first
+/// run wrote. A resume whose harness ends at once, as one that cannot resume the transcript does,
+/// is no resume: `resume-controller` exits 1 naming how the session ended, prints no `resumed`
+/// line, and the controller stays `Paused`; no live session holds the name.
+#[test]
+fn a_resume_that_ends_at_once_leaves_the_controller_paused() {
+    active::isolate();
+    let case = Case::new("resume-ends-at-once");
+    let output = case.run(&["spawn", "--repository", "alpha"]);
+    let id = String::from_utf8(succeeded(&output, "spawn")).expect("UTF-8");
+    let id = id.trim().to_owned();
+    let pid = case.live().and_then(|entry| entry.pid).expect("a live pid");
+    assert_eq!(case.wait_for_inbox(1).len(), 1);
+    // The box restarts: the session's process ends with no stop.
+    // SAFETY: a signal to the process group the case's session leads.
+    unsafe {
+        libc::kill(-i32::try_from(pid).expect("a pid"), libc::SIGKILL);
+    }
+    assert!(gone(pid), "the session's process {pid} ended");
+    let controller = case.controller_id();
+    let output = case.run(&[
+        "controller",
+        "pause-controller",
+        "--controller-id",
+        &controller,
+    ]);
+    succeeded(&output, "pause-controller of a gone session");
+    assert_eq!(case.controller()["state"], "Paused");
+    assert!(
+        fs::read_to_string(case.registry().join(format!("{id}.out")))
+            .is_ok_and(|text| text.contains("\"init\"")),
+        "the gone session's output holds its first run's init line"
+    );
+
+    // The harness cannot resume: it ends at once, after it took its first input.
+    let bin = case.dir.join("bin");
+    fs::rename(bin.join("claude"), bin.join("claude-stand-in")).expect("keep the stand-in");
+    let claude = bin.join("claude");
+    write(
+        &claude,
+        &format!(
+            "#!/bin/sh\n\
+             for arg; do\n\
+             \x20 if [ \"$arg\" = --resume ]; then\n\
+             \x20   printf '%s\\n' \"$*\" >> '{log}'\n\
+             \x20   sleep 0.5\n\
+             \x20   echo 'No conversation found to resume' >&2\n\
+             \x20   exit 1\n\
+             \x20 fi\n\
+             done\n\
+             exec '{stand_in}' \"$@\"\n",
+            log = case.dir.join("claude.log").display(),
+            stand_in = bin.join("claude-stand-in").display(),
+        ),
+    );
+    fs::set_permissions(&claude, fs::Permissions::from_mode(0o755)).expect("make it runnable");
+
+    let output = case.run(&[
+        "controller",
+        "resume-controller",
+        "--controller-id",
+        &controller,
+    ]);
+    assert_eq!(output.status.code(), Some(1), "{}", describe(&output));
+    let said = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        said.contains("the controller stays paused")
+            && said.contains("ended as it started")
+            && said.contains("No conversation found to resume"),
+        "{}",
+        describe(&output)
+    );
+    assert!(
+        !String::from_utf8_lossy(&output.stdout).contains("resumed"),
+        "{}",
+        describe(&output)
+    );
+    assert!(
+        case.calls()
+            .iter()
+            .any(|call| call.contains(&format!("--resume {id}"))),
+        "the resume was tried: {:?}",
+        case.calls()
+    );
+    assert_eq!(case.controller()["state"], "Paused");
+    assert!(case.live().is_none(), "no live session holds the name");
+}
+
+/// Issue #226: on the host, a boxed instance's paused controller is not resumed: the session would
+/// start outside the box, where its transcript is not. `resume-controller` refuses `OutsideBox`
+/// before the harness is called, and the controller stays `Paused`.
+#[test]
+fn on_the_host_a_boxed_instance_resumes_no_session_outside_its_box() {
+    active::isolate();
+    let case = Case::new("host-resumes-nothing");
+    case.make_boxed(7399);
+    let output = case.run_at(Side::Box, &["spawn", "--repository", "alpha"], "");
+    succeeded(&output, "spawn in the box");
+    let pid = child::live_named(&case.box_registry(), "ex-alpha")
+        .and_then(|entry| entry.pid)
+        .expect("a live child session in the box");
+    assert_eq!(case.wait_for_inbox(1).len(), 1);
+    let controller = case.controller_id();
+    let output = case.run_at(
+        Side::Box,
+        &[
+            "controller",
+            "pause-controller",
+            "--controller-id",
+            &controller,
+        ],
+        "",
+    );
+    succeeded(&output, "pause-controller in the box");
+    assert!(gone(pid), "the paused session's process {pid} ended");
+    assert_eq!(case.controller()["state"], "Paused");
+
+    let before = case.calls().len();
+    let output = case.run_at(
+        Side::Host,
+        &[
+            "controller",
+            "resume-controller",
+            "--controller-id",
+            &controller,
+        ],
+        "",
+    );
+    assert_eq!(output.status.code(), Some(1), "{}", describe(&output));
+    let said = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        said.contains("the controller stays paused")
+            && said.contains("OutsideBox")
+            && said.contains("conductor controller stop-controller"),
+        "{}",
+        describe(&output)
+    );
+    assert!(
+        !case.calls()[before..]
+            .iter()
+            .any(|call| call.contains("--resume")),
+        "the harness was not asked to resume: {:?}",
+        case.calls()
+    );
+    assert_eq!(case.controller()["state"], "Paused");
+    assert!(child::entries(&case.registry()).is_empty());
+}
+
 /// A delivery to a child session that is not running is refused, naming both routes, and records
 /// nothing.
 #[test]

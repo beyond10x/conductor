@@ -15,8 +15,8 @@
 //! the session prefix `ex`, with the `none` provider and a context threshold of 200k.
 //!
 //! The stand-ins, written here and never committed: `claude` (`agents --json` prints the entries
-//! under `fake/agents/`, `stop <id>` takes one away, a launch prints the id `s000000<n>-0000`;
-//! every call is logged one line to `fake/claude.calls`, its first four words), `systemd-run`,
+//! under `fake/agents/`, `stop <id>` takes one away, a launch prints the id `s000000<n>-0000`, a
+//! `--resume <id>` launch lists that session live and prints its id; every call is logged one line to `fake/claude.calls`, its first four words), `systemd-run`,
 //! `systemctl`, `gh`, `notify-send` and `aep`, which do nothing.
 //!
 //! The ticks are run through the library in a child of this test binary ([`child`]), with a
@@ -346,7 +346,10 @@ impl Case {
                  esac\n\
                  n=$(( $(cat \"$D/launches\" 2>/dev/null || echo 0) + 1 ))\n\
                  echo \"$n\" > \"$D/launches\"\n\
-                 if [ \"$2\" = --resume ]; then echo \"$3\"; exit 0; fi\n\
+                 if [ \"$2\" = --resume ]; then \
+                 printf '{{\"id\":\"%s\",\"sessionId\":\"%s\",\"name\":\"%s\",\"cwd\":\"%s\",\"pid\":4242,\
+                 \"status\":\"busy\",\"state\":\"working\"}}' \"$3\" \"$3\" \"$5\" \"$PWD\" \
+                 > \"$D/agents/$3.json\"; echo \"$3\"; exit 0; fi\n\
                  printf 's%07d-0000\\n' \"$n\"\n"
             ),
         );

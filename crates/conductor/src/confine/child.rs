@@ -497,8 +497,9 @@ fn unfinished(written: usize, total: usize, why: &str) -> Fed {
 
 /// Starts the session `id` for `launch` as a child process ([`NAME`]): `--session-id <id>`, or
 /// `--resume <id>` when `resume`; writes its entry; and, given a `prompt`, feeds it and waits
-/// within [`BOUND`] for the harness to say it started (its `init` line). A resumed session counts
-/// as started when it still runs after [`RESUME_GRACE`].
+/// within [`BOUND`] for the harness to say it started (its `init` line, written by this run). A
+/// resumed session counts as started only when it still runs after [`RESUME_GRACE`] besides
+/// (issue #226).
 fn run(launch: &Launch, id: &str, resume: bool, prompt: Option<&str>) -> Result<()> {
     let dir = registry_here().context("HOME is not an absolute path")?;
     fs::create_dir_all(&dir).with_context(|| format!("create {}", dir.display()))?;
@@ -526,6 +527,12 @@ fn run(launch: &Launch, id: &str, resume: bool, prompt: Option<&str>) -> Result<
         .mode(0o600)
         .open(&files.output)
         .with_context(|| format!("open {}", files.output.display()))?;
+    // What an earlier run of the session left in its output is not this run's (issue #226): a
+    // session that ended unstopped keeps its files, its `init` line among them.
+    let written_before = output
+        .metadata()
+        .with_context(|| format!("read {}", files.output.display()))?
+        .len();
     let errors = File::options()
         .create(true)
         .write(true)
@@ -605,10 +612,11 @@ fn run(launch: &Launch, id: &str, resume: bool, prompt: Option<&str>) -> Result<
         if !alive(pid, id) {
             bail!("the session ended as it started{}", said(&files));
         }
-        if prompt.is_none() && started.elapsed() >= RESUME_GRACE {
+        let graced = !resume || started.elapsed() >= RESUME_GRACE;
+        if prompt.is_none() && graced {
             return Ok(());
         }
-        if prompt.is_some() && initialised(&files.output, id) {
+        if prompt.is_some() && graced && initialised(&files.output, written_before, id) {
             return Ok(());
         }
         if started.elapsed() >= BOUND {
@@ -621,9 +629,17 @@ fn run(launch: &Launch, id: &str, resume: bool, prompt: Option<&str>) -> Result<
     }
 }
 
-/// Whether the output `output` holds the harness's `init` line for the session `id`.
-fn initialised(output: &Path, id: &str) -> bool {
-    fs::read_to_string(output).is_ok_and(|text| {
+/// Whether the output `output`, past its first `from` bytes, holds the harness's `init` line for
+/// the session `id`.
+fn initialised(output: &Path, from: u64, id: &str) -> bool {
+    let Ok(mut file) = File::open(output) else {
+        return false;
+    };
+    if file.seek(SeekFrom::Start(from)).is_err() {
+        return false;
+    }
+    let mut text = String::new();
+    file.read_to_string(&mut text).is_ok_and(|_| {
         text.lines()
             .filter_map(|line| serde_json::from_str::<Value>(line).ok())
             .any(|line| {
