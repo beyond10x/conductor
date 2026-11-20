@@ -462,7 +462,7 @@ pub const TREE_STALE_HOURS: u64 = 48;
 
 /// The keys of each mapping the file holds, in the order `config show` writes them.
 const CONFIG_KEYS: [&str; 5] = ["version", "daemon", "globals", "default", "instances"];
-const INSTANCE_KEYS: [&str; 34] = [
+const INSTANCE_KEYS: [&str; 35] = [
     "name",
     "placement",
     "remote",
@@ -497,9 +497,52 @@ const INSTANCE_KEYS: [&str; 34] = [
     "forge_access",
     "forge",
     "conductor",
+    "box",
 ];
 const CONDUCTOR_KEYS: [&str; 2] = ["served_by", "session_name"];
 const GIT_IDENTITY_KEYS: [&str; 2] = ["name", "email"];
+const BOX_KEYS: [&str; 3] = ["tools", "env", "egress"];
+
+/// The variables of a box's start conductor sets itself (story:box-tool-roots): an instance's
+/// `box.env` names none of them, nor one that starts with [`BOX_ENV_OWN_PREFIX`].
+pub const BOX_ENV_OWN: [&str; 4] = ["HOME", "PATH", "CLAUDE_CONFIG_DIR", "XDG_STATE_HOME"];
+/// The prefix of the variables conductor reads itself, which an instance's `box.env` names none of.
+pub const BOX_ENV_OWN_PREFIX: &str = "CONDUCTOR_";
+
+/// Why `name` is no variable an instance's `box.env` may set (story:box-tool-roots): not a
+/// variable name, or one conductor sets in the box's start itself ([`BOX_ENV_OWN`],
+/// [`BOX_ENV_OWN_PREFIX`]); `None` for one it may.
+#[must_use]
+pub fn box_env_problem(name: &str) -> Option<String> {
+    let mut chars = name.chars();
+    let named = chars
+        .next()
+        .is_some_and(|first| first.is_ascii_alphabetic() || first == '_')
+        && chars.all(|c| c.is_ascii_alphanumeric() || c == '_');
+    if !named {
+        return Some(
+            "is not a variable name: a letter or _, then letters, digits and _".to_owned(),
+        );
+    }
+    (BOX_ENV_OWN.contains(&name) || name.starts_with(BOX_ENV_OWN_PREFIX)).then(|| {
+        format!(
+            "is a variable conductor sets in the box's start itself ({}, and every {}* \
+             variable): leave it out",
+            BOX_ENV_OWN.join(", "),
+            BOX_ENV_OWN_PREFIX
+        )
+    })
+}
+
+/// The box of an instance that declares nothing for it (story:box-tool-roots).
+#[must_use]
+pub fn no_box() -> conductor_model::config::Box {
+    conductor_model::config::Box {
+        tools: Vec::new(),
+        env: std::collections::BTreeMap::new(),
+        egress: Vec::new(),
+    }
+}
 
 /// The most bytes a value of an instance's `git_identity` holds (story:instance-git-identity).
 pub const GIT_IDENTITY_BYTES: usize = 200;
@@ -1988,6 +2031,8 @@ pub fn built_in(home: &Path, cwd: &Path) -> Instance {
         forge_access: None,
         // Forge writes take the bot route unless a user names another (story:forge-route).
         forge: default_forge(),
+        // Its box reads nothing of the host beside conductor's own (story:box-tool-roots).
+        r#box: no_box(),
         // Its own conductor, the built-in director role's session, under the role's old name for
         // this release (story:instance-session-names, story:role-name-aliases).
         conductor: ConductorSession {
@@ -4809,6 +4854,12 @@ impl Reader<'_> {
             Some(value) => self.forge(value, &join(path, "forge")),
             None => Some(default_forge()),
         };
+        // What of the host the instance's box reads, and the environment of its start
+        // (story:box-tool-roots).
+        let r#box = match Self::get(map, "box") {
+            Some(value) => self.r#box(value, &join(path, "box")),
+            None => Some(no_box()),
+        };
         // The conductor that serves the instance is derived once every instance is read
         // (`Reader::conductors`); until then, its own.
         let conductor = ConductorSession {
@@ -4847,6 +4898,71 @@ impl Reader<'_> {
             standing_rules: standing_rules?,
             forge_access: forge_access?,
             forge: forge?,
+            r#box: r#box?,
+        })
+    }
+
+    /// An instance's `box` (story:box-tool-roots): `tools`, each a [`Reader::path`]; `env`, a
+    /// mapping of variable names that [`box_env_problem`] finds nothing in to text, `~/` read
+    /// under the home directory; `egress`, host names, reserved (story:box-registry-egress).
+    fn r#box(&mut self, value: &Value, path: &str) -> Option<conductor_model::config::Box> {
+        let map = self.mapping(value, path, &BOX_KEYS)?;
+        let tools = match Self::get(map, "tools") {
+            Some(value) => self.list(value, &join(path, "tools"), Self::path),
+            None => Some(Vec::new()),
+        };
+        let env = match Self::get(map, "env") {
+            Some(Value::Object(variables)) => {
+                let at = join(path, "env");
+                let mut env = Some(std::collections::BTreeMap::new());
+                for (name, value) in variables {
+                    let here = join(&at, name);
+                    if let Some(problem) = box_env_problem(name) {
+                        self.problem(&here, problem);
+                        env = None;
+                        continue;
+                    }
+                    let value =
+                        match value {
+                            Value::String(text) if text == "~" => Some(text_of(self.home)),
+                            Value::String(text) => Some(text.strip_prefix("~/").map_or_else(
+                                || text.clone(),
+                                |rest| text_of(&self.home.join(rest)),
+                            )),
+                            Value::Number(number) => Some(number.to_string()),
+                            Value::Bool(flag) => Some(flag.to_string()),
+                            other => {
+                                self.problem(&here, format!("{} is not text", echo(other)));
+                                None
+                            }
+                        };
+                    match (value, env.as_mut()) {
+                        (Some(value), Some(env)) => {
+                            env.insert(name.clone(), value);
+                        }
+                        (None, _) => env = None,
+                        _ => {}
+                    }
+                }
+                env
+            }
+            Some(other) => {
+                self.problem(
+                    &join(path, "env"),
+                    format!("{} is not a mapping of variable names to text", echo(other)),
+                );
+                None
+            }
+            None => Some(std::collections::BTreeMap::new()),
+        };
+        let egress = match Self::get(map, "egress") {
+            Some(value) => self.list(value, &join(path, "egress"), Self::text),
+            None => Some(Vec::new()),
+        };
+        Some(conductor_model::config::Box {
+            tools: tools?,
+            env: env?,
+            egress: egress?,
         })
     }
 
@@ -6603,6 +6719,37 @@ fn shown_instance(instance: &Instance, legacy: &Legacy) -> Yaml {
                 (
                     "session_name",
                     optional(instance.conductor.session_name.as_ref().map(|name| &name.0)),
+                ),
+            ]),
+        ),
+        (
+            "box",
+            mapping([
+                (
+                    "tools",
+                    Yaml::Sequence(instance.r#box.tools.iter().map(|tool| text(tool)).collect()),
+                ),
+                (
+                    "env",
+                    Yaml::Mapping(
+                        instance
+                            .r#box
+                            .env
+                            .iter()
+                            .map(|(name, value)| (text(name), text(value)))
+                            .collect(),
+                    ),
+                ),
+                (
+                    "egress",
+                    Yaml::Sequence(
+                        instance
+                            .r#box
+                            .egress
+                            .iter()
+                            .map(|host| text(host))
+                            .collect(),
+                    ),
                 ),
             ]),
         ),

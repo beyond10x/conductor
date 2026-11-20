@@ -2920,6 +2920,185 @@ fn a_box_reads_the_harness_versions_directory_so_a_host_update_resolves() {
     );
 }
 
+/// An instance in a box of its own directories under the case, with `PATH` naming `path` and a
+/// sqlite store in a directory of its own: its config file, the instance and the runtime's
+/// environment (`story:box-tool-roots`).
+fn tool_box(
+    case: &Case,
+    path: &Path,
+) -> (
+    PathBuf,
+    conductor_model::config::Instance,
+    Vec<(String, String)>,
+) {
+    let file = case.config(&[("alpha", "systemd")]);
+    let mut instance = linux_instance(case);
+    instance.placement = PlacementName("systemd".to_owned());
+    let own = case.dir.join("i");
+    instance.state = own.join("state").display().to_string();
+    instance.records = own.join("records").display().to_string();
+    instance.cache = own.join("cache").display().to_string();
+    instance.checkouts.root = own.join("checkouts").display().to_string();
+    instance.checkouts.trees = own.join("trees").display().to_string();
+    let env = vec![
+        ("HOME".to_owned(), case.home().display().to_string()),
+        ("PATH".to_owned(), path.display().to_string()),
+        (
+            conductor_cli::store::STORE_VARIABLE.to_owned(),
+            format!(
+                "sqlite:{}",
+                case.dir.join("store/conductor.sqlite").display()
+            ),
+        ),
+    ];
+    (file, instance, env)
+}
+
+/// Issue #197: a tool directory the instance declares (`box.tools`) is read by the box at its own
+/// path, and the variables it declares (`box.env`) are in the box's start, the runtime's whole
+/// environment, which every session of the box inherits; they replace the runtime's own of the
+/// same name.
+#[test]
+fn a_declared_tool_directory_is_mounted_read_only_and_its_env_is_in_the_box_start() {
+    let case = Case::new("box-tools-declared");
+    let (file, mut instance, mut env) = tool_box(&case, &case.dir.join("none"));
+    let rustup = case.home().join(".rustup");
+    fs::create_dir_all(rustup.join("toolchains")).expect("a tool directory");
+    let rustup = rustup.display().to_string();
+    instance.r#box.tools = vec![rustup.clone()];
+    instance.r#box.env = [
+        ("RUSTUP_HOME".to_owned(), rustup.clone()),
+        ("CARGO_HOME".to_owned(), "/srv/cargo".to_owned()),
+    ]
+    .into_iter()
+    .collect();
+    env.push(("CARGO_HOME".to_owned(), "/elsewhere".to_owned()));
+    let binary = Path::new("/opt/conductor/bin/conductor");
+    let request = placement::request(&instance, &file, binary, env);
+    assert_eq!(
+        request.refused, None,
+        "a box can hold this layout: {request:?}"
+    );
+    assert_substrate_admits(&request);
+    assert!(
+        request.read_only_roots.contains(&rustup),
+        "the declared directory is read: {request:?}"
+    );
+    assert!(
+        !request
+            .writable_roots
+            .iter()
+            .any(|root| root.path == rustup),
+        "and not written: {request:?}"
+    );
+    let set = |name: &str| -> Vec<&str> {
+        request
+            .env
+            .iter()
+            .filter(|(known, _)| known == name)
+            .map(|(_, value)| value.as_str())
+            .collect()
+    };
+    assert_eq!(set("RUSTUP_HOME"), [rustup.as_str()], "{:?}", request.env);
+    assert_eq!(
+        set("CARGO_HOME"),
+        ["/srv/cargo"],
+        "the instance's value, once: {:?}",
+        request.env
+    );
+}
+
+/// Issue #197: the binary installed with `cargo install` is in `~/.cargo/bin`; a declared
+/// `~/.cargo` holds that directory, and substrate refuses mounts that nest, so the declared
+/// directory takes its place and the start names it once.
+#[test]
+fn a_tool_directory_holding_the_binary_directory_takes_its_place() {
+    let case = Case::new("box-tools-holding");
+    let cargo = case.home().join(".cargo");
+    let bin = cargo.join("bin");
+    program(&bin.join("conductor"));
+    program(&bin.join("claude"));
+    let rustup = case.home().join(".rustup");
+    fs::create_dir_all(&rustup).expect("a tool directory");
+    let (file, mut instance, env) = tool_box(&case, &bin);
+    instance.r#box.tools = vec![cargo.display().to_string(), rustup.display().to_string()];
+    let request = placement::request(&instance, &file, &bin.join("conductor"), env);
+    assert_eq!(
+        request.refused, None,
+        "a box can hold this layout: {request:?}"
+    );
+    assert_substrate_admits(&request);
+    assert_eq!(
+        request.read_only_roots,
+        [cargo.display().to_string(), rustup.display().to_string()],
+        "the declared directories, and not the binary's or the harness's inside one"
+    );
+    assert!(
+        request
+            .read_only_files
+            .iter()
+            .all(|file| !file.mount.starts_with(&cargo.display().to_string())),
+        "no file under a declared directory is named again: {request:?}"
+    );
+}
+
+/// Issue #197: a declared tool directory that is not there is left out of the start (substrate
+/// would refuse a mount of nothing), and is named for `conductor doctor`.
+#[test]
+fn a_missing_tool_directory_is_left_out_of_the_start() {
+    let case = Case::new("box-tools-missing");
+    let (file, mut instance, env) = tool_box(&case, &case.dir.join("none"));
+    let there = case.home().join(".rustup");
+    fs::create_dir_all(&there).expect("a tool directory");
+    let missing = case.home().join(".cargo");
+    instance.r#box.tools = vec![missing.display().to_string(), there.display().to_string()];
+    let binary = Path::new("/opt/conductor/bin/conductor");
+    let request = placement::request(&instance, &file, binary, env);
+    assert_eq!(
+        request.refused, None,
+        "a box can hold this layout: {request:?}"
+    );
+    assert_substrate_admits(&request);
+    assert!(
+        !request
+            .read_only_roots
+            .contains(&missing.display().to_string()),
+        "the missing directory is left out: {request:?}"
+    );
+    assert!(
+        request
+            .read_only_roots
+            .contains(&there.display().to_string()),
+        "the one that is there is read: {request:?}"
+    );
+    assert_eq!(
+        placement::tools_missing(&instance),
+        [missing.display().to_string()]
+    );
+}
+
+/// Issue #197: a declared tool directory that holds the config file would hand the box that file
+/// and everything beside it; the box is refused by conductor's own name before substrate is asked.
+#[test]
+fn a_tool_directory_holding_the_config_file_is_refused() {
+    let case = Case::new("box-tools-config");
+    let (file, mut instance, env) = tool_box(&case, &case.dir.join("none"));
+    let holder = file
+        .parent()
+        .expect("the config file's directory")
+        .to_owned();
+    instance.r#box.tools = vec![holder.display().to_string()];
+    let binary = Path::new("/opt/conductor/bin/conductor");
+    let request = placement::request(&instance, &file, binary, env);
+    let refused = request.refused.expect("the box is refused");
+    assert_eq!(refused.name, placement::TOOL_SHARED, "{refused:?}");
+    assert!(
+        refused.detail.contains(&holder.display().to_string())
+            && refused.detail.contains("box.tools"),
+        "{refused:?}"
+    );
+}
+
 /// The layout the getting-started page had: the config file, the store and conductord's
 /// directory in one directory, each instance's state and records under it.
 #[test]

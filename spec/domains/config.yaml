@@ -966,6 +966,32 @@ types:
     invariants:
       - distinct: {in: roles, as: role, by: role.role}
 
+  # What of the host an instance's box reads beside conductor's own mounts, and the environment
+  # its start carries (`Instance.box`, story:box-tool-roots). `tools` are host directories the
+  # box mounts read-only at their own path, each written absolute or under `~/` (read as the
+  # box's `HOME`, which is the host's). They are read before the conductor binary's directory and
+  # the harness's, so a declared directory that holds one (`~/.cargo` over `~/.cargo/bin`) takes
+  # its place, and the box reads everything under it. A declared directory that is not there is
+  # left out of the start, and `conductor doctor` names it in a row `box <instance> tools:`
+  # (reported, not a failure). One that holds the config file or conductord's own directory is
+  # refused (`placement.tool-directory-shared`), and the declared directories with conductor's
+  # own that pass substrate's bound of read-only roots are refused (`placement.mounts-exceeded`),
+  # both before substrate is asked and by `conductor config validate` at the instance's
+  # `placement`. `env` is set in the box's start, the runtime's whole environment, which every
+  # session of the box inherits; a value written under `~/` is read under `HOME`. Each name is a
+  # variable name (a letter or `_`, then letters, digits and `_`), and none is `HOME`, `PATH`,
+  # `CLAUDE_CONFIG_DIR`, `XDG_STATE_HOME` or a `CONDUCTOR_` variable, which conductor sets
+  # itself: `config validate` refuses one at `instances[i].box.env.<name>`. `egress` is reserved
+  # for the registry hosts a box reaches (story:box-registry-egress) and has no effect yet.
+  # Absent, each is empty, and the box is as before.
+  - name: conductor.config.Box
+    kind: struct
+    fields:
+      - {name: tools, type: List<String>}
+      - name: env
+        type: Map<String, String>
+      - {name: egress, type: List<String>}
+
   # The git identity an instance's pod commits with (`Instance.git_identity`,
   # story:instance-git-identity): `name` and `email`, both required. Each is 1 to 200 bytes on
   # one line, with no control character, no `<`, no `>` and no white space at its start or end;
@@ -1188,6 +1214,9 @@ types:
       # The route of the instance's forge writes (story:forge-route); absent, `gates`.
       - {name: forge, type: conductor.config.Forge}
       - {name: conductor, type: conductor.config.ConductorSession}
+      # The read-only tool directories and the environment of the instance's box (`Box`,
+      # story:box-tool-roots); absent, none.
+      - {name: box, type: conductor.config.Box}
 
   # The file, `conductor.config/2` (design architecture-next § 9). A key it does not declare is an
   # error, and so is a value that looks like a token. A value under a secret-bearing key (one

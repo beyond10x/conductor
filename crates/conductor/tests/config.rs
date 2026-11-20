@@ -567,6 +567,7 @@ fn show_without_a_file_prints_todays_constants() {
         "dashboard_port",
         "conductor",
         "authority",
+        "box",
         "cache",
         "cadence",
         "catalog",
@@ -1726,7 +1727,13 @@ fn an_unknown_key_is_refused_in_every_mapping() {
     );
     let mut found = Vec::new();
     mappings(&shown, "", &mut found);
-    let paths: Vec<String> = found.into_iter().map(|(path, _)| path).collect();
+    // A box's `env` maps variable names of the instance's choosing, not keys of the file
+    // (`story:box-tool-roots`): `bogus` is a variable it may set.
+    let paths: Vec<String> = found
+        .into_iter()
+        .map(|(path, _)| path)
+        .filter(|path| !path.ends_with(".box.env"))
+        .collect();
     assert!(paths.len() >= 10, "the example has its mappings: {paths:?}");
     for path in &paths {
         let mut document = shown.clone();
@@ -4862,4 +4869,101 @@ fn a_boxed_instance_with_no_disk_path_reads_its_checkouts_root() {
     assert_eq!(disk_path("boxed"), path_text(&home.join("boxed")));
     assert_eq!(disk_path("unboxed"), "/");
     assert_eq!(disk_path("written"), "/srv/data");
+}
+
+/// A boxed instance's file, `box:` written as `boxed`, its store in a directory of its own.
+fn box_file(case: &Case, boxed: &str) -> PathBuf {
+    case.write(
+        "box.yaml",
+        &format!(
+            "version: conductor.config/2\n\
+             daemon: {{port: 7400, store: \"sqlite:/srv/store/conductor.sqlite\"}}\n\
+             instances:\n\
+             \x20 - name: boxed\n\
+             \x20   session_prefix: boxed\n\
+             \x20   placement: systemd\n\
+             \x20   sources: [{{github: example-org}}]\n\
+             \x20   checkouts: {{root: ~/boxed, trees: ~/boxed-trees}}\n\
+             \x20   box: {boxed}\n"
+        ),
+    )
+}
+
+/// `story:box-tool-roots`: the tool directories an instance declares for its box count against
+/// substrate's bound of read-only roots with conductor's own, and `config validate` refuses a box
+/// that would pass it, at the instance's `placement`, by conductor's own name.
+#[test]
+fn box_tools_past_the_read_only_bound_are_refused_at_validate() {
+    let case = Case::new("box-tools-bound");
+    let home = case.dir.join("home");
+    for tool in ["one", "two", "three", "four", "five"] {
+        fs::create_dir_all(home.join("tools").join(tool)).expect("a tool directory");
+    }
+    let within = box_file(&case, "{tools: [~/tools/one]}");
+    let output = case.with_file(&within, &["config", "validate"]);
+    assert_eq!(output.status.code(), Some(0), "{}", describe(&output));
+    let shown = case.show(&within, &[]);
+    assert_eq!(
+        shown["instances"][0]["box"]["tools"],
+        serde_json::json!([path_text(&home.join("tools/one"))]),
+        "`~/` is read under the home directory: {shown:#}"
+    );
+
+    let past = box_file(
+        &case,
+        "{tools: [~/tools/one, ~/tools/two, ~/tools/three, ~/tools/four, ~/tools/five]}",
+    );
+    let output = case.with_file(&past, &["config", "validate"]);
+    assert_eq!(output.status.code(), Some(1), "{}", describe(&output));
+    let said = String::from_utf8_lossy(&output.stderr).into_owned();
+    assert!(
+        said.contains("instances[0].placement")
+            && said.contains("placement.mounts-exceeded")
+            && said.contains("directories to read"),
+        "the problem names its path, the refusal and the bound: {said}"
+    );
+}
+
+/// `story:box-tool-roots`: `box.env` is set in the box's start, which conductor fills with its own
+/// variables too; one of those, or a name that is no variable, is refused at
+/// `instances[i].box.env.<name>`, and a value under `~/` is read under the home directory.
+#[test]
+fn box_env_naming_a_variable_conductor_sets_is_refused() {
+    let case = Case::new("box-env-own");
+    let home = case.dir.join("home");
+    let file = box_file(
+        &case,
+        "{env: {CARGO_HOME: ~/.cargo, HOME: /srv/home, PATH: /srv/bin, CLAUDE_CONFIG_DIR: /srv/c, \
+         XDG_STATE_HOME: /srv/s, CONDUCTOR_INSTANCE: other, 1BAD: x}}",
+    );
+    let output = case.with_file(&file, &["config", "validate"]);
+    assert_eq!(output.status.code(), Some(1), "{}", describe(&output));
+    let said = String::from_utf8_lossy(&output.stderr).into_owned();
+    for name in [
+        "HOME",
+        "PATH",
+        "CLAUDE_CONFIG_DIR",
+        "XDG_STATE_HOME",
+        "CONDUCTOR_INSTANCE",
+        "1BAD",
+    ] {
+        assert!(
+            said.contains(&format!("instances[0].box.env.{name}:")),
+            "{name} is refused at its path: {said}"
+        );
+    }
+    assert!(
+        !said.contains("box.env.CARGO_HOME"),
+        "a variable of the instance's own is kept: {said}"
+    );
+
+    let file = box_file(&case, "{env: {CARGO_HOME: ~/.cargo}, egress: []}");
+    let output = case.with_file(&file, &["config", "validate"]);
+    assert_eq!(output.status.code(), Some(0), "{}", describe(&output));
+    let shown = case.show(&file, &[]);
+    assert_eq!(
+        shown["instances"][0]["box"]["env"],
+        serde_json::json!({"CARGO_HOME": path_text(&home.join(".cargo"))}),
+        "{shown:#}"
+    );
 }

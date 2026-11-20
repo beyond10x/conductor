@@ -344,7 +344,13 @@ or the SDK's `client.workspace()` builder):
 
 - argv and cwd: `conductor instance serve --instance <name>`, the instance's records directory;
 - read-only roots: the conductor binary and its profiles, the agent kind's binary (the harness), the
-  instance's checkouts root when `checkouts.trees` is elsewhere;
+  instance's checkouts root when `checkouts.trees` is elsewhere, and the directories the instance
+  declares in `box.tools` (story:box-tool-roots), read first so that one holding the binary's
+  directory takes its place, a missing one left out; within substrate's bound of four read-only
+  roots;
+- environment: the runtime's, with the variables the instance declares in `box.env` (none that
+  conductor sets itself: `HOME`, `PATH`, `CLAUDE_CONFIG_DIR`, `XDG_STATE_HOME`, `CONDUCTOR_*`),
+  which every session of the box inherits;
 - writable places: today's six (`confine/places.rs:84-101`: checkout, trees, build cache, scratch,
   harness state, records), as one substrate workspace with subdirectories;
 - limits: cpu, memory, pids, storage, from the role's `limits` and the instance's `limits`;

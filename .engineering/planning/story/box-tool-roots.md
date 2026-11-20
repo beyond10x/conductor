@@ -14,23 +14,35 @@ relations:
 - decomposes: epic:architecture-next
 - informed_by: story:box-runtime-starts
 scope:
-- confidence: inferred
+- confidence: cited
+  path: crates/conductor-docs/src/config.rs
+- confidence: cited
+  path: crates/conductor-model
+- confidence: cited
+  path: crates/conductor/http.yaml
+- confidence: cited
   path: crates/conductor/src/config.rs
-- confidence: inferred
+- confidence: cited
   path: crates/conductor/src/doctor.rs
 - confidence: cited
   path: crates/conductor/src/placement.rs
-- confidence: inferred
+- confidence: cited
   path: crates/conductor/tests/config.rs
-- confidence: inferred
+- confidence: cited
   path: crates/conductor/tests/doctor.rs
-- confidence: inferred
+- confidence: cited
   path: crates/conductor/tests/placement.rs
 - confidence: cited
+  path: docs/design/architecture-next.md
+- confidence: cited
   path: spec/domains/config.yaml
-- confidence: inferred
+- confidence: cited
   path: website/docs/guides/run-isolated.md
-revision: 6
+- confidence: cited
+  path: website/docs/guides/troubleshoot.md
+- confidence: cited
+  path: website/docs/reference/config.md
+revision: 8
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-20T06:10:46Z", actor: "human:unknown", revision: 5}
 - {from: "proposed", to: "active", at: "2026-11-20T06:10:46Z", actor: "human:unknown", revision: 6}
@@ -49,14 +61,17 @@ and repeats per instance:
   ships conductor's pin.
 - Go modules were prefetched into the cache root with `GOPROXY=off`.
 
-Read on the wave 56 branch:
+Read on main at release 1.19.2:
 
-- The box's mounts are one fixed list (`crates/conductor/src/placement.rs:1476-1510`, `mounts`).
-- No config key adds a directory to read: `spec/domains/config.yaml` has only the guard's
-  `read_only_tools` (`spec/domains/config.yaml:235`, `:303`).
-- Substrate takes at most 4 read-only roots per start (`READ_ONLY_ROOTS_BOUND`, `placement.rs:1310`,
-  refused `placement.mounts-exceeded` at `placement.rs:1324`). The binary's directory, the
-  harness's, and since `story:box-harness-versions-dir` the harness's versions directory may take 3.
+- The box's mounts are one fixed list (`crates/conductor/src/placement.rs:1558-1747`, `layout`;
+  its table `placement.rs:1506-1537`).
+- No config key adds a directory: `spec/domains/config.yaml` has only the guard's
+  `read_only_tools` (`spec/domains/config.yaml:240`, `:308`); `conductor.config.Instance`
+  (`spec/domains/config.yaml:1031`) has no `box`.
+- Substrate takes at most 4 read-only roots per start (`READ_ONLY_ROOTS_BOUND`, `placement.rs:1340`;
+  `placement.mounts-exceeded`, `placement.rs:1354`, raised `placement.rs:1716-1746`), and the
+  binary's directory, the harness's and the harness's versions directory (`placement.rs:1633-1658`)
+  usually take 3.
 
 ## Outcome
 
@@ -64,32 +79,54 @@ Read on the wave 56 branch:
 
   ```yaml
   box:
-    tools: [~/.cargo, ~/.rustup, ~/.cache/aep]
-    env: {CARGO_HOME: ~/.cargo, RUSTUP_HOME: ~/.rustup, AEP_CACHE_DIR: ~/.cache/aep}
+    tools: [~/.cargo, ~/.rustup]
+    env: {CARGO_HOME: ~/.cargo, RUSTUP_HOME: ~/.rustup}
   ```
 
-  Conductor mounts each directory read-only and puts `env` into the environment of the box's
-  sessions, `~/` read as the box's `HOME`.
+  Conductor mounts each directory read-only and puts `env` into the box's start (`BoxRequest.env`,
+  the runtime's whole environment, which its sessions inherit), `~/` read as the box's `HOME`.
+- Declared directories are read before the binary's and the harness's, so one that holds them
+  (`~/.cargo` over `~/.cargo/bin`) takes their place.
+- A declared directory that does not exist is left out of the start, and `conductor doctor` names
+  it in a row `box <name> tools:` (reported, not a failure).
+- `env` may not name `HOME`, `PATH`, `CLAUDE_CONFIG_DIR`, `XDG_STATE_HOME` or a `CONDUCTOR_*`
+  variable: `conductor config validate` refuses one at `instances[i].box.env.<name>`.
 - `conductor config validate` refuses with `placement.mounts-exceeded` when the declared directories
-  and conductor's own would pass substrate's bound, naming each; `conductor doctor` names a declared
-  directory that is missing.
-- Spec first (AGENTS.md rule 1): the instance's `box` map with `tools` and `env` is modelled in
-  `spec/domains/config.yaml`, then `task regen`.
+  and conductor's own would pass substrate's bound, naming each. A declared directory that holds the
+  config file or conductord's directory is refused, as `shares` does (`placement.rs:1497`).
+- Spec first (AGENTS.md rule 1): a new struct `conductor.config.Box` (`tools: List<String>`,
+  `env: Map<String,String>`, `egress: List<String>` reserved for #198, no behaviour) and
+  `box: conductor.config.Box` on `Instance` in `spec/domains/config.yaml`; `task regen`, which
+  re-pins `source_digest` in `crates/conductor/http.yaml:2`; `task docs-generate`
+  (`website/docs/reference/config.md`). Design: amend `docs/design/architecture-next.md:346`.
 
 Decision (class C, controller, 2026-11-18): the config takes the issue's shape, one `tools` list and
 one `env` map per instance, not an environment per directory; a value of `env` is set for every
-session of the box. Undone by a per-repository form later.
+session of the box. Undone by a per-repository form later, or a later `box.path`.
 
 ## Acceptance (tests that fail on the current code)
 
-- `tests/placement.rs` `a_declared_tool_directory_is_mounted_read_only_and_its_env_reaches_the_session`.
+- `tests/placement.rs` `a_declared_tool_directory_is_mounted_read_only_and_its_env_is_in_the_box_start`.
+- `tests/placement.rs` `a_tool_directory_holding_the_binary_directory_takes_its_place`.
+- `tests/placement.rs` `a_missing_tool_directory_is_left_out_of_the_start`.
 - `tests/config.rs` `box_tools_past_the_read_only_bound_are_refused_at_validate`.
+- `tests/config.rs` `box_env_naming_a_variable_conductor_sets_is_refused`.
 - `tests/doctor.rs` `doctor_names_a_missing_box_tool_directory`.
 
 ## Boundaries
 
-- With up to 3 of 4 read-only roots taken, one tool directory fits, or several under one parent; more
-  needs a higher bound in substrate (beyond10x/substrate), which this story should carry as an
-  upstream blocker before it moves.
-- Network access to registries is `story:box-registry-egress`.
+- Within the bound, Rust (`~/.cargo`, `~/.rustup`) fits on a host whose binary is under `~/.cargo`;
+  a third directory needs a higher `MAX_READ_ONLY_ROOTS` in substrate, an upstream blocker for that
+  case only, not for this story.
+- The box reads everything under a declared directory, `~/.cargo/credentials.toml` included.
+- Network access to registries is `story:box-registry-egress` (`box.egress` is reserved for it).
 - A repository's own pinned tool version, installed per repository, is not in this story.
+
+## Scope
+
+`spec/domains/config.yaml`, `crates/conductor-model` (regenerated), `crates/conductor/http.yaml`,
+`crates/conductor/src/config.rs` (instance key list :490, parse ~:4684, show ~:6505/6546),
+`crates/conductor/src/placement.rs` (`layout`, `request_on`), `crates/conductor/src/doctor.rs`
+(`box_lines`, :1696-1830), `tests/placement.rs`, `tests/config.rs`, `tests/doctor.rs`,
+`website/docs/reference/config.md`, `website/docs/guides/run-isolated.md`,
+`docs/design/architecture-next.md`.

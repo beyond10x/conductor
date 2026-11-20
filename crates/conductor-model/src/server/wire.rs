@@ -1,5 +1,5 @@
 // generated from conductor v1
-// contract digest 76ff8853154fd9fc652d256e9f2ea0288061fa7a3c87c5f5925297785077991a
+// contract digest d350cd82050d0055f444f8dd5113015e8308a7c611d42a1bf018a90db75feb08
 // do not edit: regenerate with `ess synthesize --layout crate`
 //! Every generated declaration, as JSON, in the renderings the published wire contracts fix.
 //!
@@ -339,6 +339,88 @@ pub fn decode_conductor_config_authority(value: &json::Value, at: &str) -> Resul
             let at1 = json::nested(at, "class_o");
             let member1 = json::member_at(value, at, "class_o")?;
             decode_conductor_decision_decider(member1, &at1)?
+        },
+    })
+}
+
+/// Writes `conductor.config.Box` as JSON.
+pub fn encode_conductor_config_box(value: &crate::config::Box, out: &mut String) {
+    out.push('{');
+    json::member(out, "tools");
+    out.push('[');
+    for (index0, item0) in value.tools.iter().enumerate() {
+        if index0 > 0 {
+            out.push(',');
+        }
+        json::push_text(out, &*item0);
+    }
+    out.push(']');
+    json::member(out, "env");
+    out.push('{');
+    for (index0, (key0, item0)) in value.env.iter().enumerate() {
+        if index0 > 0 {
+            out.push(',');
+        }
+        json::push_text(out, key0);
+        out.push(':');
+        json::push_text(out, &*item0);
+    }
+    out.push('}');
+    json::member(out, "egress");
+    out.push('[');
+    for (index0, item0) in value.egress.iter().enumerate() {
+        if index0 > 0 {
+            out.push(',');
+        }
+        json::push_text(out, &*item0);
+    }
+    out.push(']');
+    out.push('}');
+}
+
+/// Reads `conductor.config.Box` from JSON.
+///
+/// # Errors
+///
+/// [`json::DecodeError`] naming the path and what the declaration says belongs there.
+pub fn decode_conductor_config_box(value: &json::Value, at: &str) -> Result<crate::config::Box, json::DecodeError> {
+    json::closed_at(value, at, &["tools", "env", "egress"])?;
+    Ok(crate::config::Box {
+        tools: {
+            let at0 = json::nested(at, "tools");
+            let member0 = json::member_at(value, at, "tools")?;
+            {
+                let mut items0 = Vec::new();
+                for (index0, element0) in json::items_at(member0, &at0, "an array")?.iter().enumerate() {
+                    let nested0 = json::nested(&at0, &index0.to_string());
+                    items0.push(json::text_at(element0, &nested0, "a string")?.to_owned());
+                }
+                items0
+            }
+        },
+        env: {
+            let at1 = json::nested(at, "env");
+            let member1 = json::member_at(value, at, "env")?;
+            {
+                let mut entries1 = std::collections::BTreeMap::new();
+                for (key1, element1) in json::members_at(member1, &at1, "an object")? {
+                    let nested1 = json::nested(&at1, key1);
+                    entries1.insert(key1.clone(), json::text_at(element1, &nested1, "a string")?.to_owned());
+                }
+                entries1
+            }
+        },
+        egress: {
+            let at2 = json::nested(at, "egress");
+            let member2 = json::member_at(value, at, "egress")?;
+            {
+                let mut items2 = Vec::new();
+                for (index2, element2) in json::items_at(member2, &at2, "an array")?.iter().enumerate() {
+                    let nested2 = json::nested(&at2, &index2.to_string());
+                    items2.push(json::text_at(element2, &nested2, "a string")?.to_owned());
+                }
+                items2
+            }
         },
     })
 }
@@ -2158,6 +2240,8 @@ pub fn encode_conductor_config_instance(value: &crate::config::Instance, out: &m
     encode_conductor_config_forge(&value.forge, out);
     json::member(out, "conductor");
     encode_conductor_config_conductor_session(&value.conductor, out);
+    json::member(out, "box");
+    encode_conductor_config_box(&value.r#box, out);
     out.push('}');
 }
 
@@ -2167,7 +2251,7 @@ pub fn encode_conductor_config_instance(value: &crate::config::Instance, out: &m
 ///
 /// [`json::DecodeError`] naming the path and what the declaration says belongs there.
 pub fn decode_conductor_config_instance(value: &json::Value, at: &str) -> Result<crate::config::Instance, json::DecodeError> {
-    json::closed_at(value, at, &["name", "placement", "remote", "session_prefix", "sources", "checkouts", "records", "state", "cache", "roles", "limits", "controllers", "repositories", "cadence", "thresholds", "retention", "reports", "authority", "usage", "operator", "catalog", "secret_syncs", "gates_policy", "model_token", "model_token_kind", "forge_token", "git_identity", "standing_rules", "forge_access", "forge", "conductor"])?;
+    json::closed_at(value, at, &["name", "placement", "remote", "session_prefix", "sources", "checkouts", "records", "state", "cache", "roles", "limits", "controllers", "repositories", "cadence", "thresholds", "retention", "reports", "authority", "usage", "operator", "catalog", "secret_syncs", "gates_policy", "model_token", "model_token_kind", "forge_token", "git_identity", "standing_rules", "forge_access", "forge", "conductor", "box"])?;
     Ok(crate::config::Instance {
         name: {
             let at0 = json::nested(at, "name");
@@ -2380,6 +2464,11 @@ pub fn decode_conductor_config_instance(value: &json::Value, at: &str) -> Result
             let at30 = json::nested(at, "conductor");
             let member30 = json::member_at(value, at, "conductor")?;
             decode_conductor_config_conductor_session(member30, &at30)?
+        },
+        r#box: {
+            let at31 = json::nested(at, "box");
+            let member31 = json::member_at(value, at, "box")?;
+            decode_conductor_config_box(member31, &at31)?
         },
     })
 }

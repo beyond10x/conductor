@@ -1,5 +1,5 @@
 // generated from conductor v1
-// contract digest 76ff8853154fd9fc652d256e9f2ea0288061fa7a3c87c5f5925297785077991a
+// contract digest d350cd82050d0055f444f8dd5113015e8308a7c611d42a1bf018a90db75feb08
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! Config — `conductor.config`.
@@ -26,6 +26,17 @@ pub struct Authority {
     pub class_c: crate::decision::Decider,
     /// `class_o` — `conductor.decision.Decider`.
     pub class_o: crate::decision::Decider,
+}
+
+/// Box — `conductor.config.Box`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Box {
+    /// `tools` — `List<String>`.
+    pub tools: Vec<String>,
+    /// `env` — `Map<String, String>`.
+    pub env: std::collections::BTreeMap<String, String>,
+    /// `egress` — `List<String>`.
+    pub egress: Vec<String>,
 }
 
 /// Cadence — `conductor.config.Cadence`.
@@ -583,6 +594,8 @@ pub struct Instance {
     pub forge: Forge,
     /// `conductor` — `conductor.config.ConductorSession`.
     pub conductor: ConductorSession,
+    /// `box` — `conductor.config.Box`.
+    pub r#box: Box,
 }
 
 /// InstanceName — `conductor.config.InstanceName`: a distinct wrapper around `String`.

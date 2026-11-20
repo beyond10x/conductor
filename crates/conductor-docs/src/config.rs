@@ -302,6 +302,10 @@ instances:
     standing_rules: No private name in a commit.
     forge:
       route: direct
+    box:
+      tools: [~/.cargo, ~/.rustup]
+      env: {CARGO_HOME: ~/.cargo, RUSTUP_HOME: ~/.rustup}
+      egress: []
 ";
 
 /// One type of the specification: its declaration and the comment above it.
