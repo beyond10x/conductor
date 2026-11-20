@@ -949,12 +949,23 @@ types:
       - api_key_sessions >= 0
       - distinct: {in: operators, as: operator, by: operator.name}
 
+  # `globals.supervisor` (story:supervisor-watch-command): the operator's inbox and outbox the
+  # supervisor watch's `INBOX` trigger reads (`conductor supervisor watch`), each a path to a file
+  # of one request id per line, `~/` read as the home directory. The trigger fires while the inbox
+  # holds an id the outbox does not; with either key absent it is off. Absent, both are.
+  - name: conductor.config.SupervisorWatch
+    kind: struct
+    fields:
+      - {name: inbox, type: Optional<String>}
+      - {name: outbox, type: Optional<String>}
+
   # The `globals` section (design architecture-next § 9, § 10): the defaults every instance starts
   # from, each overridden by an instance key of the same name and by a role's own key. `roles` are
   # the built-in and custom roles with their kind, model and profile; the host roles `supervisor`
   # and `teacher`, which the daemon starts, are written here only (a `conductor.config/1` file's
   # `host.roles` becomes `globals.roles` at `config migrate`). `tuning` is the tuning grant, empty
-  # by default (`conductor.improvement.TuningGrant`, § 13 row 7).
+  # by default (`conductor.improvement.TuningGrant`, § 13 row 7). `supervisor` is what the host
+  # supervisor's watch reads beside the instances (`SupervisorWatch`); absent, nothing.
   - name: conductor.config.Globals
     kind: struct
     fields:
@@ -963,6 +974,7 @@ types:
       - {name: thresholds, type: conductor.config.Thresholds}
       - {name: limits, type: conductor.config.Limits}
       - {name: tuning, type: conductor.improvement.TuningGrant}
+      - {name: supervisor, type: Optional<conductor.config.SupervisorWatch>}
     invariants:
       - distinct: {in: roles, as: role, by: role.role}
 

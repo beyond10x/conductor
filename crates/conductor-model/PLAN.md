@@ -1,13 +1,13 @@
 <!--
   generated from conductor v1
-  contract digest f211df78f7e86952af7f2c6b1430dbdc1ff3c13ace783e6872ec932be9a0f32b
+  contract digest 990a21ced6fe27f2052a755ba5a22f383ffd50d9d3f92b3324424d62542ace75
   do not edit: regenerate with `ess synthesize --layout crate`
 -->
 # Synthesis plan — conductor v1
 
 Scope: `component-skeletons`, laid out as `crate`, planned by `ess-synth`. Regenerate with `ess synthesize --layout crate`.
 
-1048 capabilities: **1032 generated**, **16 obligations**, **0 refused**. An obligation is yours to implement against its contract; a refusal is a fact about this synthesis scope, not about the specification.
+1055 capabilities: **1039 generated**, **16 obligations**, **0 refused**. An obligation is yours to implement against its contract; a refusal is a fact about this synthesis scope, not about the specification.
 
 ## Generated
 
@@ -105,6 +105,7 @@ Scope: `component-skeletons`, laid out as `crate`, planned by `ess-synth`. Regen
 | domain type | `conductor.config.ShowConfig` |
 | domain type | `conductor.config.Source` |
 | domain type | `conductor.config.SuggestedPrefix` |
+| domain type | `conductor.config.SupervisorWatch` |
 | domain type | `conductor.config.Thresholds` |
 | domain type | `conductor.config.TimeOfDay` |
 | domain type | `conductor.config.TlsListener` |
@@ -209,6 +210,9 @@ Scope: `component-skeletons`, laid out as `crate`, planned by `ess-synth`. Regen
 | domain type | `conductor.host.ReclaimStep` |
 | domain type | `conductor.host.ReleaseReason` |
 | domain type | `conductor.host.ShowGrants` |
+| domain type | `conductor.host.SupervisorTrigger` |
+| domain type | `conductor.host.SupervisorTriggerKind` |
+| domain type | `conductor.host.WatchSupervisor` |
 | domain type | `conductor.improvement.ComputeMetrics` |
 | domain type | `conductor.improvement.FindingId` |
 | domain type | `conductor.improvement.FrictionFinding.State` |
@@ -843,7 +847,10 @@ Scope: `component-skeletons`, laid out as `crate`, planned by `ess-synth`. Regen
 | error type | `conductor.host.HostGrantNotFound` |
 | error type | `conductor.host.HostGrantStateConflict` |
 | error type | `conductor.host.InvalidSize` |
+| error type | `conductor.host.InvalidWatchTimeout` |
 | error type | `conductor.host.NotADiskGrant` |
+| error type | `conductor.host.SupervisorWatchRunning` |
+| error type | `conductor.host.WatchStateUnwritable` |
 | error type | `conductor.improvement.FindingExists` |
 | error type | `conductor.improvement.FindingNotFound` |
 | error type | `conductor.improvement.FindingStateConflict` |

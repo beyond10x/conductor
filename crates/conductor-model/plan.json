@@ -2,8 +2,8 @@
   "provenance": {
     "system": "conductor",
     "specification_version": "v1",
-    "source_digest": "7d164cdb374457abb171b97537afcc8267924d0d3fb80e49a98a7f16de0c81b8",
-    "contract_digest": "f211df78f7e86952af7f2c6b1430dbdc1ff3c13ace783e6872ec932be9a0f32b"
+    "source_digest": "78347ba77de437e68636cf52d63e12fb2a7d297c20fbfe4f70b796c93fd1d8ff",
+    "contract_digest": "990a21ced6fe27f2052a755ba5a22f383ffd50d9d3f92b3324424d62542ace75"
   },
   "scope": {
     "profile": "component-skeletons",
@@ -650,6 +650,13 @@
     {
       "kind": "domain_type",
       "source": "conductor.config.SuggestedPrefix",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.config.SupervisorWatch",
       "disposition": {
         "disposition": "generated"
       }
@@ -1378,6 +1385,27 @@
     {
       "kind": "domain_type",
       "source": "conductor.host.ShowGrants",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.host.SupervisorTrigger",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.host.SupervisorTriggerKind",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.host.WatchSupervisor",
       "disposition": {
         "disposition": "generated"
       }
@@ -5978,7 +6006,28 @@
     },
     {
       "kind": "error_type",
+      "source": "conductor.host.InvalidWatchTimeout",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "error_type",
       "source": "conductor.host.NotADiskGrant",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "error_type",
+      "source": "conductor.host.SupervisorWatchRunning",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "error_type",
+      "source": "conductor.host.WatchStateUnwritable",
       "disposition": {
         "disposition": "generated"
       }
