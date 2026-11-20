@@ -14,23 +14,35 @@ relations:
 - decomposes: epic:architecture-next
 - informed_by: story:box-runtime-starts
 scope:
-- confidence: inferred
+- confidence: cited
+  path: crates/conductor-docs/src/config.rs
+- confidence: cited
+  path: crates/conductor-model
+- confidence: cited
+  path: crates/conductor/http.yaml
+- confidence: cited
   path: crates/conductor/src/config.rs
-- confidence: inferred
+- confidence: cited
   path: crates/conductor/src/doctor.rs
 - confidence: cited
   path: crates/conductor/src/placement.rs
-- confidence: inferred
+- confidence: cited
   path: crates/conductor/tests/config.rs
-- confidence: inferred
+- confidence: cited
   path: crates/conductor/tests/doctor.rs
-- confidence: inferred
+- confidence: cited
   path: crates/conductor/tests/placement.rs
 - confidence: cited
+  path: docs/design/architecture-next.md
+- confidence: cited
   path: spec/domains/config.yaml
-- confidence: inferred
+- confidence: cited
   path: website/docs/guides/run-isolated.md
-revision: 7
+- confidence: cited
+  path: website/docs/guides/troubleshoot.md
+- confidence: cited
+  path: website/docs/reference/config.md
+revision: 8
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-20T06:10:46Z", actor: "human:unknown", revision: 5}
 - {from: "proposed", to: "active", at: "2026-11-20T06:10:46Z", actor: "human:unknown", revision: 6}
