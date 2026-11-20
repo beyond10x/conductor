@@ -9,14 +9,12 @@ relations:
 - decomposes: epic:architecture-next
 scope:
 - confidence: cited
-  path: crates/conductor/src/daemon/dial.rs
-- confidence: cited
   path: crates/conductor/src/token.rs
 - confidence: cited
   path: crates/conductor/tests/instance_api.rs
 - confidence: cited
   path: crates/conductor/tests/token_pool.rs
-revision: 7
+revision: 8
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-20T12:18:40Z", actor: "human:unknown", revision: 6}
 - {from: "proposed", to: "active", at: "2026-11-20T12:18:40Z", actor: "human:unknown", revision: 7}
