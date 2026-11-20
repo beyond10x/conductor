@@ -25,6 +25,8 @@ scope:
 - confidence: cited
   path: crates/conductor/src/run/handlers.rs
 - confidence: cited
+  path: crates/conductor/tests/profiles.rs
+- confidence: cited
   path: crates/conductor/tests/run.rs
 - confidence: cited
   path: docs/design/conductor-run.md
@@ -34,7 +36,7 @@ scope:
   path: website/docs/concepts/the-loop.md
 - confidence: cited
   path: website/docs/guides/start-conductor.md
-revision: 6
+revision: 7
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-20T17:01:41Z", actor: "human:unknown", revision: 5}
 - {from: "proposed", to: "active", at: "2026-11-20T17:01:41Z", actor: "human:unknown", revision: 6}
