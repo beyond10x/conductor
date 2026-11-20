@@ -792,13 +792,12 @@ pub fn daily_tick(
     );
     let records = Path::new(&tick.instance().records);
     write_file(&records.join("REPORT.md"), &brief)?;
-    let route = Route::new(
-        tick.instance().forge.route,
+    let route = Route::of(
+        tick.instance(),
         &tick.seams.program,
         tick.config,
         tick.state,
-    )
-    .with_forge_access(tick.instance().forge_access);
+    );
     let committed = commit_records(records, &route, day);
     // The refusal and what refused it, `records check`'s findings among them, in the loop's log
     // too (`story:daily-tick-logged`).

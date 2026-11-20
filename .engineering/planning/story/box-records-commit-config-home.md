@@ -16,6 +16,8 @@ scope:
 - confidence: cited
   path: crates/conductor/src/doctor.rs
 - confidence: cited
+  path: crates/conductor/src/placement.rs
+- confidence: cited
   path: crates/conductor/src/run.rs
 - confidence: cited
   path: crates/conductor/src/run/dispatch.rs
@@ -29,7 +31,7 @@ scope:
   path: docs/design/architecture-next.md
 - confidence: cited
   path: website/docs/guides/run-isolated.md
-revision: 7
+revision: 8
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-20T08:50:44Z", actor: "human:unknown", revision: 6}
 - {from: "proposed", to: "active", at: "2026-11-20T08:50:45Z", actor: "human:unknown", revision: 7}

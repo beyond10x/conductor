@@ -12,7 +12,9 @@
 //! `fake/`, what it reads and writes; and the config file `conductor.yaml` naming them.
 //!
 //! The stand-in, written here and never committed, logs each call's arguments one line to
-//! `fake/gates.calls`, keeps the message file of a commit as `fake/message`, and answers a commit
+//! `fake/gates.calls`, and the `XDG_CONFIG_HOME` and `B10X_GATES_POLICY` it saw (`<unset>` when
+//! not set) one line each to `fake/xdg-config-home` and `fake/gates-policy`
+//! (`story:box-records-commit-config-home`), keeps the message file of a commit as `fake/message`, and answers a commit
 //! with git's first line, `[main 0123abc] <title>`, and a push with `0`. With `fake/mode` holding
 //! `refuse` it refuses a commit, and with `refuse-push` a push, each with two lines on standard
 //! error and exit 1. It commits nothing: the records stay as they were.
@@ -238,6 +240,8 @@ impl Case {
                 "#!/bin/sh\n\
                  D='{fake}'\n\
                  printf '%s\\n' \"$*\" >> \"$D/gates.calls\"\n\
+                 printf '%s\\n' \"${{XDG_CONFIG_HOME-<unset>}}\" >> \"$D/xdg-config-home\"\n\
+                 printf '%s\\n' \"${{B10X_GATES_POLICY-<unset>}}\" >> \"$D/gates-policy\"\n\
                  next=''\n\
                  for arg; do\n\
                  \x20 if [ \"$next\" = file ]; then cp \"$arg\" \"$D/message\"; fi\n\
@@ -326,7 +330,20 @@ impl Case {
     /// `conductor <args>` from the records directory, with the case's home, config file and
     /// stand-in.
     fn conductor(&self, args: &[&str]) -> Output {
-        common::conductor(self.home())
+        self.conductor_with(args, &[])
+    }
+
+    /// [`Self::conductor`] with `env` set beside, and the bot route's two variables
+    /// (`XDG_CONFIG_HOME`, `B10X_GATES_POLICY`) of the test's own environment removed.
+    fn conductor_with(&self, args: &[&str], env: &[(&str, &Path)]) -> Output {
+        let mut command = common::conductor(self.home());
+        command
+            .env_remove("XDG_CONFIG_HOME")
+            .env_remove("B10X_GATES_POLICY");
+        for (name, value) in env {
+            command.env(name, value);
+        }
+        command
             .args(args)
             .current_dir(self.records())
             .env(config::CONFIG_VARIABLE, self.config())
@@ -358,6 +375,8 @@ impl Case {
             .env("HOME", self.home())
             .env_remove(config::INSTANCE_VARIABLE)
             .env_remove("CLAUDE_CODE_SESSION_ID")
+            .env_remove("XDG_CONFIG_HOME")
+            .env_remove("B10X_GATES_POLICY")
             .env(config::CONFIG_VARIABLE, self.config())
             .env("PATH", self.path())
             .env("GIT_CONFIG_NOSYSTEM", "1")
@@ -387,6 +406,32 @@ impl Case {
             .lines()
             .map(str::to_owned)
             .collect()
+    }
+
+    /// What the stand-in saw of `variable` (`xdg-config-home` or `gates-policy`) at each call,
+    /// `<unset>` when it was not set.
+    fn seen(&self, variable: &str) -> Vec<String> {
+        fs::read_to_string(self.fake().join(variable))
+            .unwrap_or_default()
+            .lines()
+            .map(str::to_owned)
+            .collect()
+    }
+
+    /// The config file with `line` added to the instance's mapping when given, and its
+    /// `confinement` replaced by `confinement` when given.
+    fn configure(&self, line: Option<&str>, confinement: Option<&str>) {
+        let mut config = fs::read_to_string(self.config()).expect("read the config file");
+        if let Some(confinement) = confinement {
+            config = config.replace(
+                "confinement: {provider: none}",
+                &format!("confinement: {confinement}"),
+            );
+        }
+        if let Some(line) = line {
+            config.push_str(&format!("\x20   {line}\n"));
+        }
+        write(&self.config(), &config);
     }
 
     /// The message of the commit the stand-in was asked for.
@@ -757,4 +802,79 @@ fn under_the_direct_route_the_records_are_committed_and_pushed_with_git() {
     assert_eq!(lines[0]["event"], "records-committed");
     assert_eq!(lines[0]["line"], message.as_str());
     assert_eq!(lines[0]["evidence"], "pushed origin main");
+}
+
+/// `story:box-records-commit-config-home`: the bot route of the records commit runs with
+/// `B10X_GATES_POLICY` set to the instance's `gates_policy`, in place of the one the runtime
+/// inherited.
+#[test]
+fn the_records_commit_runs_the_bot_route_with_the_instance_gates_policy() {
+    let case = Case::new("gates-policy", true);
+    let policy = case.dir.join("policy/gates.toml");
+    write(&policy, "# policy\n");
+    case.configure(Some(&format!("gates_policy: {}", policy.display())), None);
+    let day = today();
+    case.lines_of(&day);
+    let inherited = case.dir.join("inherited.toml");
+    let output = case.conductor_with(
+        &["run", "--once", "--commit-records"],
+        &[("B10X_GATES_POLICY", &inherited)],
+    );
+    assert!(output.status.success(), "{}", describe(&output));
+    assert_eq!(case.calls().len(), 1, "{:?}", case.calls());
+    assert_eq!(case.seen("gates-policy"), [policy.display().to_string()]);
+
+    // With no `gates_policy`, the inherited variable is left as it is.
+    let case = Case::new("gates-policy-inherited", true);
+    case.lines_of(&day);
+    let output = case.conductor_with(
+        &["run", "--once", "--commit-records"],
+        &[("B10X_GATES_POLICY", &inherited)],
+    );
+    assert!(output.status.success(), "{}", describe(&output));
+    assert_eq!(case.seen("gates-policy"), [inherited.display().to_string()]);
+}
+
+/// `story:box-records-commit-config-home`: in a boxed instance the records commit's
+/// `b10x-gates` runs with `XDG_CONFIG_HOME` set to `<cache>/xdg-config` when the runtime has
+/// none and `box.env` names none; to `box.env`'s value when it names one, in the daily tick as
+/// in `--commit-records`.
+#[test]
+fn the_records_commit_passes_the_box_config_dir_to_b10x_gates_when_the_runtime_has_none() {
+    let case = Case::new("box-config-home", true);
+    case.configure(None, Some("{provider: systemd}"));
+    let day = today();
+    case.lines_of(&day);
+    let output = case.conductor(&["run", "--once", "--commit-records"]);
+    assert!(output.status.success(), "{}", describe(&output));
+    assert_eq!(case.calls().len(), 1, "{:?}", case.calls());
+    let cache = case.dir.join("cache/xdg-config");
+    assert_eq!(case.seen("xdg-config-home"), [cache.display().to_string()]);
+
+    let case = Case::new("box-config-home-env", true);
+    let named = case.dir.join("bot-config");
+    case.configure(
+        Some(&format!(
+            "box: {{env: {{XDG_CONFIG_HOME: {}}}}}",
+            named.display()
+        )),
+        Some("{provider: systemd}"),
+    );
+    case.lines_of(&day);
+    let tick = case.child(&day);
+    assert_eq!(tick["actions"], json!(["records-committed"]), "{tick}");
+    assert_eq!(case.seen("xdg-config-home"), [named.display().to_string()]);
+}
+
+/// `story:box-records-commit-config-home`: an instance on the host (unboxed: `confinement: {provider: none}`) runs the
+/// records commit's `b10x-gates` with the environment unchanged: no `XDG_CONFIG_HOME` is set.
+#[test]
+fn an_unboxed_records_commit_sets_no_xdg_config_home() {
+    let case = Case::new("host-config-home", true);
+    let day = today();
+    case.lines_of(&day);
+    let output = case.conductor(&["run", "--once", "--commit-records"]);
+    assert!(output.status.success(), "{}", describe(&output));
+    assert_eq!(case.calls().len(), 1, "{:?}", case.calls());
+    assert_eq!(case.seen("xdg-config-home"), ["<unset>"]);
 }
