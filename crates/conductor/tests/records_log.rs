@@ -913,6 +913,45 @@ fn records_check_judges_no_line_of_the_month_files_before_the_first_a_command_op
     );
 }
 
+/// `story:records-check-quoted-message` (issue #232): a field of a dispatch line that quotes
+/// another's text cites nothing. A message's `first_line` quoting a repository's own `DEC-05`, a
+/// delivered message's `first_line` and a report's `evidence` quoting one, in a log whose first
+/// line a command wrote, leave `records check` at exit 0; the same unknown id in `reason`, which
+/// conductor writes, is still `UnknownDecision` (the test above).
+#[test]
+fn records_check_reads_no_citation_out_of_a_quoted_message_or_evidence() {
+    let case = Case::new("check-quoted");
+    let dispatches = [
+        // A line a command wrote opens the month, so every line of it is judged.
+        json!({"at": AT, "event": "started", "repo": "alpha", "id": "DSP-1"}),
+        json!({"at": AT, "event": "message-received", "repo": "alpha", "id": "MSG-1",
+               "from": "ex-alpha", "to": "conductor", "kind": "Report",
+               "first_line": "[REPORT alpha DSP-1] blocked: the DEC-05 urgency change"}),
+        json!({"at": AT, "event": "delivered", "repo": "alpha", "to": "ex-alpha",
+               "first_line": "[BRIEF alpha] cap 512 KiB, DEC-04", "body_path": "mail/1.md"}),
+        json!({"at": AT, "event": "done", "repo": "alpha", "id": "DSP-1",
+               "evidence": "PR 7 merged; follows DEC-0012 of the repository"}),
+    ];
+    fs::create_dir_all(case.records().join("dispatches")).expect("create dispatches/");
+    fs::write(
+        case.records().join("dispatches/2026-10.jsonl"),
+        dispatches
+            .iter()
+            .map(|line| format!("{line}\n"))
+            .collect::<String>(),
+    )
+    .expect("write the dispatch log");
+
+    let output = case.run(&["records", "check"]);
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "a quoted DEC- id is no citation: {}",
+        describe(&output)
+    );
+    assert!(output.stdout.is_empty(), "{}", describe(&output));
+}
+
 // -------------------------------------------------------------------------------------------------
 // story:rules-into-code items 1 and 2.
 // -------------------------------------------------------------------------------------------------

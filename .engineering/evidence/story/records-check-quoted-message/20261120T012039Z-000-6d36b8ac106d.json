@@ -1,0 +1,13 @@
+{
+  "at": "2026-11-20T01:20:39Z",
+  "actor": "human:unknown",
+  "artifact": "story:records-check-quoted-message",
+  "kind": "story",
+  "revision": 5,
+  "change": {
+    "change": "evidence",
+    "kind": "test_result",
+    "source": "cargo test -p conductor-cli --test records_log --test run_records --test dispatch_reference: 35 passed; clippy -D warnings clean; ess conform 733 passed",
+    "reference": "crates/conductor/tests/records_log.rs"
+  }
+}
