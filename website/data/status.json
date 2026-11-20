@@ -48,8 +48,8 @@
     },
     {
       "area": "Snapshot collectors",
-      "detail": "A source that does not answer fails the snapshot and keeps what was already recorded.",
-      "label": "A silent source fails the snapshot",
+      "detail": "A source that does not answer fails its collector's run, with its reason; the snapshot completes with every other collector's rows and names the failed collector.",
+      "label": "A silent source fails only its own rows",
       "status": "shipped"
     },
     {
