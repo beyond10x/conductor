@@ -701,9 +701,10 @@ fn a_need_to_a_chartless_repository_opens_one_unit_of_work() {
     assert_eq!(row["dispatch_id"], id.as_str(), "{row}");
 }
 
-/// `story:need-starts-unit-of-work`: a `[NEED]` for a repository with a charter, and one whose
-/// `<other-repo>` names the requester itself, keep today's behaviour: kept for the repository's
-/// next start, no dispatch opened.
+/// `story:need-starts-unit-of-work`: a `[NEED]` for a repository with a charter keeps today's
+/// behaviour: kept for the repository's next start, no dispatch opened. One whose `<other-repo>`
+/// names the requester itself opens nothing either and is kept for no one: it stays in the
+/// mailbox for the supervisor (`story:need-to-own-repo-not-echoed`).
 #[test]
 fn a_need_to_a_chartered_repository_or_to_its_sender_opens_nothing() {
     let case = Case::new("need-chartered");
@@ -721,7 +722,11 @@ fn a_need_to_a_chartered_repository_or_to_its_sender_opens_nothing() {
         .iter()
         .filter_map(|item| item["repo"].as_str().map(str::to_owned))
         .collect();
-    assert_eq!(kept, ["atlas", "cortex"], "each need is kept as before");
+    assert_eq!(
+        kept,
+        ["atlas"],
+        "the need for atlas is kept, none for cortex"
+    );
 }
 
 /// `story:need-starts-unit-of-work`: a `[NEED]` whose `<other-repo>` names no repository of the

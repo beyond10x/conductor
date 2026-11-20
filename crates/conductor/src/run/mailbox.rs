@@ -17,7 +17,7 @@
 //! | `[REPORT <repo> <dispatch-id>] withdrawn <why>` | the controller withdraws its own `done`: a `Done` dispatch whose `done` this mailbox took after the last cycle started ([`TAKEN`]) is reopened by the loop (`dispatch reopen-dispatch`, `reopened`); an older one is refused, the answer naming `dispatch reopen-dispatch`, the operator's; on an open dispatch it moves nothing ([`withdrawn`]) |
 //! | `[REPORT <repo> <dispatch-id\|->] review <url> [<words>]` | the controller's pull request ([`review`]): a `Sent` dispatch is reported `started`, another moves nothing, as `progress`; the URL, the first word after the verb, is then recorded on the dispatch as `dispatch record-link` records it. A first word that is no link a dispatch takes, or none, is a `progress` report with nothing linked, and a dispatch that holds the most links takes the report without it: neither is refused, and the journal names it in one line. No other verb records a link |
 //! | `[HANDOVER <repo>] <rest>` | recorded as a report: the repository's open dispatch is reported blocked, `handover: <rest>` |
-//! | `[NEED <repo> <request-id>] <other-repo> <what>` | the whole message delivered to the running controller of `<other-repo>` (`relayed`), else kept for its next start; the repository is the field's leading run of name characters (`docs:` names `docs`). A repository other than `<repo>` with no charter (none, an empty one or the default one), no running controller and no open dispatch gets a unit of work instead ([`unit`], `story:need-starts-unit-of-work`): one dispatch, `need-<repo>-<request-id>` its reference and the whole message its brief, which the message is routed to (`message route-need`) and the cycle starts; the same need again answers that dispatch, and `<repo>`'s controller is told `[REPORT <repo> -] need <request-id> opened <dispatch-id> for <other-repo>`. A field that names no repository the instance knows is not relayed and nothing is kept for it: the file stays in the mailbox, where the supervisor reads it, the sender is told so in one message, `[REPORT <repo> -] not relayed: <reason>`, and one alert `need-unroutable` is raised ([`crate::alert`]); one that names the mailbox's own recipient, `conductor`, is the supervisor's and is answered by no one (`story:need-repository-from-tag`) |
+//! | `[NEED <repo> <request-id>] <other-repo> <what>` | the whole message delivered to the running controller of `<other-repo>` (`relayed`), else kept for its next start; the repository is the field's leading run of name characters (`docs:` names `docs`). A repository other than `<repo>` with no charter (none, an empty one or the default one), no running controller and no open dispatch gets a unit of work instead ([`unit`], `story:need-starts-unit-of-work`): one dispatch, `need-<repo>-<request-id>` its reference and the whole message its brief, which the message is routed to (`message route-need`) and the cycle starts; the same need again answers that dispatch, and `<repo>`'s controller is told `[REPORT <repo> -] need <request-id> opened <dispatch-id> for <other-repo>`. A field that names no repository the instance knows is not relayed and nothing is kept for it: the file stays in the mailbox, where the supervisor reads it, the sender is told so in one message, `[REPORT <repo> -] not relayed: <reason>`, and one alert `need-unroutable` is raised ([`crate::alert`]); one that names the mailbox's own recipient, `conductor`, is the supervisor's and is answered by no one (`story:need-repository-from-tag`); one that names its sender's own `<repo>` stays in the mailbox for the supervisor too, nothing kept for `<repo>` and no alert raised, and `<repo>`'s running controller is told so in one message, `[REPORT <repo> -] not relayed: <reason>` (`story:need-to-own-repo-not-echoed`) |
 //! | `[DECISION-REQUEST <repo> <request-id>] <question>` | handed whole to `decide::handle_request` ([`super::handle_request`]), which raises it with the rule that classified it, answers and records class C and escalates class O and H; a decided request's `[DECISION]` is delivered to the controller that raised it (`decision-sent`), else kept for its next start. With no decider seam ([`super::HandleRequest`]), raised (`decision raise-decision-request`) and escalated as class O, one of the options its body lists (`A) <label>: <cost>`), its `Recommendation:` line's letter recommended and the default, the deadline 48 hours out |
 //! | `[RESOURCE <repo>] <kind> <amount>` | answered "use conductor build run" to the repository's running controller (`relayed`), else kept for its next start |
 //!
@@ -681,7 +681,9 @@ fn held_of(tick: &Tick<'_, '_>, id: &str) -> Result<Option<(DispatchState, Strin
 /// the mailbox, where the supervisor reads it. The sender is told so ([`NotRelayed`]), but for a
 /// field that names the mailbox's own recipient ([`RECIPIENT`]), a need for the supervisor that
 /// is answered by no one here (`story:need-repository-from-tag`), and raises one alert
-/// `need-unroutable` ([`unroutable`]).
+/// `need-unroutable` ([`unroutable`]). A field that names `repo` itself, the sender's own
+/// repository, stays in the mailbox for the supervisor as well ([`own_repository`],
+/// `story:need-to-own-repo-not-echoed`): nothing is kept for `repo`, no alert is raised.
 ///
 /// A need of `repo` for another repository that can only start for a unit of work becomes one
 /// ([`unit`], `story:need-starts-unit-of-work`): its message, the file `file`, is routed to that
@@ -709,11 +711,11 @@ fn need(
             return Err(error);
         }
     };
-    // A need that names its own repository is no work for another: it waits for its own
-    // controller, as before.
-    if other != repo
-        && let Some(id) = unit(tick, &other, repo, request, text)?
-    {
+    if other == repo {
+        own_repository(tick, repo, first)?;
+        return Ok(false);
+    }
+    if let Some(id) = unit(tick, &other, repo, request, text)? {
         route(tick, file, &id)?;
         deliver_or_keep(
             tick,
@@ -731,6 +733,28 @@ fn need(
         json!({"repo": other, "text": text, "event": "relayed", "line": first}),
     )?;
     Ok(true)
+}
+
+/// A `[NEED]` of `repo` whose `<other-repo>` names `repo` itself, its first line `first`
+/// (`story:need-to-own-repo-not-echoed`): no other repository's work, and handing it back to its
+/// sender would answer nothing, so it stays in the mailbox for the supervisor, as a need for
+/// [`RECIPIENT`] does. Nothing is kept for `repo`; its running controller is told so in one
+/// message, and one that does not run is told nothing. No alert: the repository is known.
+fn own_repository(tick: &mut Tick<'_, '_>, repo: &str, first: &str) -> Result<()> {
+    if tick.running(repo)?.is_none() {
+        return Ok(());
+    }
+    let text = format!(
+        "[REPORT {repo} -] not relayed: the need names {repo:?}, its sender's own repository; it \
+         stays in {RECIPIENT}'s mailbox, where the supervisor reads it\n\
+         Your message: {first}\n\
+         The form: [NEED {repo} <request-id>] <other-repo> <what>, <other-repo> another \
+         repository of the instance, or {RECIPIENT} for the supervisor\n"
+    );
+    deliver_or_keep(
+        tick,
+        json!({"repo": repo, "text": text, "event": "relayed", "line": first}),
+    )
 }
 
 /// The condition of a `[NEED]` whose `<other-repo>` names no repository of the instance.
