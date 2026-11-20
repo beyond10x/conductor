@@ -575,8 +575,8 @@ fn a_failing_records_check_refuses_the_commit_with_its_output() {
     case.lines_of(&today());
     case.append(
         "dispatches",
-        &json!({"at": format!("{}T11:00:00Z", today()), "event": "done", "repo": "alpha",
-                "id": "dispatch-1", "evidence": "see DEC-20260101-99"}),
+        &json!({"at": format!("{}T11:00:00Z", today()), "event": "blocked", "repo": "alpha",
+                "id": "dispatch-1", "reason": "waits on DEC-20260101-99"}),
     );
     let output = case.conductor(&["run", "--once", "--commit-records"]);
     assert_eq!(output.status.code(), Some(1), "{}", describe(&output));
@@ -601,8 +601,8 @@ fn a_daily_tick_s_refused_commit_logs_the_check_s_findings() {
     case.lines_of(day);
     case.append(
         "dispatches",
-        &json!({"at": format!("{day}T11:00:00Z"), "event": "done", "repo": "alpha",
-                "id": "dispatch-1", "evidence": "see DEC-20260101-99"}),
+        &json!({"at": format!("{day}T11:00:00Z"), "event": "blocked", "repo": "alpha",
+                "id": "dispatch-1", "reason": "waits on DEC-20260101-99"}),
     );
     let (tick, said) = case.child_said(day);
     assert_eq!(tick["actions"], json!(["records-commit-refused"]), "{tick}");

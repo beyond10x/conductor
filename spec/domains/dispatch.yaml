@@ -465,7 +465,10 @@ types:
   # or holds a key its log's line (`DispatchLogLine`, `conductor.decision.DecisionLogLine`) does
   # not declare; `DecisionInDispatchLog`, a line of `dispatches/` whose `event` is a decision
   # log's event, or that has no `event` and whose `id` is a decision id. A decision id in a
-  # dispatch line's `line`, which quotes another program's output, is no citation. The month
+  # dispatch line's field that quotes another's text is no citation: `line` (another program's
+  # output or a watch line), `first_line` (a message's first line as its sender wrote it, where a
+  # repository's own `DEC-05` is no decision of conductor's) and `evidence` (a controller's report,
+  # or what `gc` or the commit route printed). Every other field is conductor's own and cites. The month
   # files of a log before the first whose first line a command wrote are legacy: no line of them is
   # judged. A line reported as `DecisionInDispatchLog` is reported for nothing else. Two findings
   # read files, not log lines (story:rules-into-code). `RawThreshold`: a line of `charters/*.md` writes a size in gibibytes

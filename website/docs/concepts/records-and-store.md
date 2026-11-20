@@ -36,7 +36,7 @@ appended only where `conductor init` made the log's directory.
 |---|---|
 | `DecisionInDispatchLog` | a decision event in `dispatches/` |
 | `UnknownKeySet` | a line that is no JSON object, misses a key its log holds, or holds one it does not declare |
-| `UnknownDecision` | a `DEC-…` id cited in `dispatches/` that no decision holds |
+| `UnknownDecision` | a `DEC-…` id cited in `dispatches/` that no decision holds; an id in `line`, `first_line` or `evidence`, which quote another's text, is no citation |
 | `RawThreshold` | a size in a charter that a threshold key holds |
 | `RoleFileRules` | a role file over 20 rules, or with a rule of more than one line |
 

@@ -20,14 +20,14 @@
 //! (`DecisionInDispatchLog`, and nothing else for that line); a line of either log that is no JSON
 //! object, misses a key every line of its log holds or holds a key its log does not declare
 //! (`UnknownKeySet`); and each decision id (`DEC-…`) a line of `dispatches/` cites that no line of
-//! `decisions/` and no decision of the store holds (`UnknownDecision`; an id in its `line`, which
-//! quotes another program's output, is no citation). The month files of a log before the first
-//! whose first line a command wrote are legacy and not judged. It prints one finding per
-//! line, `<file>:<line>: <finding>: <detail>`, or with `--format json` an array of
-//! `RecordsFinding` objects, and exits 1 when it found any. It also reads the charters and the
-//! role rule files ([`files`], `story:rules-into-code`): `RawThreshold` for a size in a charter
-//! that a threshold key holds, `RoleFileRules` for a role file over 20 rules or with a rule of
-//! more than one line.
+//! `decisions/` and no decision of the store holds (`UnknownDecision`; an id in a field that quotes
+//! another's text, `line`, `first_line` or `evidence` ([`QUOTED`]), is no citation). The month
+//! files of a log before the first whose first line a command wrote are legacy and not judged. It
+//! prints one finding per line, `<file>:<line>: <finding>: <detail>`, or with `--format json` an
+//! array of `RecordsFinding` objects, and exits 1 when it found any. It also reads the charters
+//! and the role rule files ([`files`], `story:rules-into-code`): `RawThreshold` for a size in a
+//! charter that a threshold key holds, `RoleFileRules` for a role file over 20 rules or with a
+//! rule of more than one line.
 
 pub mod files;
 
@@ -726,9 +726,12 @@ fn decision_ids(text: &str) -> Vec<String> {
     ids
 }
 
-/// The field of a dispatch line that quotes another program's output, such as the findings a
-/// refused records commit carries: a decision id in it is quoted, not cited.
-const QUOTED: &str = "line";
+/// The fields of a dispatch line that quote another's text: a decision id in one is quoted, not
+/// cited. `line`, another program's output or a watch line, such as the findings a refused records
+/// commit carries; `first_line`, a message's first line as its sender wrote it, where a
+/// repository's own `DEC-05` is no decision of conductor's (issue #232); `evidence`, a
+/// controller's report or what `gc` or the commit route printed.
+const QUOTED: [&str; 3] = ["line", "first_line", "evidence"];
 
 /// How many lines of `lines` lie in the month files before the first file whose first line a
 /// command wrote, one whose key set is the log's (`keys`, `required`): the files kept by hand, or
@@ -750,7 +753,7 @@ fn legacy(lines: &[Line], keys: &[&str], required: &[&str]) -> usize {
 
 /// The findings over both logs, in file and line order: the dispatch log's, then the decision
 /// log's. A line of a legacy month file ([`legacy`]) is not judged. A decision id in a dispatch
-/// line's [`QUOTED`] field is no citation.
+/// line's [`QUOTED`] fields is no citation.
 fn check(dispatches: &[Line], decisions: &[Line], known: &BTreeSet<String>) -> Vec<RecordsFinding> {
     let old_dispatches = legacy(dispatches, &DISPATCH_KEYS, &DISPATCH_REQUIRED);
     let old_decisions = legacy(decisions, &DECISION_KEYS, &DECISION_REQUIRED);
@@ -779,7 +782,9 @@ fn check(dispatches: &[Line], decisions: &[Line], known: &BTreeSet<String>) -> V
         let mut cited = match &object {
             Some(Value::Object(object)) => {
                 let mut cites = object.clone();
-                cites.remove(QUOTED);
+                for field in QUOTED {
+                    cites.remove(field);
+                }
                 decision_ids(&Value::Object(cites).to_string())
             }
             _ => decision_ids(&line.text),
