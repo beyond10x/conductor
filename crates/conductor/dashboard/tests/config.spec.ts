@@ -5,6 +5,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { flushPromises, mount } from '@vue/test-utils';
 import Config from '../src/views/Config.vue';
 import {
+  CHOICES,
   diff,
   emptyStaging,
   needsRestart,
@@ -72,6 +73,14 @@ describe('validation', () => {
     expect(problemOf('thresholds.context_handover', '300k')).toBeNull();
     expect(problemOf('authority.class_c', 'nobody')).toMatch(/one of/);
     expect(problemOf('cadence.watch', null)).toBeNull();
+  });
+
+  // story:dashboard-unit-merge-setting: who merges a unit of work's request is one of two words.
+  it('offers controllers.unit_merge as controller or human and refuses any other value', () => {
+    expect(CHOICES['controllers.unit_merge']).toEqual(['controller', 'human']);
+    expect(problemOf('controllers.unit_merge', 'both')).toBe('one of controller, human');
+    expect(problemOf('controllers.unit_merge', 'human')).toBeNull();
+    expect(problemOf('controllers.unit_merge', 'controller')).toBeNull();
   });
 
   it('checks disk_clear against disk_low as staged', () => {
