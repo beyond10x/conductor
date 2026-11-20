@@ -52,7 +52,7 @@ scope:
   path: website/docs/reference/cli.md
 - confidence: cited
   path: website/docs/reference/config.md
-revision: 11
+revision: 13
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-20T13:56:15Z", actor: "human:unknown", revision: 9}
 - {from: "proposed", to: "active", at: "2026-11-20T13:56:15Z", actor: "human:unknown", revision: 10}
@@ -110,7 +110,8 @@ name; `-` when there is none); `detail` is the rest of the line, with newlines r
 `--format json` prints one `conductor.host.SupervisorTrigger` object per line instead. The
 supervisor runs it as its one background command and re-arms it in the turn it exits.
 
-- `--timeout` takes `<n>s`, `<n>m` or `<n>h`, default `20m`.
+- `--timeout` takes `<n>s`, `<n>m` or `<n>h`, default `20m`, at most `24h` (above it,
+  `InvalidWatchTimeout`).
 - `--checkout <path>` adds a checkout outside every instance (the product checkout) to `UNPUSHED`;
   its instance field is `-`.
 - `--hold <ref>` is accepted and modelled here; it filters `GREEN`, which the forge story adds.
@@ -129,7 +130,8 @@ supervisor runs it as its one background command and re-arms it in the turn it e
 - Delivery is at least once: a cursor advances only after the lines it covers are written and
   flushed to standard output, and is written to a temporary file and renamed into place. A run
   killed before it prints loses nothing; one killed between printing and the rename prints those
-  lines again on the next run. A restart skips nothing.
+  lines again on the next run. A restart skips nothing. A pass that fires nothing prints nothing,
+  so its cursors move at once (a quiet log or a passed-over report is not read again).
 - A first run with no cursor for an instance sets its mail and log cursors to the newest file and
   the log's end, and prints one note on standard error naming how many mail files it passed over
   (class C: a new host does not get a flood of old mail; the note keeps them visible).
@@ -142,12 +144,20 @@ supervisor runs it as its one background command and re-arms it in the turn it e
 The triggers this story implements, each with the exact source it reads:
 
 1. `MAIL`: every file in `<state>/mailbox/conductor/` whose ULID name sorts after the instance's
-   mail cursor, which advances to the newest name handled. All new files are listed, not only the
+   mail cursor, which advances to the newest name handled, and every file within 5 s of ULID time
+   below the cursor that the cursor does not name as handled (a ULID is made before its file is
+   written, in another process, so a file can land below one handled; the cursor keeps the names
+   handled in that window). A file that cannot be read is listed with `unreadable: <error>`. All new files are listed, not only the
    first. A file whose first line is `[REPORT <...>] progress`, `started`, `unblocked` or
    `blocked ci` is skipped unless its text holds `waits on` or `waiting for` (case-insensitive);
    the skipped files still advance the cursor. Subject: the file name; detail: its first line.
-2. `LOG`: lines of `<state>/sessions/runtime.log` past the instance's log cursor (byte offset,
-   reset to 0 when the file is shorter than the cursor) that carry `]: context: `, `LaunchFailed`,
+2. `LOG`: for a boxed instance (its `placement` names a substrate adapter), lines of
+   `<state>/sessions/runtime.log` past the instance's log cursor (byte offset, the file's inode and
+   its first bytes, reset to 0 when the file is shorter, replaced or rewritten under the cursor);
+   for an instance whose runtime runs in a unit, lines of that unit's journal
+   (`journalctl --user -u <unit> -o short-iso --show-cursor`, a command template of the seam) past
+   the persisted journal cursor; a missing log or a journal with no entry of the unit is one note;
+   either that carry `]: context: `, `LaunchFailed`,
    `no open dispatch`, `lists no lettered option`, `DispatchNotFound`, `snapshot exited`,
    `usage limit`, `start .claude.` or `waits: ControllerLimit`. Detail: the line.
 3. `DAEMON`: `Reconciliation` records of the instance newer than the daemon cursor (the newest
@@ -156,15 +166,18 @@ The triggers this story implements, each with the exact source it reads:
 4. `INBOX`: the file `globals.supervisor.inbox` holds a request id that `globals.supervisor.outbox`
    does not; off unless both keys are set. Instance `-`; subject: the first such id; detail: the
    count.
-5. `DISK`: free bytes on `thresholds.disk_path` under `thresholds.disk_low`, or 5 GiB below the
-   baseline the previous pass recorded (not the value at the run's start). The baseline is
-   rewritten every pass.
-6. `UNPUSHED`: a commit on a local branch of a checkout under `checkouts.root`, of a managed tree
-   of the instance, or of a `--checkout`, that no remote branch holds
+5. `DISK`: free bytes on `thresholds.disk_path` under `thresholds.disk_low` (once per fall), or
+   5 GiB below the baseline. The baseline is the first reading and moves only when a `DISK` line
+   fires or on the first pass an hour after it was set, written with the other cursors, so a slow
+   fill fires too.
+6. `UNPUSHED`: a commit on a local branch, or on the detached HEAD of a worktree, of a checkout
+   under `checkouts.root`, of a managed tree of the instance, or of a `--checkout`, that no remote branch holds
    (`git rev-list --branches --not --remotes`) and whose committer time is over 30 min old.
    Subject: `<path>:<branch>`; detail: the short sha and age.
-8. `IDLE`: a controller the store holds `Running` with an open dispatch whose transcript (and its
-   subagents') has not been written for 15 min (the reader `newest_write`), unless its newest report
+8. `IDLE`: a controller the store holds `Running` with an open dispatch whose transcripts (and their
+   subagents'), in the project directories of its checkout and of exactly its own managed trees,
+   have not been written for 15 min (the reader `newest_write`); with no transcript, 15 min since
+   its newest open dispatch was sent (the store keeps no start time of a controller), unless its newest report
    holds `waits on` or `waiting for`; a `blocked ci` report never suppresses it. At most once per
    30 min per controller (the time kept in the cursor directory).
 10. `TIMEOUT`: `--timeout` passed with no other trigger. Subject and detail `-`.
@@ -216,6 +229,19 @@ directory and `--timeout 1s`.
 
 And `crates/conductor/tests/profiles.rs`: `supervisor.md` names `conductor supervisor watch` and no
 longer holds `inotifywait`, `sleep 30` or `log --branches --not --remotes`; the cap stays 463.
+
+Added after the wave 69 adversary review (each failed first):
+
+- `log_reads_the_unit_journal_of_an_unboxed_instance_and_notes_a_missing_log`
+- `mail_lists_a_file_that_lands_below_the_cursor_within_its_window`
+- `an_unreadable_mail_file_is_listed_with_its_error`
+- `idle_reads_only_its_own_trees_and_counts_from_the_dispatch_without_a_transcript`
+- `a_quiet_pass_and_a_timeout_move_the_cursors_past_what_they_read`
+- `log_reads_a_rewritten_log_from_its_start`
+- `a_timeout_over_a_day_is_refused`
+- `unpushed_names_a_detached_head_in_a_worktree_of_a_named_checkout`
+- `disk_fires_under_disk_low_and_five_gigabytes_under_the_last_baseline`, rewritten: a slow fill
+  fires, and the baseline moves only on a `DISK` line or an hour on.
 
 ## Boundaries
 

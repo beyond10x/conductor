@@ -188,7 +188,7 @@ types:
   # trigger then instance, `<TRIGGER> <instance> <subject> <detail>` (`format` text, the default),
   # or one `SupervisorTrigger` object per line (`format` json). `subject` holds no white space, `-`
   # when there is none; `detail` is the rest of the line, newlines written as spaces. `timeout` is
-  # `<n>s`, `<n>m` or `<n>h`, `20m` when absent; past it with no other trigger the one line is
+  # `<n>s`, `<n>m` or `<n>h`, at most 24h, `20m` when absent; past it with no other trigger the one line is
   # `TIMEOUT`. Each `checkout` is a path outside every instance (the product checkout) whose local
   # commits `UNPUSHED` reads, its instance `-`. Each `hold` is a ref `GREEN` passes over
   # (story:supervisor-watch-forge-triggers), accepted and read by nothing until then.
@@ -197,9 +197,10 @@ types:
   # one small file each, written to a temporary file and renamed into place, and kept across runs;
   # one run per host directory holds the exclusive lock `supervisor-watch/lock`, which the kernel
   # lets go when the process dies. A cursor moves only once the lines it covers are written and
-  # flushed to standard output: delivery is at least once, and a restart skips nothing. A first run
-  # with no cursor for an instance starts its mail and log cursors at the newest file and the log's
-  # end, and names on standard error how many mail files it passed over. File sources are read on
+  # flushed to standard output: delivery is at least once, and a restart skips nothing; a pass that
+  # fires nothing moves its cursors at once. A first run
+  # with no cursor for an instance starts its mail, log and daemon cursors at the newest file, the
+  # log's end and the newest record, and names on standard error how many mail files it passed over. File sources are read on
   # a change or every 30 s. A source that cannot be read is one note on standard error, and the
   # watch reads the others. It opens only stores that exist, read only, writes nothing but
   # `supervisor-watch/`, and creates no store or state directory.
@@ -213,18 +214,22 @@ types:
       - {name: format, type: Optional<String>}
 
   # One supervisor trigger (story:supervisor-watch-command). `Mail`: a file of the instance's
-  # mailbox `<state>/mailbox/conductor/` past the mail cursor (a report `progress`, `started`,
-  # `unblocked` or `blocked ci` only when its text holds `waits on` or `waiting for`). `Log`: a line
-  # of `<state>/sessions/runtime.log` past the log cursor carrying one of the runtime's trigger
-  # strings. `Daemon`: a `conductor.instance.Reconciliation` of the instance past the daemon cursor
+  # mailbox `<state>/mailbox/conductor/` past the mail cursor, or within 5 s of ULID time below it
+  # and not handled yet (a report `progress`, `started`, `unblocked` or `blocked ci` only when its
+  # text holds `waits on` or `waiting for`; a file that cannot be read with its error). `Log`: a
+  # line past the log cursor carrying one of the runtime's trigger strings, of
+  # `<state>/sessions/runtime.log` for a boxed instance, of its runtime unit's journal for one in a
+  # unit; a missing log is a note. `Daemon`: a `conductor.instance.Reconciliation` of the instance past the daemon cursor
   # with reason `LostRuntime`, or action `Upgrade` with reason `OperatorCommand`. `Inbox`: the file
   # `globals.supervisor.inbox` holds a request id `globals.supervisor.outbox` does not. `Disk`:
-  # free bytes on `thresholds.disk_path` under `thresholds.disk_low`, or 5 GiB under the previous
-  # pass's reading. `Unpushed`: a local commit no remote branch holds, over 30 min old, in a
-  # checkout under `checkouts.root`, a managed tree, or a `--checkout`. `Green` and `CiEnd`: the
+  # free bytes on `thresholds.disk_path` under `thresholds.disk_low`, or 5 GiB under the baseline,
+  # which moves only when a `Disk` line fires or once an hour. `Unpushed`: a local commit no remote branch holds, over 30 min old, in a
+  # checkout under `checkouts.root`, a managed tree, or a `--checkout`, or of a worktree's detached
+  # HEAD. `Green` and `CiEnd`: the
   # forge's pull requests and CI runs (story:supervisor-watch-forge-triggers). `Idle`: a `Running`
-  # controller with an open dispatch whose transcript has not been written for 15 min, at most once
-  # per 30 min, unless its newest report waits on a person. `Timeout`: `timeout` passed with no
+  # controller with an open dispatch whose transcripts (its checkout's and its own trees') have not
+  # been written for 15 min, or with none, whose dispatch was sent 15 min ago; at most once per 30
+  # min, unless its newest report waits on a person. `Timeout`: `timeout` passed with no
   # other trigger.
   - name: conductor.host.SupervisorTriggerKind
     kind: enum
@@ -466,8 +471,8 @@ errors:
       - name: bytes
         type: Integer
 
-  # `conductor supervisor watch --timeout` is not `<n>s`, `<n>m` or `<n>h` with `n` above 0
-  # (story:supervisor-watch-command); nothing was read or written.
+  # `conductor supervisor watch --timeout` is not `<n>s`, `<n>m` or `<n>h` with `n` above 0, or is
+  # over 24h (story:supervisor-watch-command); nothing was read or written.
   - name: conductor.host.InvalidWatchTimeout
     summary: The watch's timeout is not a whole number of seconds, minutes or hours above 0.
     fields:
