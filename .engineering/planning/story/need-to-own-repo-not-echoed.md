@@ -5,7 +5,16 @@ kind: story
 status: active
 title: A NEED that names its sender's own repository is not echoed back to the sender
 summary: mailbox need() relays a [NEED <repo> <id>] <repo> back to <repo>'s controller, the session that sent it; it should stay for the supervisor as an unrouted need does
-revision: 5
+scope:
+- confidence: cited
+  path: crates/conductor/src/run/mailbox.rs
+- confidence: cited
+  path: crates/conductor/tests/mailbox.rs
+- confidence: cited
+  path: crates/conductor/tests/run.rs
+- confidence: cited
+  path: docs/design/conductor-run.md
+revision: 6
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-20T04:41:03Z", actor: "human:unknown", revision: 4}
 - {from: "proposed", to: "active", at: "2026-11-20T04:41:03Z", actor: "human:unknown", revision: 5}

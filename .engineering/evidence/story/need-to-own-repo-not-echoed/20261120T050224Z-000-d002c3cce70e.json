@@ -1,0 +1,13 @@
+{
+  "at": "2026-11-20T05:02:24Z",
+  "actor": "human:unknown",
+  "artifact": "story:need-to-own-repo-not-echoed",
+  "kind": "story",
+  "revision": 6,
+  "change": {
+    "change": "evidence",
+    "kind": "test_result",
+    "source": "cargo test -p conductor-cli --test run -- need: a_mailbox_need_naming_its_own_repository_keeps_nothing_for_it (failed first) and a_mailbox_need_naming_another_repository_still_routes_to_it pass; a_mailbox_need_naming_its_own_repository_stays_for_the_supervisor needs spawn and runs on CI; --test mailbox 21/21; clippy -D warnings clean",
+    "reference": "crates/conductor/tests/run.rs"
+  }
+}

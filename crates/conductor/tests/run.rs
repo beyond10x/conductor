@@ -3005,6 +3005,109 @@ fn adv2_a_need_for_a_checkout_named_conductor_is_kept_for_it() {
     assert_eq!(named, ["conductor"], "{tick} {said:?}");
 }
 
+/// Sends `text` to conductor's mailbox from `ex-alpha` with `conductor message send`, so the
+/// store records it; answers the message's id.
+fn send_from_alpha(case: &Case, name: &str, text: &str) -> String {
+    let file = case.dir.join(format!("{name}.md"));
+    write(&file, text);
+    case.ok(&[
+        "message",
+        "send",
+        "--to",
+        "conductor",
+        "--from",
+        "ex-alpha",
+        "--text",
+        &file.display().to_string(),
+    ])
+    .trim()
+    .to_owned()
+}
+
+/// `story:need-to-own-repo-not-echoed`: a `[NEED]` whose `<other-repo>` names its sender's own
+/// repository is not echoed back to that sender. With `alpha`'s controller running, the need's
+/// text is neither delivered to nor kept for `alpha`; `alpha` is told once that the need stays in
+/// conductor's mailbox; the message stays `Received`, its file in the mailbox, and no
+/// `need-unroutable` alert is raised. The next tick answers nothing more.
+#[test]
+fn a_mailbox_need_naming_its_own_repository_stays_for_the_supervisor() {
+    let case = Case::new("mail-need-own-repo");
+    case.spawn("alpha", FIRST);
+    let need = "[NEED alpha REQ-1] alpha the log of job 1\n";
+    let message = send_from_alpha(&case, "need", need);
+    let (tick, said) = case.tick_said(&[]);
+
+    let deliveries = case.deliveries();
+    assert_eq!(deliveries.len(), 1, "one message: {deliveries:?} {said:?}");
+    let (to, text) = &deliveries[0];
+    assert_eq!(to, "ex-alpha");
+    assert_ne!(text, need, "the need is not echoed: {text}");
+    let first = text.lines().next().unwrap_or_default();
+    assert!(
+        first.starts_with("[REPORT alpha -] ") && first.contains("stays in conductor's mailbox"),
+        "the sender is told where the need is: {text}"
+    );
+    assert!(
+        kept(&case).iter().all(|item| item["repo"] != "alpha"),
+        "nothing is kept for alpha: {:?} {tick}",
+        kept(&case)
+    );
+    let messages = case.view(&["message", "messages"]);
+    let row = messages
+        .iter()
+        .find(|row| row["message_id"] == message.as_str())
+        .unwrap_or_else(|| panic!("{message} is recorded: {messages:?}"));
+    assert_eq!(row["state"], "Received", "{row}");
+    let mailbox = case.state().join("mailbox/conductor");
+    let files = fs::read_dir(&mailbox).expect("the mailbox").count();
+    assert_eq!(files, 1, "the need stays in the mailbox");
+    let alerts: Vec<Value> = case
+        .log()
+        .into_iter()
+        .filter(|line| line["event"] == "alert")
+        .collect();
+    assert_eq!(alerts, Vec::<Value>::new(), "no alert: {said:?}");
+
+    case.tick(&[]);
+    assert_eq!(case.deliveries().len(), 1, "answered once");
+}
+
+/// `story:need-to-own-repo-not-echoed`: the same need while no controller of `alpha` runs keeps
+/// nothing for `alpha`'s next start.
+#[test]
+fn a_mailbox_need_naming_its_own_repository_keeps_nothing_for_it() {
+    let case = Case::new("mail-need-own-repo-idle");
+    send_from_alpha(&case, "need", "[NEED alpha REQ-1] alpha the log of job 1\n");
+    let (tick, said) = case.tick_said(&[]);
+    assert_eq!(kept(&case), Vec::<Value>::new(), "{tick} {said:?}");
+    assert!(case.deliveries().is_empty(), "{:?}", case.deliveries());
+}
+
+/// `story:need-to-own-repo-not-echoed`: a `[NEED]` of `alpha` for `beta` routes as before: kept
+/// for `beta`'s next start (it has a charter), nothing for `alpha`.
+#[test]
+fn a_mailbox_need_naming_another_repository_still_routes_to_it() {
+    let case = Case::new("mail-need-other-repo");
+    write(
+        &case.charter("beta"),
+        "# Charter: beta\n\nExport the store id.\n",
+    );
+    let need = "[NEED alpha REQ-2] beta the log of job 2\n";
+    send_from_alpha(&case, "need", need);
+    case.tick(&[]);
+    let waiting = kept(&case);
+    let named: Vec<(&str, &str)> = waiting
+        .iter()
+        .map(|item| {
+            (
+                item["repo"].as_str().unwrap_or_default(),
+                item["text"].as_str().unwrap_or_default(),
+            )
+        })
+        .collect();
+    assert_eq!(named, [("beta", need)], "{waiting:?}");
+}
+
 /// A `[DECISION-REQUEST]` is raised and, with no decider seam, escalated as class O
 /// with the options its body lists, its recommendation as the default and a deadline 48 hours
 /// out.
