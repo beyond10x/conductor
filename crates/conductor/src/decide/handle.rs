@@ -21,13 +21,14 @@
 //! what was pushed or published), `repository-lifecycle` (create, rename, archive, retire, fork,
 //! transfer or deprecate a repository, or a new one), `architecture` (accept, change or write an
 //! ADR; change a contract, a schema, a kernel or a node kind; a cross-repository contract; choose
-//! a language, framework or technology) → class O; `credential` (set, enter, rotate, create or
-//! store a secret, a token, a password, a qualified key such as an API or SSH key, or a login, or
-//! log in; not tokens counted, budgeted or mentioned) and `hands` (a permission, account or
-//! payment only the operator holds: an owner's or administrator's, a grant of a permission or
-//! bypass, a paid account or plan) → class H; otherwise class C, rule `none`, which a request
-//! whose recommended option can be undone is too. [`classify`] answers the words its rule matched
-//! with it: `handle` prints them, and an escalation's reason names them.
+//! a language, framework or technology) → class O; `credential` (set, enter, rotate, create,
+//! store, refresh, update, replace, reissue or upload a secret, a token, a password, a qualified
+//! key such as an API or SSH key, or a login, or log in; not tokens counted, budgeted or
+//! mentioned) and `hands` (a permission, account or payment only the operator holds: an owner's
+//! or administrator's, a grant of a permission or bypass, a paid account or plan) → class H;
+//! otherwise class C, rule `none`, which a request whose recommended option can be undone is too.
+//! [`classify`] answers the words its rule matched with it: `handle` prints them, and an
+//! escalation's reason names them.
 //!
 //! **Class C.** The prompt holds the request and its options, the repository's accepted ADR
 //! titles (`aep plan artifact list --kind architecture-decision-record --status accepted` in the
@@ -417,7 +418,8 @@ const TECHNOLOGY: Phrases = &[
     "tech stack",
 ];
 
-/// Verbs that set, enter, rotate, create or store a credential.
+/// Verbs that set, enter, rotate, create, store, refresh, update, replace, reissue or upload a
+/// credential.
 const KEEP_SECRET: Phrases = &[
     "set",
     "sets",
@@ -459,6 +461,22 @@ const KEEP_SECRET: Phrases = &[
     "puts",
     "give",
     "gives",
+    "refresh",
+    "refreshes",
+    "refreshing",
+    "update",
+    "updates",
+    "updating",
+    "replace",
+    "replaces",
+    "replacing",
+    "reissue",
+    "reissues",
+    "re issue",
+    "re issues",
+    "upload",
+    "uploads",
+    "uploading",
 ];
 
 const SECRET: Phrases = &[
