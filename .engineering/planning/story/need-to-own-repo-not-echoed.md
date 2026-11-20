@@ -2,7 +2,7 @@
 format: aep.planning-md/3
 id: story:need-to-own-repo-not-echoed
 kind: story
-status: active
+status: implemented
 title: A NEED that names its sender's own repository is not echoed back to the sender
 summary: mailbox need() relays a [NEED <repo> <id>] <repo> back to <repo>'s controller, the session that sent it; it should stay for the supervisor as an unrouted need does
 scope:
@@ -14,10 +14,11 @@ scope:
   path: crates/conductor/tests/run.rs
 - confidence: cited
   path: docs/design/conductor-run.md
-revision: 6
+revision: 7
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-20T04:41:03Z", actor: "human:unknown", revision: 4}
 - {from: "proposed", to: "active", at: "2026-11-20T04:41:03Z", actor: "human:unknown", revision: 5}
+- {from: "active", to: "implemented", at: "2026-11-20T05:33:47Z", actor: "human:unknown", revision: 7, decided_on: {"recorded":{"test_result":1}}}
 ---
 ## Problem
 

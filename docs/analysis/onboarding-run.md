@@ -521,3 +521,10 @@ No onboarding run is due: 1.19.1 changes nothing onboarding runs. `SETUP.md`, `c
 `conductor doctor`, the install path and the prerequisites are as in 1.19.0; the release puts every
 dispatch's brief in a spawned controller's charter and makes `resume-controller` report only a
 session that runs.
+
+## v1.19.2
+
+No onboarding run is due: 1.19.2 changes nothing onboarding runs. `SETUP.md`, `conductor setup`,
+`conductor doctor`, the install path and the prerequisites are as in 1.19.1; the release keeps a
+`[NEED]` to its own repository for the supervisor and sends a host-side pause of a session in the
+box to the box's runtime.

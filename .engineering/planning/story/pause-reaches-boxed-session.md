@@ -2,7 +2,7 @@
 format: aep.planning-md/3
 id: story:pause-reaches-boxed-session
 kind: story
-status: active
+status: implemented
 title: pause-controller on the host reaches a session in the box through its runtime
 summary: Run on the host for a session in the box, pause-controller finds no live session, stops nothing and records Paused while the session runs on; stop-controller already goes through the runtime
 scope:
@@ -14,10 +14,11 @@ scope:
   path: crates/conductor/src/dashboard/operator.rs
 - confidence: cited
   path: crates/conductor/tests/box_session.rs
-revision: 6
+revision: 7
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-20T04:41:03Z", actor: "human:unknown", revision: 4}
 - {from: "proposed", to: "active", at: "2026-11-20T04:41:04Z", actor: "human:unknown", revision: 5}
+- {from: "active", to: "implemented", at: "2026-11-20T05:33:47Z", actor: "human:unknown", revision: 7, decided_on: {"recorded":{"test_result":1}}}
 ---
 ## Problem
 
