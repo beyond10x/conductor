@@ -2988,6 +2988,9 @@ fn conductor_run(words: &[String]) -> Option<DeniedRun> {
     words.iter().enumerate().find_map(|(at, word)| {
         if shell::program(word) == "conductor" {
             if !is_program_word(words, name, at) {
+                if names_repository(words, at) {
+                    return None;
+                }
                 return leaf_after(&words[at..], false, false);
             }
             let fed = words[name..at]
@@ -3007,6 +3010,34 @@ fn conductor_run(words: &[String]) -> Option<DeniedRun> {
         }
         None
     })
+}
+
+/// The options whose value names a repository (`gh -R <owner>/<repo>`, `--repo`, `--repository`).
+const REPOSITORY_OPTIONS: [&str; 3] = ["-R", "--repo", "--repository"];
+
+/// Whether `words[at]`, an argument whose last component is `conductor` and not the program
+/// ([`is_program_word`]), names a repository and no program (`story:guard-repo-slug-not-program`):
+/// the value of one of [`REPOSITORY_OPTIONS`] (`-R <owner>/conductor`, `-R…`, `--repo=…`) that
+/// is no anchored path (it does not start with `/`, `~` or `.`), or a remote's URL
+/// (`https://…/conductor`, `git@host:<owner>/conductor`: a `:` before the first `/`). The slug
+/// is told by where it stands, not by its form: `<owner>/conductor` is also a relative path, which
+/// a program that runs its arguments (`flock lock target/release/conductor run`) runs, so that
+/// stays a run of conductor.
+fn names_repository(words: &[String], at: usize) -> bool {
+    let word = words[at].as_str();
+    let slug = |value: &str| !value.starts_with(['/', '~', '.']);
+    let valued = at > 0 && REPOSITORY_OPTIONS.contains(&words[at - 1].as_str()) && slug(word);
+    let joined = REPOSITORY_OPTIONS.iter().any(|option| {
+        word.strip_prefix(option)
+            .and_then(|rest| rest.strip_prefix('='))
+            .is_some_and(slug)
+    }) || word
+        .strip_prefix("-R")
+        .is_some_and(|rest| !rest.starts_with('=') && slug(rest));
+    let remote = word
+        .split_once('/')
+        .is_some_and(|(before, _)| before.contains(':'));
+    valued || joined || remote
 }
 
 /// The denial of the run whose program word is `words[0]`, read as `conductor`

@@ -2173,6 +2173,77 @@ fn a_controller_greps_for_conductor_without_running_it() {
     );
 }
 
+/// `story:guard-repo-slug-not-program`: a repository named `conductor`, given as the value of a
+/// repository option (`<owner>/<repo>`) or as a remote's URL, is an argument and runs nothing, so
+/// the word after it is no leaf of conductor. The bot route's own form for re-running a failed
+/// workflow run of such a repository was denied as `conductor run`. The controller's checkout,
+/// `~/example-org/widget` (the cases' `~/example-org/conductor` is conductor's own), has the
+/// `origin` `github.com/example-org/conductor`, so the bot route carries the re-run.
+#[test]
+fn a_repository_named_conductor_is_no_conductor_run() {
+    let home = home("controller-conductor-repository-slug");
+    let git = home.join("example-org/widget/.git");
+    fs::create_dir_all(&git).expect("create the checkout's .git");
+    fs::write(
+        git.join("config"),
+        "[core]\n\tbare = false\n[remote \"origin\"]\n\turl = https://github.com/example-org/conductor.git\n",
+    )
+    .expect("write the checkout's git config");
+    let checkout = "~/example-org/widget";
+    let mut denied = Vec::new();
+    for command in [
+        "b10x-gates gh --repository example-org/conductor -- run rerun 1 --failed",
+        "b10x-gates gh --repository=example-org/conductor -- run rerun 1 --failed",
+        "b10x-gates gh --repository example-org/conductor -- run rerun 1 --failed -R example-org/conductor",
+        "b10x-gates gh --repository example-org/conductor -- run rerun 1 --failed --repo example-org/conductor",
+        "b10x-gates gh --repository example-org/conductor -- run rerun 1 --failed -Rexample-org/conductor",
+        "b10x-gates gh --repository example-org/conductor -- workflow run check.yml --repo=example-org/conductor",
+        "git clone https://github.com/example-org/conductor run",
+        "git clone git@github.com:example-org/conductor run",
+    ] {
+        let decision = bash(&home, checkout, command);
+        if decision.verdict != Verdict::Allow {
+            denied.push(format!(
+                "{command:?}: {:?}: {}",
+                decision.verdict, decision.reason
+            ));
+        }
+    }
+    assert!(
+        denied.is_empty(),
+        "{} lines that name a repository called conductor were denied to a controller:\n  - {}",
+        denied.len(),
+        denied.join("\n  - ")
+    );
+}
+
+/// `story:guard-repo-slug-not-program`: a `conductor` written as the program, by name or path,
+/// or handed to a program that runs its arguments, still runs `conductor run`, and a repository
+/// option's value that is a path (`/`, `~/`, `./`) is no slug.
+#[test]
+fn conductor_run_by_name_or_path_stays_denied() {
+    let home = home("controller-conductor-run-by-path");
+    for command in [
+        "conductor run",
+        "~/.cargo/bin/conductor run --once",
+        "env X=1 conductor run",
+        "env X=1 conductor run --once",
+        "/usr/local/bin/conductor run",
+        "bash -c 'conductor run'",
+        // Arguments of a program that runs them: the not-a-program-word branch.
+        "flock /tmp/build.lock conductor run --once",
+        "watch ~/.cargo/bin/conductor run --once",
+        "flock -R ./target/release/conductor run",
+        "flock --repository ~/.cargo/bin/conductor run",
+    ] {
+        assert_verdict(
+            &bash(&home, PROBE, command),
+            Verdict::Deny,
+            "`conductor run` writes conductor's records; only conductor runs it",
+        );
+    }
+}
+
 /// `story:guard-expanded-conductor-words`, security review: a program word that the shell builds
 /// without the literal `conductor` (a parameter, a glob over the binary's path, a `printf` that
 /// spells it, a variable holding the whole line) is judged only by the words written after it, so
