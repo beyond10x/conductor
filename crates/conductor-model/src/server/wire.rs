@@ -1,5 +1,5 @@
 // generated from conductor v1
-// contract digest f211df78f7e86952af7f2c6b1430dbdc1ff3c13ace783e6872ec932be9a0f32b
+// contract digest 5e3a2e3e3f11ff3c49e7cf6aff0495c16f2a70e77b27a0f70420b82c61e9bb36
 // do not edit: regenerate with `ess synthesize --layout crate`
 //! Every generated declaration, as JSON, in the renderings the published wire contracts fix.
 //!
@@ -10115,6 +10115,15 @@ pub fn encode_conductor_observation_status_report(value: &crate::observation::St
         json::member(out, "oldest_unanswered_age_seconds");
         json::push_integer(out, *held0);
     }
+    json::member(out, "failed_collectors");
+    out.push('[');
+    for (index0, item0) in value.failed_collectors.iter().enumerate() {
+        if index0 > 0 {
+            out.push(',');
+        }
+        json::push_text(out, &*item0);
+    }
+    out.push(']');
     out.push('}');
 }
 
@@ -10124,7 +10133,7 @@ pub fn encode_conductor_observation_status_report(value: &crate::observation::St
 ///
 /// [`json::DecodeError`] naming the path and what the declaration says belongs there.
 pub fn decode_conductor_observation_status_report(value: &json::Value, at: &str) -> Result<crate::observation::StatusReport, json::DecodeError> {
-    json::closed_at(value, at, &["snapshot_id", "snapshot_started_at", "snapshot_age_seconds", "deviations", "sessions", "dispatches", "waits", "requests", "usage", "unanswered_operator_items", "oldest_unanswered_request_id", "oldest_unanswered_age_seconds"])?;
+    json::closed_at(value, at, &["snapshot_id", "snapshot_started_at", "snapshot_age_seconds", "deviations", "sessions", "dispatches", "waits", "requests", "usage", "unanswered_operator_items", "oldest_unanswered_request_id", "oldest_unanswered_age_seconds", "failed_collectors"])?;
     Ok(crate::observation::StatusReport {
         snapshot_id: match value.member("snapshot_id") {
             None | Some(json::Value::Null) => None,
@@ -10231,6 +10240,18 @@ pub fn decode_conductor_observation_status_report(value: &json::Value, at: &str)
             Some(member11) => {
                 let at11 = json::nested(at, "oldest_unanswered_age_seconds");
                 Some(json::integer_at(member11, &at11, "an integer")?)
+            }
+        },
+        failed_collectors: {
+            let at12 = json::nested(at, "failed_collectors");
+            let member12 = json::member_at(value, at, "failed_collectors")?;
+            {
+                let mut items12 = Vec::new();
+                for (index12, element12) in json::items_at(member12, &at12, "an array")?.iter().enumerate() {
+                    let nested12 = json::nested(&at12, &index12.to_string());
+                    items12.push(json::text_at(element12, &nested12, "a string")?.to_owned());
+                }
+                items12
             }
         },
     })
@@ -20934,6 +20955,10 @@ pub fn encode_view_conductor_observation_collector_runs(value: &crate::observati
         json::member(out, "written_bytes");
         json::push_integer(out, *held0);
     }
+    if let Some(held0) = &value.reason {
+        json::member(out, "reason");
+        json::push_text(out, &*held0);
+    }
     json::member(out, "actor");
     encode_conductor_operator_actor(&value.actor, out);
     out.push('}');
@@ -21227,6 +21252,15 @@ pub fn encode_view_conductor_observation_snapshots(value: &crate::observation::S
         json::member(out, "failure_reason");
         json::push_text(out, &*held0);
     }
+    json::member(out, "failed_collectors");
+    out.push('[');
+    for (index0, item0) in value.failed_collectors.iter().enumerate() {
+        if index0 > 0 {
+            out.push(',');
+        }
+        json::push_text(out, &*item0);
+    }
+    out.push(']');
     json::member(out, "actor");
     encode_conductor_operator_actor(&value.actor, out);
     out.push('}');
@@ -31237,6 +31271,15 @@ pub fn encode_command_conductor_observation_complete_snapshot(value: &crate::obs
     encode_conductor_operator_actor(&value.actor, out);
     json::member(out, "snapshot_id");
     encode_conductor_observation_snapshot_id(&value.snapshot_id, out);
+    json::member(out, "failed_collectors");
+    out.push('[');
+    for (index0, item0) in value.failed_collectors.iter().enumerate() {
+        if index0 > 0 {
+            out.push(',');
+        }
+        json::push_text(out, &*item0);
+    }
+    out.push(']');
     out.push('}');
 }
 
@@ -31246,7 +31289,7 @@ pub fn encode_command_conductor_observation_complete_snapshot(value: &crate::obs
 ///
 /// [`json::DecodeError`] naming the path and what the declaration says belongs there.
 pub fn decode_command_conductor_observation_complete_snapshot(value: &json::Value, at: &str) -> Result<crate::observation::CompleteSnapshot, json::DecodeError> {
-    json::closed_at(value, at, &["actor", "snapshot_id"])?;
+    json::closed_at(value, at, &["actor", "snapshot_id", "failed_collectors"])?;
     Ok(crate::observation::CompleteSnapshot {
         actor: {
             let at0 = json::nested(at, "actor");
@@ -31257,6 +31300,18 @@ pub fn decode_command_conductor_observation_complete_snapshot(value: &json::Valu
             let at1 = json::nested(at, "snapshot_id");
             let member1 = json::member_at(value, at, "snapshot_id")?;
             decode_conductor_observation_snapshot_id(member1, &at1)?
+        },
+        failed_collectors: {
+            let at2 = json::nested(at, "failed_collectors");
+            let member2 = json::member_at(value, at, "failed_collectors")?;
+            {
+                let mut items2 = Vec::new();
+                for (index2, element2) in json::items_at(member2, &at2, "an array")?.iter().enumerate() {
+                    let nested2 = json::nested(&at2, &index2.to_string());
+                    items2.push(json::text_at(element2, &nested2, "a string")?.to_owned());
+                }
+                items2
+            }
         },
     })
 }
@@ -31651,6 +31706,10 @@ pub fn encode_command_conductor_observation_record_collector_run(value: &crate::
         json::member(out, "written_bytes");
         json::push_integer(out, *held0);
     }
+    if let Some(held0) = &value.reason {
+        json::member(out, "reason");
+        json::push_text(out, &*held0);
+    }
     out.push('}');
 }
 
@@ -31660,7 +31719,7 @@ pub fn encode_command_conductor_observation_record_collector_run(value: &crate::
 ///
 /// [`json::DecodeError`] naming the path and what the declaration says belongs there.
 pub fn decode_command_conductor_observation_record_collector_run(value: &json::Value, at: &str) -> Result<crate::observation::RecordCollectorRun, json::DecodeError> {
-    json::closed_at(value, at, &["actor", "snapshot_id", "collector", "started_at", "duration_ms", "outcome", "read_bytes", "written_bytes"])?;
+    json::closed_at(value, at, &["actor", "snapshot_id", "collector", "started_at", "duration_ms", "outcome", "read_bytes", "written_bytes", "reason"])?;
     Ok(crate::observation::RecordCollectorRun {
         actor: {
             let at0 = json::nested(at, "actor");
@@ -31704,6 +31763,13 @@ pub fn decode_command_conductor_observation_record_collector_run(value: &json::V
             Some(member7) => {
                 let at7 = json::nested(at, "written_bytes");
                 Some(json::integer_at(member7, &at7, "an integer")?)
+            }
+        },
+        reason: match value.member("reason") {
+            None | Some(json::Value::Null) => None,
+            Some(member8) => {
+                let at8 = json::nested(at, "reason");
+                Some(json::text_at(member8, &at8, "a string")?.to_owned())
             }
         },
     })

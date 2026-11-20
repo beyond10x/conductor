@@ -17,7 +17,6 @@ use std::process::{Command, Output, Stdio};
 use std::sync::OnceLock;
 use std::time::{Duration, Instant};
 
-use anyhow::bail;
 use conductor_cli::collect::Collector;
 use conductor_cli::snapshot::{self, Recorder, Taken};
 use conductor_cli::{config, store};
@@ -508,12 +507,78 @@ fn repositories(count: usize) -> Collector {
     })
 }
 
-/// Records one repository observation, then fails.
-fn fails_after_one() -> Collector {
-    Collector::new("fails", |record: &mut Recorder<'_>| {
+/// `snapshot record-repository` of `alpha` into `snapshot`, as the binary takes it.
+fn record_alpha(snapshot: &str) -> Vec<&str> {
+    vec![
+        "snapshot",
+        "record-repository",
+        "--snapshot-id",
+        snapshot,
+        "--repository",
+        "alpha",
+        "--visibility",
+        "Public",
+        "--archived",
+        "false",
+        "--local-checkout",
+        "true",
+        "--main-head",
+        "0a1b2c3",
+        "--main-committed-at",
+        "2026-10-01T00:00:00Z",
+        "--main-commits-7d",
+        "1",
+        "--real-commits-7d",
+        "1",
+        "--behind-main",
+        "0",
+        "--dirty-files",
+        "0",
+        "--worktrees",
+        "1",
+        "--open-issues",
+        "0",
+        "--in-catalog",
+        "true",
+    ]
+}
+
+/// A snapshot started at `started_at` that recorded `alpha` and was failed by hand, as a run
+/// that stopped and `fail-snapshot` leave one: the driver no longer fails a snapshot whose
+/// collector failed (`story:collector-failure-stays-its-own`).
+fn failed_by_hand(case: &Case, snapshot: &str, started_at: &str) {
+    left_collecting(&case.state, snapshot, started_at);
+    case.ok(&record_alpha(snapshot));
+    case.ok(&[
+        "snapshot",
+        "fail-snapshot",
+        "--snapshot-id",
+        snapshot,
+        "--reason",
+        "the run was killed",
+    ]);
+}
+
+/// A collector named `github` that records pull request 7 of `alpha`, as a forge collector
+/// that answered.
+fn github_answers() -> Collector {
+    Collector::new("github", |record: &mut Recorder<'_>| {
         let snapshot = record.snapshot().clone();
-        record.repository(repository(&snapshot, "alpha"))?;
-        bail!("the fixture fails here")
+        record.pull_request(RecordPullRequest {
+            actor: conductor_cli::actor::daemon(),
+            snapshot_id: snapshot,
+            repository: RepositoryName("alpha".to_owned()),
+            number: 7,
+            title: "Seven".to_owned(),
+            draft: false,
+            mergeability: Mergeability::Mergeable,
+            failing_checks: 0,
+            failing_check_names: Vec::new(),
+            opened_at: Timestamp("2026-09-01T00:00:00Z".to_owned()),
+            updated_at: Timestamp("2026-10-01T00:00:00Z".to_owned()),
+            url: None,
+        })?;
+        Ok(())
     })
 }
 
@@ -831,40 +896,7 @@ fn completing_a_snapshot_keeps_the_newest_complete_ones_and_drops_the_older_and_
     let case = Case::new("rule");
     let stale = "0199f000-0000-7000-8000-00000000c000";
     let last = "0199f000-0000-7000-8000-00000000c001";
-    let flags = |snapshot: &'static str| {
-        vec![
-            "snapshot",
-            "record-repository",
-            "--snapshot-id",
-            snapshot,
-            "--repository",
-            "alpha",
-            "--visibility",
-            "Public",
-            "--archived",
-            "false",
-            "--local-checkout",
-            "true",
-            "--main-head",
-            "0a1b2c3",
-            "--main-committed-at",
-            "2026-10-01T00:00:00Z",
-            "--main-commits-7d",
-            "1",
-            "--real-commits-7d",
-            "1",
-            "--behind-main",
-            "0",
-            "--dirty-files",
-            "0",
-            "--worktrees",
-            "1",
-            "--open-issues",
-            "0",
-            "--in-catalog",
-            "true",
-        ]
-    };
+    let flags = record_alpha;
 
     // Oldest first: a snapshot left collecting, then complete and failed ones, two hours apart.
     // The one left collecting is planted after them, at the oldest instant: a start fails a
@@ -872,16 +904,21 @@ fn completing_a_snapshot_keeps_the_newest_complete_ones_and_drops_the_older_and_
     // be collecting when retention runs.
     store::open(&case.state).expect("create the store");
     let mut ids = Vec::new();
-    for (n, collector) in [
-        (1, every_kind()),
-        (2, fails_after_one()),
-        (3, every_kind()),
-        (4, every_kind()),
-        (5, fails_after_one()),
-        (6, every_kind()),
+    for (n, failed) in [
+        (1, None),
+        (2, Some("0199f000-0000-7000-8000-00000000c002")),
+        (3, None),
+        (4, None),
+        (5, Some("0199f000-0000-7000-8000-00000000c005")),
+        (6, None),
     ] {
-        let taken = case.take(&at(2 * n), &[collector]);
-        ids.push(taken.snapshot_id.0.0);
+        if let Some(snapshot) = failed {
+            failed_by_hand(&case, snapshot, &at(2 * n));
+            ids.push(snapshot.to_owned());
+        } else {
+            let taken = case.take(&at(2 * n), &[every_kind()]);
+            ids.push(taken.snapshot_id.0.0);
+        }
     }
     let [
         complete_1,
@@ -932,4 +969,72 @@ fn completing_a_snapshot_keeps_the_newest_complete_ones_and_drops_the_older_and_
         8,
         "every Snapshot record stays"
     );
+}
+
+/// `story:collector-failure-stays-its-own`: under `retention.snapshots: 1`, a snapshot whose
+/// `github` run failed is the newest complete one, and retention keeps besides it the newest
+/// snapshot whose forge collectors all answered, with its pull requests, and drops the one before
+/// that.
+#[test]
+fn a_failed_collector_run_does_not_drop_its_last_good_rows() {
+    let case = Case::new("forge-base");
+    let partial = "0199f000-0000-7000-8000-00000000d002";
+    let older = case.take(&at(0), &[github_answers()]);
+    assert_eq!(older.state, SnapshotState::Complete, "{older:?}");
+    let good = case.take(&at(2), &[github_answers()]);
+    assert_eq!(good.state, SnapshotState::Complete, "{good:?}");
+
+    // The newest: its `github` run failed and every other collector answered.
+    left_collecting(&case.state, partial, &at(4));
+    case.ok(&record_alpha(partial));
+    case.ok(&[
+        "snapshot",
+        "record-collector-run",
+        "--snapshot-id",
+        partial,
+        "--collector",
+        "github",
+        "--started-at",
+        &at(4),
+        "--duration-ms",
+        "1000",
+        "--outcome",
+        "Failed",
+        "--reason",
+        "the source did not answer",
+    ]);
+    let config = case.config("    retention: {snapshots: 1}\n");
+    case.ok(&[
+        "--config",
+        config.to_str().expect("UTF-8"),
+        "snapshot",
+        "complete-snapshot",
+        "--snapshot-id",
+        partial,
+        "--failed-collectors",
+        r#"["github"]"#,
+    ]);
+
+    let kept: BTreeSet<String> = [good.snapshot_id.0.0.clone(), partial.to_owned()]
+        .into_iter()
+        .collect();
+    assert_eq!(
+        tenants(&case.state),
+        kept,
+        "kept: the newest complete snapshot and the newest whose forge collectors answered; \
+         dropped: {}",
+        older.snapshot_id.0.0
+    );
+    assert_eq!(
+        case.snapshots_in("pull-requests"),
+        [good.snapshot_id.0.0.clone()].into_iter().collect(),
+        "the last good snapshot's pull requests are kept"
+    );
+    let runs = case.view("collector-runs");
+    let failed = runs
+        .iter()
+        .find(|row| row["snapshot_id"] == partial)
+        .unwrap_or_else(|| panic!("the failed run is listed: {runs:?}"));
+    assert_eq!(failed["outcome"], "Failed", "{runs:?}");
+    assert_eq!(failed["reason"], "the source did not answer", "{runs:?}");
 }

@@ -315,12 +315,12 @@ fn left_collecting(root: &Path, snapshot: &str) {
 // The collector seam
 // ---------------------------------------------------------------------------------------------
 
-/// A collector that panics did not answer: the snapshot ends `Failed` naming it, as one returning
-/// an error does (`snapshot::take`: "`Failed` naming the first that did not [answer]"). The
-/// collectors parse what `gh`, `git`, `aep` and the session lists print, where an index or an
-/// `expect` on an answer they did not foresee panics.
+/// A collector that panics did not answer: its run is `Failed` and the snapshot completes naming
+/// it, as for one returning an error (`story:collector-failure-stays-its-own`). The collectors
+/// parse what `gh`, `git`, `aep` and the session lists print, where an index or an `expect` on an
+/// answer they did not foresee panics.
 #[test]
-fn adv_a_collector_that_panics_fails_the_snapshot_naming_it() {
+fn adv_a_collector_that_panics_fails_its_run_naming_it() {
     let root = case_dir("panics");
     let panics = Collector::new("panics", |record: &mut Recorder<'_>| -> Result<()> {
         let answered: Vec<&str> = Vec::new();
@@ -335,7 +335,7 @@ fn adv_a_collector_that_panics_fails_the_snapshot_naming_it() {
     assert_eq!(snapshots.len(), 1, "{snapshots:?}");
     assert_eq!(
         snapshots[0]["state"],
-        "Failed",
+        "Complete",
         "a collector that panicked left snapshot {} {}, and the driver {}",
         snapshots[0]["snapshot_id"],
         snapshots[0]["state"],
@@ -348,12 +348,10 @@ fn adv_a_collector_that_panics_fails_the_snapshot_naming_it() {
     let taken = answered
         .expect("the driver answers")
         .expect("the driver ends the snapshot");
-    assert_eq!(taken.state, SnapshotState::Failed, "{taken:?}");
+    assert_eq!(taken.state, SnapshotState::Complete, "{taken:?}");
+    assert_eq!(taken.failed.len(), 1, "{taken:?}");
     assert!(
-        taken
-            .reason
-            .as_deref()
-            .is_some_and(|reason| reason.starts_with("panics: ")),
+        taken.failed[0].starts_with("panics: panicked: "),
         "the reason names the collector that panicked: {taken:?}"
     );
 }
@@ -538,7 +536,8 @@ fn adv_every_recorder_method_records_only_into_the_snapshot_it_is_given() {
 }
 
 /// `collect::registered` runs in the order its documentation gives, and `start-snapshot` with a
-/// `gh` that fails fails naming the first of them, stopped at its first command.
+/// `gh` that fails names the first of them first, stopped at its first command; the snapshot
+/// completes (`story:collector-failure-stays-its-own`).
 #[test]
 fn adv_the_registered_collectors_run_in_the_documented_order() {
     let names: Vec<&str> = collect::registered().iter().map(Collector::name).collect();
@@ -563,14 +562,18 @@ fn adv_the_registered_collectors_run_in_the_documented_order() {
         Some(&offline(&root)),
         &["snapshot", "start-snapshot"],
     );
-    assert_eq!(output.status.code(), Some(1), "{}", describe(&output));
+    assert_eq!(output.status.code(), Some(0), "{}", describe(&output));
     let stderr = String::from_utf8_lossy(&output.stderr);
+    let first = stderr
+        .lines()
+        .find(|line| line.contains(": collector "))
+        .unwrap_or_default();
     assert!(
-        stderr.contains(&format!(
-            "snapshot {} failed: repositories: ",
+        first.contains(&format!(
+            "snapshot {}: collector repositories: ",
             stdout(&output)
-        )) && stderr.contains("`gh repo list")
-            && stderr.contains("exited 1: offline"),
+        )) && first.contains("`gh repo list")
+            && first.contains("exited 1: offline"),
         "the first registered collector is the one named, stopped at its first command: {}",
         describe(&output)
     );
@@ -1070,7 +1073,7 @@ fn adv_views_are_byte_identical_across_runs() {
 /// `story:portable-free-space`: the free disk is read through `statvfs`, so a `df` that is
 /// missing, fails, refuses GNU's options as macOS's does (`df: invalid option -- B`, exit 64), or
 /// prints no number changes nothing: `start-snapshot` starts the snapshot with the bytes free,
-/// runs no `df`, and stops only at the first collector, which finds no `gh`.
+/// runs no `df`, and its first collector fails, finding no `gh`.
 #[test]
 fn adv_a_df_that_cannot_answer_does_not_stop_start_snapshot() {
     let fakes: [(&str, Option<&str>); 4] = [
@@ -1103,9 +1106,9 @@ fn adv_a_df_that_cannot_answer_does_not_stop_start_snapshot() {
         let free = snapshots
             .first()
             .and_then(|snapshot| snapshot["disk_free_bytes"].as_i64());
-        if output.status.code() != Some(1)
+        if output.status.code() != Some(0)
             || !stderr.contains(&format!(
-                "snapshot {} failed: repositories: ",
+                "snapshot {}: collector repositories: ",
                 stdout(&output)
             ))
             || stderr.contains("`df")

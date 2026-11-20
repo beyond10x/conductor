@@ -862,8 +862,9 @@ struct Stored {
     runs: BTreeMap<String, BTreeMap<String, OffsetDateTime>>,
 }
 
-/// What the newest complete snapshot holds of `main`'s runs, or `None` when the store holds no
-/// complete snapshot. Read through the store's ports over the handle the snapshot records through
+/// What the newest complete snapshot whose forge collectors all ended `Completed` holds of
+/// `main`'s runs, or `None` when the store holds no such snapshot: one whose `github` run failed
+/// holds none of its rows, which is no base (`story:collector-failure-stays-its-own`). Read through the store's ports over the handle the snapshot records through
 /// ([`Recorder::store`]), with what the read meets kept apart from it ([`Store::apart`]), as
 /// [`crate::repository::activity`] reads its snapshot; the snapshot being collected is not
 /// complete, so it is never the one read. A record that does not read is left out, as every port
@@ -886,7 +887,13 @@ fn stored(record: &Recorder<'_>) -> Result<Option<Stored>> {
 
 /// [`stored`] over `store`, every failure left on it.
 fn read_stored(store: &Store) -> Option<Stored> {
-    let snapshot = newest_complete(SnapshotStorage::list(store))?;
+    let unanswered = store.forge_unanswered();
+    let snapshot = newest_complete(
+        SnapshotStorage::list(store)
+            .into_iter()
+            .filter(|held| crate::store::observations::forge_complete(held, &unanswered))
+            .collect(),
+    )?;
     let mut runs: BTreeMap<String, BTreeMap<String, OffsetDateTime>> = BTreeMap::new();
     for run in WorkflowRunObservationStorage::list(store) {
         let data = run.data;

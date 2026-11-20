@@ -18,13 +18,13 @@
 
 mod active;
 mod common;
+mod failed;
 mod sized;
 
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Output, Stdio};
 
-use anyhow::bail;
 use conductor_cli::collect::Collector;
 use conductor_cli::snapshot::{self, Recorder, Taken};
 use conductor_cli::store;
@@ -266,12 +266,8 @@ fn from_fixture(name: &str) -> Collector {
     })
 }
 
-/// A fake collector whose source does not answer.
-fn fails() -> Collector {
-    Collector::new("fails", |_: &mut Recorder<'_>| {
-        bail!("the source did not answer")
-    })
-}
+/// The reason a failed snapshot of a case ([`failed::snapshot`]) was failed with.
+const FAILED: &str = "the run was killed";
 
 /// Takes one snapshot into the store under `root`, started at `started_at`, through `collectors`.
 fn take(root: &Path, started_at: &str, collectors: &[Collector]) -> Taken {
@@ -448,8 +444,7 @@ fn the_board_has_its_sections_in_order_and_names_its_snapshot() {
 #[test]
 fn a_failed_snapshot_is_refused_and_no_file_is_written() {
     let root = case_dir("failed");
-    let taken = take(&root, EARLIER, &[from_fixture("base"), fails()]);
-    assert_eq!(taken.state, SnapshotState::Failed, "{taken:?}");
+    let failed = failed::snapshot(&root.join("state"), EARLIER, FAILED, |_, _| {});
     let board = root.join("out/STATUS.md");
 
     let output = conductor(
@@ -458,7 +453,7 @@ fn a_failed_snapshot_is_refused_and_no_file_is_written() {
             "snapshot",
             "publish-board",
             "--snapshot-id",
-            taken.snapshot_id.0.0.as_str(),
+            failed.0.0.as_str(),
             "--path",
             path(&board),
         ],
@@ -710,8 +705,7 @@ fn a_board_with_nothing_waiting_for_review_says_none() {
 fn without_flags_the_newest_complete_snapshot_goes_to_the_records_status_file() {
     let root = case_dir("defaults");
     let snapshot = complete(&root, EARLIER, "base");
-    let failed = take(&root, LATER, &[fails()]);
-    assert_eq!(failed.state, SnapshotState::Failed, "{failed:?}");
+    let failed = failed::snapshot(&root.join("state"), LATER, FAILED, |_, _| {});
     let config = records_config(&root);
     let records = root.join("records");
 
@@ -722,7 +716,7 @@ fn without_flags_the_newest_complete_snapshot_goes_to_the_records_status_file() 
         .unwrap_or_else(|error| panic!("read {}: {error}; {}", file.display(), describe(&output)));
     assert!(section(&board, "# Status").contains(&snapshot), "{board}");
     assert!(
-        !board.contains(&failed.snapshot_id.0.0),
+        !board.contains(&failed.0.0),
         "the board names the failed snapshot:\n{board}"
     );
 }
@@ -952,8 +946,7 @@ fn status_prints_its_six_parts_from_the_store_and_starts_no_snapshot() {
 #[test]
 fn status_without_a_complete_snapshot_says_so_and_prints_the_rest() {
     let root = case_dir("status-no-snapshot");
-    let failed = take(&root, EARLIER, &[fails()]);
-    assert_eq!(failed.state, SnapshotState::Failed, "{failed:?}");
+    let failed = failed::snapshot(&root.join("state"), EARLIER, FAILED, |_, _| {});
     propose_goal(&root);
     let open = dispatch_to(&root, "alpha");
 
@@ -965,7 +958,7 @@ fn status_without_a_complete_snapshot_says_so_and_prints_the_rest() {
         "the header does not say no snapshot is complete:\n{status}"
     );
     assert!(
-        !status.contains(&failed.snapshot_id.0.0),
+        !status.contains(&failed.0.0),
         "the status names the failed snapshot:\n{status}"
     );
     assert!(

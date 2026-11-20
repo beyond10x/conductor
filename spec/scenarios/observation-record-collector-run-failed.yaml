@@ -1,0 +1,75 @@
+# story:collector-failure-stays-its-own: a collector that still fails after its retries fails only
+# its own rows. Its run is recorded `Failed` with the error it answered, the other collectors run,
+# and the snapshot completes.
+# The collector acts on the daemon's account: `{kind: Daemon}`.
+type: ess-scenario/1
+domain: conductor.observation
+scenario: observation-record-collector-run-failed
+summary: A collector's run is recorded Failed with its reason, the next collector's run Completed, and the snapshot completes naming the failed collector.
+
+arrange:
+  - instance: snapshot
+    entity: conductor.observation.Snapshot
+
+timeline:
+  - at: 2026-11-20T09:00:00Z
+    command: conductor.observation.StartSnapshot
+    actor: conductor.observation.Collector
+    input:
+      actor: {kind: Daemon}
+      started_at: 2026-11-20T09:00:00Z
+      disk_free_bytes: 1073741824
+    outcome: started
+    capture: {instance: snapshot, event: conductor.observation.SnapshotStarted, field: snapshot_id}
+
+  - at: 2026-11-20T09:00:05Z
+    command: conductor.observation.RecordCollectorRun
+    actor: conductor.observation.Collector
+    input:
+      actor: {kind: Daemon}
+      snapshot_id: {$instance: snapshot}
+      collector: github
+      started_at: 2026-11-20T09:00:00Z
+      duration_ms: 5000
+      outcome: Failed
+      reason: "the source did not answer"
+    outcome: recorded
+
+  - at: 2026-11-20T09:00:07Z
+    command: conductor.observation.RecordCollectorRun
+    actor: conductor.observation.Collector
+    input:
+      actor: {kind: Daemon}
+      snapshot_id: {$instance: snapshot}
+      collector: blockers
+      started_at: 2026-11-20T09:00:05Z
+      duration_ms: 2000
+      outcome: Completed
+    outcome: recorded
+
+  - at: 2026-11-20T09:00:08Z
+    command: conductor.observation.CompleteSnapshot
+    actor: conductor.observation.Collector
+    input:
+      actor: {kind: Daemon}
+      snapshot_id: {$instance: snapshot}
+      failed_collectors: [github]
+    outcome: completed
+
+assert:
+  - view: conductor.observation.CollectorRuns
+    contains:
+      snapshot_id: {$instance: snapshot}
+      collector: github
+      outcome: Failed
+      reason: "the source did not answer"
+  - view: conductor.observation.CollectorRuns
+    contains:
+      snapshot_id: {$instance: snapshot}
+      collector: blockers
+      outcome: Completed
+  - view: conductor.observation.Snapshots
+    contains:
+      snapshot_id: {$instance: snapshot}
+      state: Complete
+      failed_collectors: [github]

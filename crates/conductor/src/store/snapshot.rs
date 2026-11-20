@@ -385,14 +385,20 @@ fn listed<T>(
 
 fn encode_snapshot(snapshot: &SnapshotSnapshot) -> Value {
     let data = &snapshot.data;
-    json!({
+    let mut body = json!({
         "actor": crate::actor::to_json(&data.actor),
         "state": snapshot_state_name(snapshot.state),
         "snapshot_id": data.snapshot_id.0.0,
         "started_at": data.started_at.0,
         "disk_free_bytes": data.disk_free_bytes,
         "failure_reason": data.failure_reason,
-    })
+    });
+    // Written only when a collector failed: a snapshot every collector answered keeps the bytes
+    // it was written with before the field (`story:collector-failure-stays-its-own`).
+    if !data.failed_collectors.is_empty() {
+        body["failed_collectors"] = json!(data.failed_collectors);
+    }
+    body
 }
 
 fn decode_snapshot(body: &Value) -> Result<SnapshotSnapshot, String> {
@@ -404,6 +410,7 @@ fn decode_snapshot(body: &Value) -> Result<SnapshotSnapshot, String> {
             started_at: Timestamp(text(body, "started_at")?),
             disk_free_bytes: integer(body, "disk_free_bytes")?,
             failure_reason: optional_text(body, "failure_reason")?,
+            failed_collectors: optional_texts(body, "failed_collectors")?,
         },
     })
 }
@@ -787,6 +794,7 @@ fn encode_collector_run(observation: &CollectorRunObservationSnapshot) -> Value 
         "outcome": collector_run_outcome_name(data.outcome),
         "read_bytes": data.read_bytes,
         "written_bytes": data.written_bytes,
+        "reason": data.reason,
     })
 }
 
@@ -804,6 +812,7 @@ fn decode_collector_run(body: &Value) -> Result<CollectorRunObservationSnapshot,
             outcome: named(body, "outcome", collector_run_outcome_named)?,
             read_bytes: optional_integer(body, "read_bytes")?,
             written_bytes: optional_integer(body, "written_bytes")?,
+            reason: optional_text(body, "reason")?,
         },
     })
 }
