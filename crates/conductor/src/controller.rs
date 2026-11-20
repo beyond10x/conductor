@@ -154,11 +154,18 @@ fn say(line: Option<String>) -> Result<()> {
 /// ([`crate::spawn::end`]), and the command prints `stopped <session name> (<id>)`; a session no
 /// provider's measurement records is left as it is.
 ///
+/// A session that runs in the box of its instance, seen from outside that box
+/// ([`crate::confine::child::runs_in_box`]), is the box's runtime's to stop, as for
+/// [`stop_controller`]: the whole command is sent to the runtime through conductord
+/// ([`crate::instance::through_daemon`], `POST /v1/instances/{name}/controllers/{id}/pause`),
+/// which stops the session and records the pause as the operator; a runtime that does not answer
+/// leaves the record `Running` (`story:pause-reaches-boxed-session`).
+///
 /// # Errors
 ///
 /// A flag is missing or `--input-json` is given, the store does not open or keep the record, the
-/// session is not stopped, or the controller is unknown (`ControllerNotFound`) or not running
-/// (`ControllerStateConflict`).
+/// session is not stopped, the runtime of a boxed session does not answer, or the controller is
+/// unknown (`ControllerNotFound`) or not running (`ControllerStateConflict`).
 pub fn pause_controller(
     state: Option<&Path>,
     args: PauseControllerArgs,
@@ -167,6 +174,53 @@ pub fn pause_controller(
     const WHAT: &str = "controller pause-controller";
     flags_only(args.input_json, "controller pause-controller --input-json")?;
     let controller_id = controller_id(args.controller_id, WHAT)?;
+    if let Some((_, session_name)) = in_state(state, &controller_id, &[ControllerState::Running])? {
+        let instance = &crate::config::active().instance;
+        let dir = crate::state::dir(state)?;
+        if crate::confine::child::runs_in_box(instance, &dir, &session_name.0) {
+            let route = format!("{STOP_ROUTE}/{}/pause", controller_id.0.0);
+            return match crate::instance::through_daemon(
+                &instance.name.0,
+                &route,
+                &serde_json::json!({}),
+            ) {
+                crate::instance::Through::Done(answer) => {
+                    say(answer["stopped"]
+                        .as_str()
+                        .map(|session| format!("stopped {session}")))?;
+                    Ok(ExitCode::SUCCESS)
+                }
+                crate::instance::Through::Refused(line) => bail!("{line}"),
+                crate::instance::Through::Unreached(why) => bail!(
+                    "{WHAT}: the session {} runs in the box of instance {}, and its runtime was \
+                     not reached: {why}; the controller is not recorded paused",
+                    session_name.0,
+                    instance.name.0
+                ),
+            };
+        }
+    }
+    let stopped = pause_here(state, controller_id, crate::actor::chosen(), providers)?;
+    say(stopped.map(|session| format!("stopped {session}")))?;
+    Ok(ExitCode::SUCCESS)
+}
+
+/// [`pause_controller`] in this process, recorded as `actor`: the controller's session stopped
+/// through its instance's provider, then the record. Answers `<session name> (<id>)` of the
+/// session it stopped, none when it touched none. The instance API's
+/// `POST /v1/controllers/{id}/pause` calls it in the runtime, for the operator conductord
+/// admitted (`story:pause-reaches-boxed-session`).
+///
+/// # Errors
+///
+/// Those of [`pause_controller`] past its flags.
+pub(crate) fn pause_here(
+    state: Option<&Path>,
+    controller_id: ControllerId,
+    actor: conductor_model::operator::Actor,
+    providers: &dyn Providers,
+) -> Result<Option<String>> {
+    const WHAT: &str = "controller pause-controller";
     let stopped = match in_state(state, &controller_id, &[ControllerState::Running])? {
         Some((repository, session_name)) => {
             crate::spawn::end(state, &repository, &session_name, providers)
@@ -177,19 +231,16 @@ pub fn pause_controller(
     let mut generated = record(state)?;
     let outcome = generated
         .pause_controller(PauseController {
-            actor: crate::actor::chosen(),
+            actor,
             controller_id,
         })
         .map_err(|unmet| anyhow!("{WHAT}: {unmet}"))?;
     generated.ports.store.check().context("keep the pause")?;
     match outcome {
-        PauseControllerOutcome::Paused { .. } => {
-            say(stopped.map(|session| format!("stopped {session}")))?;
-            Ok(ExitCode::SUCCESS)
-        }
-        PauseControllerOutcome::NoSuchController { error } => not_found(WHAT, &error),
+        PauseControllerOutcome::Paused { .. } => Ok(stopped),
+        PauseControllerOutcome::NoSuchController { error } => not_found(WHAT, &error).map(|_| None),
         PauseControllerOutcome::WrongState { error } => {
-            state_conflict(WHAT, &error, "only a running controller is paused")
+            state_conflict(WHAT, &error, "only a running controller is paused").map(|_| None)
         }
     }
 }
@@ -315,7 +366,7 @@ pub fn stop_controller(
 }
 
 /// The prefix of the instance API's controller routes: `POST /v1/controllers/{id}/stop`
-/// ([`stop_here`]).
+/// ([`stop_here`]) and `POST /v1/controllers/{id}/pause` ([`pause_here`]).
 pub const STOP_ROUTE: &str = "controllers";
 
 /// [`stop_controller`] in this process, recorded as `actor`: the controller's session stopped
