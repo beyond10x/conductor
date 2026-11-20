@@ -17,13 +17,13 @@
 //!
 //! | trigger | reads | fires |
 //! |---|---|---|
-//! | `MAIL` | `<state>/mailbox/conductor/`, file names (ULIDs) past the mail cursor | each new file but a report `progress`, `started`, `unblocked` or `blocked ci` whose text holds neither `waits on` nor `waiting for` |
-//! | `LOG` | `<state>/sessions/runtime.log` past the log cursor (a byte offset, 0 again on a shorter file) | each complete line carrying one of [`local::LOG_STRINGS`] |
+//! | `MAIL` | `<state>/mailbox/conductor/`, file names (ULIDs) past the mail cursor, and those within [`local::MAIL_WINDOW_MS`] below it not handled yet | each new file but a report `progress`, `started`, `unblocked` or `blocked ci` whose text holds neither `waits on` nor `waiting for`; a file that cannot be read, with its error |
+//! | `LOG` | a boxed instance's `<state>/sessions/runtime.log` past the log cursor (offset, inode and first bytes: a replaced or rewritten log is read from its start); an unboxed one's unit journal past the journal cursor ([`Sources::journal`]) | each complete line carrying one of [`local::LOG_STRINGS`]; a missing log is a note |
 //! | `DAEMON` | the daemon's `Reconciliation` records of the instance past the daemon cursor, in the store `daemon.store` writes | reason `LostRuntime`, or action `Upgrade` with reason `OperatorCommand` |
 //! | `INBOX` | the files `globals.supervisor.inbox` and `globals.supervisor.outbox` | the inbox holds a request id the outbox does not, once per new id; off unless both are set |
-//! | `DISK` | free bytes on the instance's `thresholds.disk_path` | under `thresholds.disk_low` (once per fall), or 5 GiB under the previous pass's reading |
-//! | `UNPUSHED` | `git` in each checkout under `checkouts.root`, each managed tree, each `--checkout` | a local branch whose commits no remote branch holds, the oldest over 30 min old, once per branch head |
-//! | `IDLE` | the instance's store (a `Running` controller with an open dispatch), its transcripts and its newest report | no transcript write for 15 min, unless the newest report waits on a person (a `blocked ci` report never does); at most once per 30 min per controller |
+//! | `DISK` | free bytes on the instance's `thresholds.disk_path` | under `thresholds.disk_low` (once per fall), or 5 GiB under the baseline, which moves only when a DISK line fires or once an hour |
+//! | `UNPUSHED` | `git` in each checkout under `checkouts.root`, each managed tree, each `--checkout`, and each worktree's detached HEAD | a local branch or detached HEAD whose commits no remote branch holds, the oldest over 30 min old, once per head |
+//! | `IDLE` | the instance's store (a `Running` controller with an open dispatch), the transcripts of its checkout and its own trees and its newest report | no transcript write for 15 min (without a transcript, 15 min since the dispatch was sent), unless the newest report waits on a person (a `blocked ci` report never does); at most once per 30 min per controller |
 //! | `TIMEOUT` | the clock | `--timeout` passed with no other trigger |
 //!
 //! `GREEN` and `CIEND` are `story:supervisor-watch-forge-triggers`: [`Watch::holds`] keeps the
@@ -34,7 +34,7 @@
 //! temporary file and renamed into place. One run per host directory holds the exclusive lock
 //! `supervisor-watch/lock`, which the kernel lets go when the process dies. A cursor moves
 //! ([`Watch::commit`]) only after the lines it covers are written and flushed: delivery is at
-//! least once. A first run with no cursor for an instance starts its mail, log and daemon cursors
+//! least once; a pass that fires nothing moves its cursors at once. A first run with no cursor for an instance starts its mail, log and daemon cursors
 //! at what is there, and names on standard error how many mail files it passed over (class C: a
 //! new host gets no flood of old mail).
 //!
@@ -80,6 +80,9 @@ pub const NO_INSTANCE: &str = "-";
 /// `--timeout` when none is given.
 pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(20 * 60);
 
+/// The longest `--timeout`: a day.
+pub const MAX_TIMEOUT: Duration = Duration::from_secs(24 * 3600);
+
 /// How often every trigger is read while nothing changed.
 pub const READ_EVERY: Duration = Duration::from_secs(30);
 
@@ -106,7 +109,24 @@ pub struct Sources {
     pub interval: Duration,
     /// The `git` program.
     pub git: PathBuf,
+    /// The program and arguments that print the journal of the unit an unboxed instance's
+    /// runtime runs in, `{unit}` filled in, with `--show-cursor` (its last line `-- cursor: <c>`);
+    /// the watch adds `--after-cursor <c>`, or `-n 1` on a first run ([`JOURNAL`]).
+    pub journal: Vec<String>,
 }
+
+/// The journal of an unboxed instance's runtime unit, as [`Sources::journal`] reads it.
+pub const JOURNAL: [&str; 9] = [
+    "journalctl",
+    "--user",
+    "-u",
+    "{unit}",
+    "-o",
+    "short-iso",
+    "--no-pager",
+    "--quiet",
+    "--show-cursor",
+];
 
 impl Sources {
     /// The real sources: the host directory `host`, `~/.claude/projects` under `home`, the
@@ -121,6 +141,7 @@ impl Sources {
             free_bytes: |path| crate::disk::space(path).map(|space| space.available),
             interval: READ_EVERY,
             git: PathBuf::from("git"),
+            journal: JOURNAL.iter().map(|word| (*word).to_owned()).collect(),
         }
     }
 }
@@ -145,7 +166,7 @@ impl std::fmt::Display for Refusal {
             Self::InvalidWatchTimeout(refusal) => write!(
                 f,
                 "conductor.host.InvalidWatchTimeout: --timeout {:?} is not <n>s, <n>m or <n>h \
-                 with n above 0; nothing was read",
+                 with n above 0, at most 24h; nothing was read",
                 refusal.timeout
             ),
             Self::UnknownInstance(refusal) => write!(
@@ -171,7 +192,7 @@ impl std::fmt::Display for Refusal {
 
 impl std::error::Error for Refusal {}
 
-/// `--timeout`: `<n>s`, `<n>m` or `<n>h`, `n` a whole number above 0.
+/// `--timeout`: `<n>s`, `<n>m` or `<n>h`, `n` a whole number above 0, at most [`MAX_TIMEOUT`].
 ///
 /// # Errors
 ///
@@ -199,6 +220,7 @@ pub fn timeout(text: &str) -> Result<Duration, Refusal> {
     }
     n.checked_mul(seconds)
         .map(Duration::from_secs)
+        .filter(|timeout| *timeout <= MAX_TIMEOUT)
         .ok_or_else(refused)
 }
 
@@ -353,6 +375,10 @@ impl Pass {
 
     fn write(&mut self, file: PathBuf, content: impl Into<String>) {
         self.writes.insert(file, Some(content.into()));
+    }
+
+    fn remove(&mut self, file: PathBuf) {
+        self.writes.insert(file, None);
     }
 }
 
@@ -511,7 +537,7 @@ impl Watch {
         local::daemon(self, &instances, &mut pass, &at, notes)?;
         local::inbox(self, &mut pass, &at, notes);
         for instance in &instances {
-            local::disk(self, instance, &mut pass, &at, notes)?;
+            local::disk(self, instance, &mut pass, now, &at, notes)?;
         }
         local::unpushed(self, &instances, &mut pass, now, &at, notes);
         for instance in &instances {
@@ -553,7 +579,8 @@ impl Watch {
 
     /// Blocks until a trigger fires or the timeout passes, reads every trigger once more, prints
     /// one line per fired trigger on `out` (`json`: one object each), flushes it, and only then
-    /// moves the cursors. Answers what it printed.
+    /// moves the cursors; a pass that fired nothing moves its cursors at once. Answers what it
+    /// printed.
     ///
     /// # Errors
     ///
@@ -571,6 +598,9 @@ impl Watch {
         let mut last_full = Instant::now();
         let mut last_files = last_full;
         while fired.is_empty() {
+            // A pass that fired nothing prints nothing: its cursors move at once, so what it
+            // read is not read again.
+            self.commit(&fired)?;
             let now = Instant::now();
             if now >= deadline {
                 break;

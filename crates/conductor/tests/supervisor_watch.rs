@@ -84,16 +84,18 @@ fn case(name: &str) -> Scratch {
 }
 
 /// The config text of the instances `alpha` and `beta` under `dir`, each with its disk the file
-/// `<instance>/disk`, and `globals` written as `globals`.
+/// `<instance>/disk`, and `globals` written as `globals`. `alpha` runs in a box (`placement:
+/// systemd`), whose runtime writes `runtime.log`; `beta` at `placement: none`, whose runtime
+/// logs to its unit's journal.
 fn config_text(dir: &Path, globals: &str) -> String {
     let mut text = String::from("version: conductor.config/2\n");
     text.push_str(globals);
     text.push_str("instances:\n");
-    for name in ["alpha", "beta"] {
+    for (name, placement) in [("alpha", "systemd"), ("beta", "none")] {
         let base = dir.join(name);
         text.push_str(&format!(
             "  - name: {name}\n\
-             \x20   placement: none\n\
+             \x20   placement: {placement}\n\
              \x20   session_prefix: {name}\n\
              \x20   sources: [{{github: example-org}}]\n\
              \x20   checkouts: {{root: {root:?}, trees: {trees:?}}}\n\
@@ -127,7 +129,63 @@ fn sources(dir: &Path, clock: fn() -> OffsetDateTime) -> Sources {
         free_bytes,
         interval: Duration::from_millis(5),
         git: PathBuf::from("git"),
+        journal: fake_journal(dir),
     }
+}
+
+/// A journal of the case: the unit `<unit>`'s entries are the lines of `<dir>/journal/<unit>`,
+/// its cursor the number of lines; `--after-cursor <n>` prints the lines after the n-th, `-n 1`
+/// the last. Run with `sh`, as `journalctl` would answer `--show-cursor`.
+fn fake_journal(dir: &Path) -> Vec<String> {
+    let script = dir.join("fake-journal");
+    fs::write(
+        &script,
+        "f=\"$1\"; shift\n\
+         after=\"\"; last=\"\"\n\
+         while [ $# -gt 0 ]; do\n\
+         \x20 case \"$1\" in\n\
+         \x20   --after-cursor) after=\"$2\"; shift;;\n\
+         \x20   -n) last=\"$2\"; shift;;\n\
+         \x20 esac\n\
+         \x20 shift\n\
+         done\n\
+         [ -f \"$f\" ] || exit 0\n\
+         total=$(wc -l < \"$f\" | tr -d ' ')\n\
+         [ \"$total\" -gt 0 ] || exit 0\n\
+         if [ -n \"$after\" ]; then tail -n +\"$((after + 1))\" \"$f\";\n\
+         elif [ -n \"$last\" ]; then tail -n \"$last\" \"$f\";\n\
+         else cat \"$f\"; fi\n\
+         echo \"-- cursor: $total\"\n",
+    )
+    .expect("write the fake journal");
+    vec![
+        "sh".to_owned(),
+        script.display().to_string(),
+        dir.join("journal").join("{unit}").display().to_string(),
+    ]
+}
+
+/// Appends `lines` to the journal of the unit of `instance`'s runtime.
+fn journal(dir: &Path, instance: &str, lines: &str) {
+    let dir = dir.join("journal");
+    fs::create_dir_all(&dir).expect("create the journal");
+    OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(dir.join(conductor_cli::daemon::reconcile::unit_name(instance)))
+        .and_then(|mut file| file.write_all(lines.as_bytes()))
+        .expect("append to the journal");
+}
+
+/// A mail file name: the ULID of `ms` milliseconds since the epoch and the randomness `random`
+/// (16 characters of Crockford's base 32), then `.md`.
+fn ulid(ms: u64, random: &str) -> String {
+    const ALPHABET: &[u8] = b"0123456789ABCDEFGHJKMNPQRSTVWXYZ";
+    let mut time = String::new();
+    for n in (0..10).rev() {
+        time.push(ALPHABET[((ms >> (5 * n)) & 31) as usize] as char);
+    }
+    format!("{time}{random}.md")
 }
 
 fn input() -> WatchSupervisor {
@@ -551,7 +609,8 @@ fn set_disk(dir: &Path, gib: u64) {
 }
 
 /// Free disk under `thresholds.disk_low` fires once per fall; a drop of 5 GiB or more under the
-/// previous pass's reading fires, measured from that pass, not from the run's start.
+/// baseline fires, and a slow fill fires too: the baseline moves only when a DISK line fires or
+/// once an hour, never on a quiet 30 s pass.
 #[test]
 fn disk_fires_under_disk_low_and_five_gigabytes_under_the_last_baseline() {
     let scratch = case("disk");
@@ -561,39 +620,58 @@ fn disk_fires_under_disk_low_and_five_gigabytes_under_the_last_baseline() {
         instance: vec!["alpha".to_owned()],
         ..input()
     };
-    let mut watch = watch(&config, &args, sources(&dir, noon));
-    let mut step = |gib: u64| {
+    let step = |clock: fn() -> OffsetDateTime, gib: u64| {
         set_disk(&dir, gib);
+        let mut watch = watch(&config, &args, sources(&dir, clock));
         let (pass, found, _) = lines(&mut watch);
         watch.commit(&pass).expect("commit");
         found
+            .into_iter()
+            .filter(|line| line.starts_with("DISK"))
+            .collect::<Vec<_>>()
     };
-    assert!(step(100).is_empty(), "the first reading is the baseline");
-    assert!(step(96).is_empty(), "4G under the baseline");
-    assert!(
-        step(92).is_empty(),
-        "4G under the last pass's reading, though 8G under the run's start"
-    );
     let disk = dir.join("alpha/disk").display().to_string();
+    assert!(
+        step(noon, 100).is_empty(),
+        "the first reading is the baseline"
+    );
+    assert!(step(noon, 98).is_empty(), "2G under the baseline");
+    assert!(step(noon, 96).is_empty(), "4G under the baseline");
     assert_eq!(
-        step(86),
+        step(noon, 94),
         vec![format!(
-            "DISK alpha {disk} 86G free, 6G under 92G at the last read"
+            "DISK alpha {disk} 94G free, 6G under the baseline 100G"
+        )],
+        "a slow fill fires: the quiet passes moved no baseline"
+    );
+    assert!(
+        step(noon, 91).is_empty(),
+        "the line moved the baseline to 94G"
+    );
+    assert!(
+        step(noon_plus_62, 90).is_empty(),
+        "4G under 94G; an hour on, the baseline moves to 90G"
+    );
+    assert_eq!(
+        step(noon_plus_62, 85),
+        vec![format!(
+            "DISK alpha {disk} 85G free, 5G under the baseline 90G"
         )]
     );
     assert_eq!(
-        step(8),
+        step(noon_plus_62, 8),
         vec![format!(
-            "DISK alpha {disk} 8G free, under disk_low 10G; 78G under 86G at the last read"
+            "DISK alpha {disk} 8G free, under disk_low 10G; 77G under the baseline 85G"
         )]
     );
-    assert!(step(8).is_empty(), "once per fall under disk_low");
-    assert!(step(50).is_empty(), "back over disk_low");
+    assert!(
+        step(noon_plus_62, 8).is_empty(),
+        "once per fall under disk_low"
+    );
+    assert!(step(noon_plus_62, 50).is_empty(), "back over disk_low");
     assert_eq!(
-        step(9),
-        vec![format!(
-            "DISK alpha {disk} 9G free, under disk_low 10G; 41G under 50G at the last read"
-        )]
+        step(noon_plus_62, 9),
+        vec![format!("DISK alpha {disk} 9G free, under disk_low 10G")]
     );
 }
 
@@ -882,12 +960,33 @@ fn config_file(dir: &Path) -> PathBuf {
     file
 }
 
+/// The binary over the config file `file`, with a fake `journalctl` first on its `PATH`, so the
+/// unboxed instance `beta` reads no journal of the host (AGENTS.md rule 5). The fake, written by
+/// the case into `<dir>/bin`, appends its arguments to `<dir>/bin/journal-read` and answers one
+/// cursor.
 fn binary(dir: &Path, file: &Path) -> Command {
+    use std::os::unix::fs::PermissionsExt as _;
     let home = dir.join("home");
     fs::create_dir_all(&home).expect("create the home");
+    let bin = dir.join("bin");
+    fs::create_dir_all(&bin).expect("create the case's bin");
+    let fake = bin.join("journalctl");
+    fs::write(
+        &fake,
+        format!(
+            "#!/bin/sh\necho \"$*\" >> {read:?}\necho \"-- cursor: fake-1\"\n",
+            read = bin.join("journal-read")
+        ),
+    )
+    .expect("write the fake journalctl");
+    fs::set_permissions(&fake, fs::Permissions::from_mode(0o755)).expect("make it runnable");
+    let path = std::env::var_os("PATH").unwrap_or_default();
+    let mut paths = vec![bin];
+    paths.extend(std::env::split_paths(&path));
     let mut command = common::conductor(&home);
     command
         .env(config::CONFIG_VARIABLE, file)
+        .env("PATH", std::env::join_paths(paths).expect("a PATH"))
         .current_dir(dir)
         .args(["supervisor", "watch"]);
     command
@@ -908,6 +1007,13 @@ fn timeout_prints_one_timeout_line_and_exits_zero() {
         String::from_utf8_lossy(&output.stderr)
     );
     assert_eq!(String::from_utf8_lossy(&output.stdout), "TIMEOUT - - -\n");
+    let read = fs::read_to_string(dir.join("bin/journal-read")).expect("the fake journal was read");
+    let unit = conductor_cli::daemon::reconcile::unit_name("beta");
+    assert!(
+        read.lines()
+            .any(|line| line.starts_with("--user -u ") && line.contains(&unit)),
+        "beta's journal is read through the fake journalctl: {read:?}"
+    );
     let output = binary(&dir, &file)
         .args(["--timeout", "1s", "--format", "json"])
         .output()
@@ -1078,9 +1184,344 @@ fn the_watch_creates_no_store_and_writes_only_under_the_host_directory() {
     }
     for written in files(&dir) {
         assert!(
-            written == Path::new("conductor.yaml") || written.starts_with("host/supervisor-watch"),
+            written == Path::new("conductor.yaml")
+                || written.starts_with("host/supervisor-watch")
+                || written.starts_with("bin"),
             "{} is written outside supervisor-watch/ of the host directory",
             written.display()
         );
     }
+}
+
+// -------------------------------------------------------------------------------------------
+// Review findings (wave 69 adversary review)
+// -------------------------------------------------------------------------------------------
+
+/// An unboxed instance's runtime logs to its unit's journal, which LOG reads past a persisted
+/// journal cursor; a boxed instance with no `runtime.log` is one note, not silence.
+#[test]
+fn log_reads_the_unit_journal_of_an_unboxed_instance_and_notes_a_missing_log() {
+    let scratch = case("log-journal");
+    let dir = scratch.path().to_owned();
+    let config = parsed(&dir, "");
+    journal(
+        &dir,
+        "beta",
+        "2026-10-07T10:00 host conductor[1]: usage limit, old\n",
+    );
+    let mut watch = watch(&config, &input(), sources(&dir, noon));
+    let (pass, found, notes) = lines(&mut watch);
+    assert!(
+        found.is_empty(),
+        "a first run starts at the journal's end: {found:?}"
+    );
+    assert!(
+        notes.contains("alpha") && notes.contains("runtime.log"),
+        "the boxed instance's missing runtime.log is a note: {notes}"
+    );
+    watch.commit(&pass).expect("commit");
+    journal(
+        &dir,
+        "beta",
+        "2026-10-07T11:00 host conductor[1]: context: beta-app 81%\n\
+         2026-10-07T11:01 host conductor[1]: a quiet line\n",
+    );
+    let (pass, found, _) = lines(&mut watch);
+    assert_eq!(
+        found,
+        vec!["LOG beta - 2026-10-07T11:00 host conductor[1]: context: beta-app 81%"]
+    );
+    watch.commit(&pass).expect("commit");
+    let mut again = super_watch(&config, &dir);
+    let (_, found, _) = lines(&mut again);
+    assert!(found.is_empty(), "the journal cursor persists: {found:?}");
+}
+
+/// A mail file whose ULID sorts below the cursor, made a little earlier or in the same
+/// millisecond but written later, is still listed once: the watch re-reads a window of a few
+/// seconds below its cursor and keeps the names it handled there.
+#[test]
+fn mail_lists_a_file_that_lands_below_the_cursor_within_its_window() {
+    let scratch = case("mail-window");
+    let dir = scratch.path().to_owned();
+    let config = parsed(&dir, "");
+    let mailbox = mailbox(&dir, "alpha");
+    let mut watch = watch(&config, &input(), sources(&dir, noon));
+    let (pass, _, _) = lines(&mut watch);
+    watch.commit(&pass).expect("commit the baseline");
+    const T: u64 = 1_791_370_800_000;
+    let later = ulid(T + 1000, "0000000000000001");
+    mail(&mailbox, &later, "[NEED app R1] lib later\n");
+    let (pass, found, _) = lines(&mut watch);
+    assert_eq!(
+        found,
+        vec![format!("MAIL alpha {later} [NEED app R1] lib later")]
+    );
+    watch.commit(&pass).expect("commit");
+    let earlier = ulid(T, "0000000000000002");
+    let same = ulid(T + 1000, "0000000000000000");
+    mail(&mailbox, &earlier, "[NEED app R2] lib earlier\n");
+    mail(&mailbox, &same, "[NEED app R3] lib same millisecond\n");
+    let (pass, found, _) = lines(&mut watch);
+    assert_eq!(
+        found,
+        vec![
+            format!("MAIL alpha {earlier} [NEED app R2] lib earlier"),
+            format!("MAIL alpha {same} [NEED app R3] lib same millisecond"),
+        ]
+    );
+    watch.commit(&pass).expect("commit");
+    let mut again = super_watch(&config, &dir);
+    let (_, found, _) = lines(&mut again);
+    assert!(found.is_empty(), "each file once: {found:?}");
+}
+
+/// A mail file that cannot be read is listed with the error, never passed over in silence.
+#[test]
+fn an_unreadable_mail_file_is_listed_with_its_error() {
+    use std::os::unix::fs::PermissionsExt as _;
+    let scratch = case("mail-unreadable");
+    let dir = scratch.path().to_owned();
+    let config = parsed(&dir, "");
+    let mailbox = mailbox(&dir, "alpha");
+    let mut watch = watch(&config, &input(), sources(&dir, noon));
+    let (pass, _, _) = lines(&mut watch);
+    watch.commit(&pass).expect("commit the baseline");
+    let name = "01JE0000000000000000000001.md";
+    mail(&mailbox, name, "[NEED app R1] lib\n");
+    fs::set_permissions(mailbox.join(name), fs::Permissions::from_mode(0o000))
+        .expect("make the file unreadable");
+    let (_, found, _) = lines(&mut watch);
+    fs::set_permissions(mailbox.join(name), fs::Permissions::from_mode(0o644))
+        .expect("make the file readable again");
+    assert_eq!(found.len(), 1, "one line: {found:?}");
+    assert!(
+        found[0].starts_with(&format!("MAIL alpha {name} unreadable: ")),
+        "names the file and the error: {found:?}"
+    );
+}
+
+fn running(handle: &mut store::Store, id: &str, repository: &str) {
+    ControllerStorage::put(
+        handle,
+        ControllerSnapshot {
+            state: ControllerState::Running,
+            data: ControllerData {
+                actor: conductor_cli::actor::daemon(),
+                controller_id: ControllerId(Uuid(id.to_owned())),
+                repository: RepositoryName(repository.to_owned()),
+                harness: Harness::Claude,
+                session_name: SessionName(format!("alpha-{repository}")),
+                charter_revision: 1,
+            },
+        },
+    );
+}
+
+fn open_dispatch(handle: &mut store::Store, id: &str, repository: &str, sent_at: &str) {
+    DispatchStorage::put(
+        handle,
+        DispatchSnapshot {
+            state: DispatchState::Sent,
+            data: DispatchData {
+                dispatch_id: DispatchId(id.to_owned()),
+                actor: conductor_cli::actor::daemon(),
+                repository: RepositoryName(repository.to_owned()),
+                goal_id: None,
+                brief: "work".to_owned(),
+                sent_at: Timestamp(sent_at.to_owned()),
+                priority: 1,
+                waits_on: None,
+                reference: None,
+                start_ref: None,
+                issue: None,
+                links: Vec::new(),
+                waiting: None,
+            },
+        },
+    );
+}
+
+fn transcript(directory: &Path, written: &str) {
+    fs::create_dir_all(directory).expect("create the project directory");
+    let file = directory.join("session.jsonl");
+    fs::write(&file, "{}\n").expect("write a transcript");
+    File::options()
+        .write(true)
+        .open(&file)
+        .and_then(|file| file.set_modified(SystemTime::from(at(written))))
+        .expect("date the transcript");
+}
+
+/// IDLE reads the transcripts of the controller's own checkout and trees, never another
+/// repository's whose project name it is a prefix of; and a Running controller with no
+/// transcript at all is silent since its open dispatch was sent.
+#[test]
+fn idle_reads_only_its_own_trees_and_counts_from_the_dispatch_without_a_transcript() {
+    let scratch = case("idle-trees");
+    let dir = scratch.path().to_owned();
+    let config = parsed(&dir, "");
+    {
+        let mut handle = store::open(&dir.join("alpha/state")).expect("open alpha's store");
+        running(&mut handle, "11111111-1111-4111-8111-111111111111", "app");
+        running(&mut handle, "22222222-2222-4222-8222-222222222222", "lib");
+        open_dispatch(
+            &mut handle,
+            "DSP-20261007-01",
+            "app",
+            "2026-10-07T09:00:00Z",
+        );
+        open_dispatch(
+            &mut handle,
+            "DSP-20261007-02",
+            "lib",
+            "2026-10-07T09:00:00Z",
+        );
+        handle.check().expect("kept");
+    }
+    let projects = dir.join("projects");
+    let trees = dir.join("alpha/trees");
+    let own = trees.join("app/t1");
+    fs::create_dir_all(&own).expect("create app's tree");
+    transcript(&project(&projects, &own), "2026-10-07T11:40:00Z");
+    transcript(
+        &project(&projects, &trees.join("app-bar/t1")),
+        "2026-10-07T11:59:00Z",
+    );
+    let mut watch = watch(&config, &input(), sources(&dir, noon));
+    let (_, found, _) = lines(&mut watch);
+    let idle: Vec<&String> = found
+        .iter()
+        .filter(|line| line.starts_with("IDLE"))
+        .collect();
+    assert_eq!(
+        idle,
+        vec![
+            "IDLE alpha alpha-app silent 20m with the open dispatch DSP-20261007-01",
+            "IDLE alpha alpha-lib silent 180m with the open dispatch DSP-20261007-02",
+        ]
+    );
+}
+
+/// A run that prints nothing but `TIMEOUT` still moves the cursors of what it read: the log and
+/// the mail it passed over are not read again.
+#[test]
+fn a_quiet_pass_and_a_timeout_move_the_cursors_past_what_they_read() {
+    let scratch = case("quiet");
+    let dir = scratch.path().to_owned();
+    let config = parsed(&dir, "");
+    let sessions = dir.join("alpha/state/sessions");
+    fs::create_dir_all(&sessions).expect("create the sessions directory");
+    let log = sessions.join("runtime.log");
+    fs::write(&log, "").expect("write the log");
+    let mailbox = mailbox(&dir, "alpha");
+    let args = WatchSupervisor {
+        instance: vec!["alpha".to_owned()],
+        timeout: Some("1s".to_owned()),
+        ..input()
+    };
+    let mut first = watch(&config, &args, sources(&dir, noon));
+    let (pass, _, _) = lines(&mut first);
+    first.commit(&pass).expect("commit the baseline");
+    fs::write(&log, "[t]: a quiet line\n".repeat(100)).expect("write quiet lines");
+    let skipped = "01JF0000000000000000000001.md";
+    mail(&mailbox, skipped, "[REPORT app DSP-1] progress fine\n");
+    let mut out = Vec::new();
+    let mut notes = Vec::new();
+    first.run(false, &mut out, &mut notes).expect("run");
+    assert_eq!(String::from_utf8_lossy(&out), "TIMEOUT - - -\n");
+    let cursors = dir.join("host/supervisor-watch/alpha");
+    let log_cursor = fs::read_to_string(cursors.join("log")).expect("the log cursor");
+    assert_eq!(
+        log_cursor.split_whitespace().next(),
+        Some("1800"),
+        "the log cursor is past the quiet lines: {log_cursor:?}"
+    );
+    let mail_cursor = fs::read_to_string(cursors.join("mail")).expect("the mail cursor");
+    assert_eq!(
+        mail_cursor.lines().next(),
+        Some(skipped),
+        "past the skipped report"
+    );
+}
+
+/// A log rewritten as a new file longer than the cursor, its start not the start the cursor
+/// read, is read from its start.
+#[test]
+fn log_reads_a_rewritten_log_from_its_start() {
+    let scratch = case("log-rewritten");
+    let dir = scratch.path().to_owned();
+    let config = parsed(&dir, "");
+    let sessions = dir.join("alpha/state/sessions");
+    fs::create_dir_all(&sessions).expect("create the sessions directory");
+    let log = sessions.join("runtime.log");
+    fs::write(&log, "[a]: the first log\n".repeat(5)).expect("write the log");
+    let mut watch = watch(&config, &input(), sources(&dir, noon));
+    let (pass, _, _) = lines(&mut watch);
+    watch.commit(&pass).expect("commit the baseline");
+    fs::write(
+        &log,
+        format!(
+            "[b]: LaunchFailed in the new log\n{}",
+            "[b]: a quiet line\n".repeat(10)
+        ),
+    )
+    .expect("rewrite the log");
+    let (_, found, _) = lines(&mut watch);
+    assert_eq!(found, vec!["LOG alpha - [b]: LaunchFailed in the new log"]);
+}
+
+/// `--timeout` above a day is refused as `InvalidWatchTimeout`, never added to the clock.
+#[test]
+fn a_timeout_over_a_day_is_refused() {
+    use conductor_cli::supervisor_watch::timeout;
+    assert_eq!(timeout("24h").ok(), Some(Duration::from_secs(24 * 3600)));
+    for text in ["25h", "86401s", "5000000000h"] {
+        assert!(timeout(text).is_err(), "{text} is refused");
+    }
+}
+
+/// UNPUSHED sees the commits of a detached HEAD in a worktree of a named checkout, which no
+/// branch holds.
+#[test]
+fn unpushed_names_a_detached_head_in_a_worktree_of_a_named_checkout() {
+    let scratch = case("unpushed-detached");
+    let dir = scratch.path().to_owned();
+    let config = parsed(&dir, "");
+    let product = dir.join("product");
+    fs::create_dir_all(&product).expect("create the product checkout");
+    git(&product, &["init", "-q"], "2026-10-07T09:00:00Z");
+    let first = commit(&product, "p", "2026-10-07T11:00:00Z");
+    let tree = dir.join("product-tree");
+    git(
+        &product,
+        &[
+            "worktree",
+            "add",
+            "-q",
+            "--detach",
+            &tree.display().to_string(),
+        ],
+        "2026-10-07T11:05:00Z",
+    );
+    commit(&tree, "q", "2026-10-07T11:10:00Z");
+    let args = WatchSupervisor {
+        checkout: vec![product.display().to_string()],
+        ..input()
+    };
+    let mut watch = watch(&config, &args, sources(&dir, noon));
+    let (_, found, _) = lines(&mut watch);
+    assert_eq!(
+        found,
+        vec![
+            format!(
+                "UNPUSHED - {}:main {first} 60m old, 1 commit",
+                product.display()
+            ),
+            format!(
+                "UNPUSHED - {}:HEAD {first} 60m old, 2 commits",
+                tree.display()
+            ),
+        ]
+    );
 }

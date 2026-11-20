@@ -7,6 +7,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fs::{self, File};
 use std::io::{self, Read as _, Seek as _, SeekFrom, Write};
 use std::os::fd::AsFd as _;
+use std::os::unix::fs::MetadataExt as _;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::{Duration, SystemTime};
@@ -74,6 +75,7 @@ const DISK_BASELINE: &str = "disk";
 const DISK_LOW: &str = "disk.low";
 const UNPUSHED_CURSOR: &str = "unpushed";
 const IDLE_CURSOR: &str = "idle";
+const JOURNAL_CURSOR: &str = "journal";
 
 /// The mailbox of `instance`'s conductor.
 fn mailbox(instance: &Instance) -> PathBuf {
@@ -131,8 +133,43 @@ fn quiet(words: &[&str]) -> bool {
         .any(|quiet| words.len() >= quiet.len() && words[..quiet.len()] == **quiet)
 }
 
-/// `MAIL`: every file of the instance's mailbox past its mail cursor. A first run with no cursor
-/// starts at the newest file, and names how many it passed over.
+/// How far below the mail cursor, in ULID time, the watch reads again for a file that landed
+/// late: a ULID is made before its file is written, in another process, so a file can sort below
+/// one already handled, the more so within one millisecond.
+pub const MAIL_WINDOW_MS: u64 = 5_000;
+
+/// The milliseconds since the epoch of a name that starts with a ULID.
+fn ulid_ms(name: &str) -> Option<u64> {
+    const ALPHABET: &[u8] = b"0123456789ABCDEFGHJKMNPQRSTVWXYZ";
+    let mut ms: u64 = 0;
+    for byte in name.get(..10)?.bytes() {
+        let digit = ALPHABET
+            .iter()
+            .position(|known| *known == byte.to_ascii_uppercase())?;
+        ms = ms.checked_mul(32)?.checked_add(digit as u64)?;
+    }
+    Some(ms)
+}
+
+/// The mail cursor's file: the newest name handled on its first line, then each name of
+/// `handled` at or under it within [`MAIL_WINDOW_MS`] of it, one per line.
+fn mail_cursor(newest: &str, handled: &BTreeSet<String>) -> String {
+    let floor = ulid_ms(newest).map(|ms| ms.saturating_sub(MAIL_WINDOW_MS));
+    let mut text = format!("{newest}\n");
+    for name in handled {
+        let within = floor.is_some_and(|floor| ulid_ms(name).is_some_and(|ms| ms >= floor));
+        if within && name.as_str() <= newest {
+            text.push_str(name);
+            text.push('\n');
+        }
+    }
+    text
+}
+
+/// `MAIL`: every file of the instance's mailbox past its mail cursor, and every file within
+/// [`MAIL_WINDOW_MS`] below it that the cursor does not name as handled. A file that cannot be
+/// read is listed with its error. A first run with no cursor starts at the newest file, and names
+/// how many it passed over.
 pub(super) fn mail(
     watch: &mut Watch,
     instance: &Instance,
@@ -155,7 +192,8 @@ pub(super) fn mail(
     };
     let Some(cursor) = read(&cursor_file)? else {
         let newest = names.last().cloned().unwrap_or_default();
-        put(&cursor_file, &newest)?;
+        let all: BTreeSet<String> = names.iter().cloned().collect();
+        put(&cursor_file, &mail_cursor(&newest, &all))?;
         watch.note(
             notes,
             format!(
@@ -167,14 +205,29 @@ pub(super) fn mail(
         );
         return Ok(());
     };
-    let cursor = cursor.trim().to_owned();
-    let mut newest = None;
-    for file in names.iter().filter(|file| **file > cursor) {
-        newest = Some(file.clone());
+    let mut lines = cursor.lines();
+    let newest_handled = lines.next().unwrap_or_default().trim().to_owned();
+    let mut handled: BTreeSet<String> = lines
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .map(str::to_owned)
+        .collect();
+    let floor = ulid_ms(&newest_handled).map(|ms| ms.saturating_sub(MAIL_WINDOW_MS));
+    let fresh = |file: &String| {
+        *file > newest_handled
+            || (!handled.contains(file)
+                && floor.is_some_and(|floor| ulid_ms(file).is_some_and(|ms| ms >= floor)))
+    };
+    let fresh: Vec<String> = names.iter().filter(|file| fresh(file)).cloned().collect();
+    if fresh.is_empty() {
+        return Ok(());
+    }
+    for file in &fresh {
+        handled.insert(file.clone());
         let text = match fs::read(dir.join(file)) {
             Ok(bytes) => String::from_utf8_lossy(&bytes).into_owned(),
             Err(error) => {
-                watch.note(notes, format!("{name}: MAIL: read {file}: {error}"));
+                pass.fire(Kind::Mail, name, file, &format!("unreadable: {error}"), at);
                 continue;
             }
         };
@@ -184,15 +237,68 @@ pub(super) fn mail(
         }
         pass.fire(Kind::Mail, name, file, line, at);
     }
-    if let Some(newest) = newest {
-        pass.write(cursor_file, newest);
-    }
+    let newest = fresh
+        .iter()
+        .max()
+        .filter(|newest| **newest > newest_handled)
+        .cloned()
+        .unwrap_or(newest_handled);
+    pass.write(cursor_file, mail_cursor(&newest, &handled));
     Ok(())
 }
 
+/// How many bytes from its start the log cursor keeps of the log, to know it again.
+const LOG_PREFIX: u64 = 64;
+
+/// Where the log cursor stands: the offset read to, the log's inode, and the hex of its first
+/// bytes (at most [`LOG_PREFIX`], at most the offset), so a log replaced or rewritten under the
+/// cursor is read from its start.
+#[derive(Debug, Default, PartialEq, Eq)]
+struct LogCursor {
+    offset: u64,
+    inode: Option<u64>,
+    prefix: String,
+}
+
+impl LogCursor {
+    fn parse(text: &str) -> Self {
+        let mut words = text.split_whitespace();
+        Self {
+            offset: words.next().and_then(|word| word.parse().ok()).unwrap_or(0),
+            inode: words.next().and_then(|word| word.parse().ok()),
+            prefix: words.next().unwrap_or_default().to_owned(),
+        }
+    }
+
+    fn text(&self) -> String {
+        format!(
+            "{} {} {}\n",
+            self.offset,
+            self.inode.unwrap_or(0),
+            if self.prefix.is_empty() {
+                "-"
+            } else {
+                &self.prefix
+            }
+        )
+    }
+}
+
+/// The hex of the first `upto` bytes of `file` (at most [`LOG_PREFIX`]).
+fn prefix(file: &mut File, upto: u64) -> io::Result<String> {
+    let mut bytes = Vec::new();
+    file.seek(SeekFrom::Start(0))?;
+    io::Read::by_ref(file)
+        .take(upto.min(LOG_PREFIX))
+        .read_to_end(&mut bytes)?;
+    Ok(bytes.iter().map(|byte| format!("{byte:02x}")).collect())
+}
+
 /// `LOG`: each complete line of the instance's runtime log past its log cursor that carries one
-/// of [`LOG_STRINGS`]. A log shorter than the cursor is read from its start; a first run with no
-/// cursor starts at the log's end.
+/// of [`LOG_STRINGS`]. A boxed runtime writes `<state>/sessions/runtime.log`; a runtime in a unit
+/// logs to the unit's journal ([`journal`]). A log replaced, shortened or rewritten under the
+/// cursor is read from its start; a first run with no cursor starts at the log's end; a missing
+/// log is a note.
 pub(super) fn log(
     watch: &mut Watch,
     instance: &Instance,
@@ -200,12 +306,29 @@ pub(super) fn log(
     at: &Timestamp,
     notes: &mut dyn Write,
 ) -> Result<()> {
+    if !crate::placement::boxed(instance) {
+        return journal(watch, instance, pass, at, notes);
+    }
     let name = &instance.name.0;
     let path = runtime_log(instance);
     let cursor_file = watch.cursors(name).join(LOG_CURSOR);
     let mut file = match File::open(&path) {
-        Ok(file) => Some(file),
-        Err(error) if error.kind() == io::ErrorKind::NotFound => None,
+        Ok(file) => file,
+        Err(error) => {
+            let what = if error.kind() == io::ErrorKind::NotFound {
+                format!("{name}: LOG: no runtime log at {}", path.display())
+            } else {
+                format!("{name}: LOG: read {}: {error}", path.display())
+            };
+            watch.note(notes, what);
+            if read(&cursor_file)?.is_none() {
+                put(&cursor_file, &LogCursor::default().text())?;
+            }
+            return Ok(());
+        }
+    };
+    let (length, inode) = match file.metadata() {
+        Ok(meta) => (meta.len(), meta.ino()),
         Err(error) => {
             watch.note(
                 notes,
@@ -214,25 +337,28 @@ pub(super) fn log(
             return Ok(());
         }
     };
-    let length = file
-        .as_ref()
-        .and_then(|file| file.metadata().ok())
-        .map_or(0, |meta| meta.len());
-    let Some(cursor) = read(&cursor_file)? else {
-        put(&cursor_file, &length.to_string())?;
+    let Some(text) = read(&cursor_file)? else {
+        let start = LogCursor {
+            offset: length,
+            inode: Some(inode),
+            prefix: prefix(&mut file, length).unwrap_or_default(),
+        };
+        put(&cursor_file, &start.text())?;
         return Ok(());
     };
-    let mut cursor: u64 = cursor.trim().parse().unwrap_or(0);
-    if length < cursor {
-        cursor = 0;
-        pass.write(cursor_file.clone(), "0");
+    let mut cursor = LogCursor::parse(&text);
+    let known = cursor.prefix.is_empty() || cursor.prefix == "-";
+    let same = cursor
+        .inode
+        .is_none_or(|known| known == 0 || known == inode)
+        && length >= cursor.offset
+        && (known || prefix(&mut file, cursor.offset).is_ok_and(|now| now == cursor.prefix));
+    if !same {
+        cursor = LogCursor::default();
     }
-    let Some(file) = file.as_mut().filter(|_| length > cursor) else {
-        return Ok(());
-    };
     let mut bytes = Vec::new();
     let read_all = file
-        .seek(SeekFrom::Start(cursor))
+        .seek(SeekFrom::Start(cursor.offset))
         .and_then(|_| file.read_to_end(&mut bytes));
     if let Err(error) = read_all {
         watch.note(
@@ -241,16 +367,115 @@ pub(super) fn log(
         );
         return Ok(());
     }
-    let Some(end) = bytes.iter().rposition(|byte| *byte == b'\n') else {
-        return Ok(());
-    };
-    let complete = String::from_utf8_lossy(&bytes[..=end]);
-    for line in complete.lines() {
+    let end = bytes
+        .iter()
+        .rposition(|byte| *byte == b'\n')
+        .map_or(0, |end| end + 1);
+    for line in String::from_utf8_lossy(&bytes[..end]).lines() {
         if LOG_STRINGS.iter().any(|string| line.contains(string)) {
             pass.fire(Kind::Log, name, "", line, at);
         }
     }
-    pass.write(cursor_file, (cursor + end as u64 + 1).to_string());
+    let offset = cursor.offset + end as u64;
+    let next = LogCursor {
+        offset,
+        inode: Some(inode),
+        prefix: prefix(&mut file, offset).unwrap_or_default(),
+    };
+    if next != LogCursor::parse(&text) {
+        pass.write(cursor_file, next.text());
+    }
+    Ok(())
+}
+
+/// The `LOG` of an instance whose runtime runs in a unit: the lines of the unit's journal
+/// ([`crate::daemon::reconcile::unit_name`]) past the journal cursor, read through
+/// [`super::Sources::journal`]. A first run reads the last entry only, for its cursor. A journal
+/// that cannot be read, or holds no entry of the unit, is a note.
+fn journal(
+    watch: &mut Watch,
+    instance: &Instance,
+    pass: &mut Pass,
+    at: &Timestamp,
+    notes: &mut dyn Write,
+) -> Result<()> {
+    const CURSOR: &str = "-- cursor: ";
+    let name = &instance.name.0;
+    let unit = crate::daemon::reconcile::unit_name(name);
+    let cursor_file = watch.cursors(name).join(JOURNAL_CURSOR);
+    let cursor = read(&cursor_file)?.map(|text| text.trim().to_owned());
+    let mut words: Vec<String> = watch
+        .sources
+        .journal
+        .iter()
+        .map(|word| word.replace("{unit}", &unit))
+        .collect();
+    match &cursor {
+        None => words.extend(["-n".to_owned(), "1".to_owned()]),
+        Some(cursor) if !cursor.is_empty() => {
+            words.extend(["--after-cursor".to_owned(), cursor.clone()]);
+        }
+        Some(_) => {}
+    }
+    let Some((program, args)) = words.split_first() else {
+        return Ok(());
+    };
+    let output = match Command::new(program).args(args).output() {
+        Ok(output) if output.status.success() => output,
+        Ok(output) => {
+            watch.note(
+                notes,
+                format!(
+                    "{name}: LOG: the journal of {unit}: {}",
+                    String::from_utf8_lossy(&output.stderr).trim()
+                ),
+            );
+            return Ok(());
+        }
+        Err(error) => {
+            watch.note(
+                notes,
+                format!("{name}: LOG: the journal of {unit}: {error}"),
+            );
+            return Ok(());
+        }
+    };
+    let text = String::from_utf8_lossy(&output.stdout);
+    let mut next = None;
+    let mut entries = Vec::new();
+    for line in text.lines() {
+        if let Some(found) = line.strip_prefix(CURSOR) {
+            next = Some(found.trim().to_owned());
+        } else if !line.starts_with("-- ") {
+            entries.push(line);
+        }
+    }
+    let Some(cursor) = cursor else {
+        put(&cursor_file, next.as_deref().unwrap_or_default())?;
+        if next.is_none() {
+            watch.note(
+                notes,
+                format!("{name}: LOG: the journal holds no entry of {unit}"),
+            );
+        }
+        return Ok(());
+    };
+    for line in entries {
+        if LOG_STRINGS.iter().any(|string| line.contains(string)) {
+            pass.fire(Kind::Log, name, "", line, at);
+        }
+    }
+    match next {
+        Some(next) if next != cursor => pass.write(cursor_file, next),
+        Some(_) => {}
+        None if cursor.is_empty() => {
+            watch.note(
+                notes,
+                format!("{name}: LOG: the journal holds no entry of {unit}"),
+            );
+        }
+        None => {}
+    }
     Ok(())
 }
 
@@ -398,13 +623,19 @@ pub(super) fn inbox(watch: &mut Watch, pass: &mut Pass, at: &Timestamp, notes: &
     pass.write(cursor_file, text);
 }
 
+/// How long the disk baseline stands while no DISK line fires: an hour.
+pub const DISK_BASELINE_AGE: i64 = 3600;
+
 /// `DISK`: free bytes on the instance's `thresholds.disk_path` under its `disk_low` (once per
 /// fall: `disk.low` is kept until free disk is back over it), or [`DISK_DROP`] or more under the
-/// reading of the previous pass, which every pass rewrites.
+/// baseline. The baseline is the first reading; it moves to the reading of a pass that prints a
+/// DISK line, and to the reading of the first pass an hour ([`DISK_BASELINE_AGE`]) after it was
+/// set, each written with the other cursors, so a slow fill fires too.
 pub(super) fn disk(
     watch: &mut Watch,
     instance: &Instance,
     pass: &mut Pass,
+    now: OffsetDateTime,
     at: &Timestamp,
     notes: &mut dyn Write,
 ) -> Result<()> {
@@ -417,10 +648,21 @@ pub(super) fn disk(
             return Ok(());
         }
     };
+    let now = now.unix_timestamp();
     let dir = watch.cursors(name);
     let baseline_file = dir.join(DISK_BASELINE);
-    let previous: Option<u64> = read(&baseline_file)?.and_then(|text| text.trim().parse().ok());
-    put(&baseline_file, &free.to_string())?;
+    let reading = format!("{free} {now}\n");
+    let baseline: Option<(u64, i64)> = read(&baseline_file)?.and_then(|text| {
+        let mut words = text.split_whitespace();
+        let bytes = words.next()?.parse().ok()?;
+        Some((
+            bytes,
+            words
+                .next()
+                .and_then(|word| word.parse().ok())
+                .unwrap_or(now),
+        ))
+    });
     let low_gib = instance.thresholds.disk_low.0;
     let low = u64::try_from(low_gib).unwrap_or(0) * GIB;
     let marker = dir.join(DISK_LOW);
@@ -431,15 +673,26 @@ pub(super) fn disk(
             pass.write(marker, "1");
         }
     } else if marker.exists() {
-        fs::remove_file(&marker).with_context(|| format!("remove {}", marker.display()))?;
+        pass.remove(marker);
     }
-    if let Some(previous) = previous
-        && previous.saturating_sub(free) >= DISK_DROP
-    {
+    let Some((base, set)) = baseline else {
+        put(&baseline_file, &reading)?;
+        if !parts.is_empty() {
+            pass.fire(
+                Kind::Disk,
+                name,
+                &instance.thresholds.disk_path,
+                &format!("{}G free, {}", free / GIB, parts.join("; ")),
+                at,
+            );
+        }
+        return Ok(());
+    };
+    if base.saturating_sub(free) >= DISK_DROP {
         parts.push(format!(
-            "{}G under {}G at the last read",
-            (previous - free) / GIB,
-            previous / GIB
+            "{}G under the baseline {}G",
+            (base - free) / GIB,
+            base / GIB
         ));
     }
     if !parts.is_empty() {
@@ -450,6 +703,9 @@ pub(super) fn disk(
             &format!("{}G free, {}", free / GIB, parts.join("; ")),
             at,
         );
+        pass.write(baseline_file, reading);
+    } else if now - set >= DISK_BASELINE_AGE {
+        pass.write(baseline_file, reading);
     }
     Ok(())
 }
@@ -573,7 +829,61 @@ fn unpushed_of(program: &Path, dir: &Path) -> Result<Vec<Unpushed>> {
             count: commits.len(),
         });
     }
+    // A detached HEAD of a worktree of the repository, which no branch holds.
+    let worktrees = git(program, dir, &["worktree", "list", "--porcelain"])?;
+    for block in worktrees.split("\n\n") {
+        let mut path = None;
+        let mut head = None;
+        let mut detached = false;
+        for line in block.lines() {
+            if let Some(found) = line.strip_prefix("worktree ") {
+                path = Some(found);
+            } else if let Some(found) = line.strip_prefix("HEAD ") {
+                head = Some(found);
+            } else if line == "detached" {
+                detached = true;
+            }
+        }
+        let (Some(path), Some(head), true) = (path, head, detached) else {
+            continue;
+        };
+        if let Some(branch) = unpushed_head(program, dir, head, &format!("{path}:HEAD"))? {
+            found.push(branch);
+        }
+    }
     Ok(found)
+}
+
+/// The commits of `head` no remote branch holds, as [`Unpushed`] under `subject`; none when it
+/// holds none.
+fn unpushed_head(
+    program: &Path,
+    dir: &Path,
+    head: &str,
+    subject: &str,
+) -> Result<Option<Unpushed>> {
+    let log = git(
+        program,
+        dir,
+        &["log", "--format=%h %ct", head, "--not", "--remotes"],
+    )?;
+    let commits: Vec<(&str, i64)> = log
+        .lines()
+        .filter_map(|line| {
+            let (sha, time) = line.split_once(' ')?;
+            Some((sha, time.trim().parse().ok()?))
+        })
+        .collect();
+    Ok(commits
+        .iter()
+        .min_by_key(|(_, time)| *time)
+        .map(|(oldest, committed)| Unpushed {
+            subject: subject.to_owned(),
+            head: head.to_owned(),
+            oldest: (*oldest).to_owned(),
+            committed: *committed,
+            count: commits.len(),
+        }))
 }
 
 /// `UNPUSHED`: a local branch of a checkout of an instance (or of a `--checkout`, instance `-`)
@@ -669,22 +979,19 @@ fn project_name(path: &Path) -> String {
         .collect()
 }
 
-/// When the transcripts of a session working in `<root>/<repository>`, or in a managed tree of
-/// it, were last written: the newest write of each `*.jsonl` of those project directories and of
-/// its sub-agents ([`crate::watch::newest_write`]); none without a transcript.
+/// When the transcripts of a session working in `<root>/<repository>`, or in one of the
+/// repository's managed trees `<trees>/<repository>/<tree>`, were last written: the newest write
+/// of each `*.jsonl` of exactly those project directories and of its sub-agents
+/// ([`crate::watch::newest_write`]); none without a transcript.
 fn last_written(projects: &Path, instance: &Instance, repository: &str) -> Option<SystemTime> {
-    let checkout = project_name(&Path::new(&instance.checkouts.root).join(repository));
-    let trees = format!(
-        "{}-",
-        project_name(&Path::new(&instance.checkouts.trees).join(repository))
-    );
+    let mut directories = vec![Path::new(&instance.checkouts.root).join(repository)];
+    directories.extend(children(
+        &Path::new(&instance.checkouts.trees).join(repository),
+    ));
     let mut newest = None;
-    for entry in fs::read_dir(projects).ok()?.flatten() {
-        let name = entry.file_name().to_string_lossy().into_owned();
-        if name != checkout && !name.starts_with(&trees) {
-            continue;
-        }
-        for transcript in fs::read_dir(entry.path()).into_iter().flatten().flatten() {
+    for directory in directories {
+        let project = projects.join(project_name(&directory));
+        for transcript in fs::read_dir(project).into_iter().flatten().flatten() {
             let path = transcript.path();
             if path
                 .extension()
@@ -698,23 +1005,43 @@ fn last_written(projects: &Path, instance: &Instance, repository: &str) -> Optio
     newest
 }
 
-/// The text of the newest report of `repository` in the instance's mailbox, if any.
-fn newest_report(instance: &Instance, repository: &str) -> Option<String> {
+/// The text of the newest report of each of `repositories` in the instance's mailbox: read
+/// newest first, stopping once each has one.
+fn newest_reports(instance: &Instance, repositories: &BTreeSet<&str>) -> BTreeMap<String, String> {
+    let mut found = BTreeMap::new();
+    if repositories.is_empty() {
+        return found;
+    }
     let dir = mailbox(instance);
-    let names = mail_files(&dir).ok()?;
-    names.iter().rev().find_map(|name| {
-        let text = fs::read_to_string(dir.join(name)).ok()?;
+    let Ok(names) = mail_files(&dir) else {
+        return found;
+    };
+    for name in names.iter().rev() {
+        let Ok(text) = fs::read_to_string(dir.join(name)) else {
+            continue;
+        };
         let line = first_line(&text);
-        (line.trim_start().starts_with("[REPORT ")
-            && crate::message::named_repository(line).as_deref() == Some(repository))
-        .then_some(text)
-    })
+        if !line.trim_start().starts_with("[REPORT ") {
+            continue;
+        }
+        if let Some(repository) = crate::message::named_repository(line)
+            && repositories.contains(repository.as_str())
+            && !found.contains_key(&repository)
+        {
+            found.insert(repository, text);
+            if found.len() == repositories.len() {
+                break;
+            }
+        }
+    }
+    found
 }
 
 /// `IDLE`: a controller the instance's store holds `Running`, with an open dispatch of its
-/// repository, whose transcripts have not been written for [`IDLE_SILENCE`], unless its newest
-/// report waits on a person (a `blocked ci` report never holds it back); at most once per
-/// [`IDLE_AGAIN`] per controller. Opens only a store that exists, read only.
+/// repository, whose transcripts have not been written for [`IDLE_SILENCE`] (with no transcript,
+/// since its newest open dispatch was sent: the store keeps no start time of a controller),
+/// unless its newest report waits on a person (a `blocked ci` report never holds it back); at
+/// most once per [`IDLE_AGAIN`] per controller. Opens only a store that exists, read only.
 pub(super) fn idle(
     watch: &mut Watch,
     instance: &Instance,
@@ -733,16 +1060,23 @@ pub(super) fn idle(
                 return;
             }
         };
-    let open: BTreeMap<String, String> = DispatchStorage::list(&store)
-        .into_iter()
-        .filter(|dispatch| {
-            matches!(
-                dispatch.state,
-                DispatchState::Sent | DispatchState::Started | DispatchState::Blocked
-            )
-        })
-        .map(|dispatch| (dispatch.data.repository.0, dispatch.data.dispatch_id.0))
-        .collect();
+    // Each repository's newest open dispatch: its id and when it was sent.
+    let mut open: BTreeMap<String, (String, Option<OffsetDateTime>)> = BTreeMap::new();
+    for dispatch in DispatchStorage::list(&store) {
+        if !matches!(
+            dispatch.state,
+            DispatchState::Sent | DispatchState::Started | DispatchState::Blocked
+        ) {
+            continue;
+        }
+        let sent = instant(&dispatch.data.sent_at.0);
+        let entry = open
+            .entry(dispatch.data.repository.0.clone())
+            .or_insert_with(|| (dispatch.data.dispatch_id.0.clone(), sent));
+        if sent > entry.1 {
+            *entry = (dispatch.data.dispatch_id.0.clone(), sent);
+        }
+    }
     let mut running: Vec<_> = ControllerStorage::list(&store)
         .into_iter()
         .filter(|controller| controller.state == ControllerState::Running)
@@ -769,37 +1103,50 @@ pub(super) fn idle(
         })
         .collect();
     let again = i64::try_from(IDLE_AGAIN.as_secs()).unwrap_or(i64::MAX);
-    let mut fired = false;
-    for controller in running {
+    let mut silent = Vec::new();
+    for controller in &running {
         let repository = &controller.data.repository.0;
         let session = &controller.data.session_name.0;
-        let Some(dispatch) = open.get(repository) else {
+        let Some((dispatch, sent)) = open.get(repository) else {
             continue;
         };
-        let Some(written) = last_written(&projects, instance, repository) else {
-            continue;
+        let last = match last_written(&projects, instance, repository) {
+            Some(written) => written,
+            None => match sent {
+                Some(sent) => SystemTime::from(*sent),
+                None => continue,
+            },
         };
         let silence = SystemTime::from(now)
-            .duration_since(written)
+            .duration_since(last)
             .unwrap_or_default();
-        if silence <= IDLE_SILENCE {
-            continue;
-        }
-        if let Some(report) = newest_report(instance, repository) {
-            let blocked_ci = report_words(first_line(&report))
-                .is_some_and(|words| words.starts_with(&["blocked", "ci"]));
-            if !blocked_ci && waits_on_a_person(&report) {
-                continue;
-            }
-        }
-        if named
-            .get(session)
-            .is_some_and(|when| now.unix_timestamp() - when < again)
+        if silence <= IDLE_SILENCE
+            || named
+                .get(session)
+                .is_some_and(|when| now.unix_timestamp() - when < again)
         {
             continue;
         }
+        silent.push((
+            repository.as_str(),
+            session.as_str(),
+            dispatch.as_str(),
+            silence,
+        ));
+    }
+    let repositories: BTreeSet<&str> = silent.iter().map(|(repository, ..)| *repository).collect();
+    let reports = newest_reports(instance, &repositories);
+    let mut fired = false;
+    for (repository, session, dispatch, silence) in silent {
+        if let Some(report) = reports.get(repository) {
+            let blocked_ci = report_words(first_line(report))
+                .is_some_and(|words| words.starts_with(&["blocked", "ci"]));
+            if !blocked_ci && waits_on_a_person(report) {
+                continue;
+            }
+        }
         fired = true;
-        named.insert(session.clone(), now.unix_timestamp());
+        named.insert(session.to_owned(), now.unix_timestamp());
         pass.fire(
             Kind::Idle,
             name,
