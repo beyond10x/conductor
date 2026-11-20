@@ -2,10 +2,13 @@
 format: aep.planning-md/3
 id: story:guard-repo-slug-not-program
 kind: story
-status: draft
+status: active
 title: 'Guard: a repository slug ending in /conductor is no conductor run'
 summary: conductor_run reads an argument word whose basename is conductor as the program, so the bot route's run rerun of this repository is denied as conductor run
-revision: 2
+revision: 4
+transitions:
+- {from: "draft", to: "proposed", at: "2026-11-20T01:21:17Z", actor: "human:unknown", revision: 3}
+- {from: "proposed", to: "active", at: "2026-11-20T01:21:19Z", actor: "human:unknown", revision: 4}
 ---
 ## Problem
 
