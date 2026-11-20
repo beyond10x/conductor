@@ -12,10 +12,27 @@ The three file sets are disjoint. Rust builds run one at a time (one lock, one b
 
 | unit | stories | issues | stage |
 |---|---|---|---|
-| U1 | need-to-own-repo-not-echoed | #207 | building |
-| U2 | pause-reaches-boxed-session | #207 | building |
-| U3 | dashboard-unit-merge-setting | #207 | waiting for a place |
+| U1 | need-to-own-repo-not-echoed | #207 | merged into the wave branch |
+| U2 | pause-reaches-boxed-session | #207 | merged into the wave branch |
+| U3 | dashboard-unit-merge-setting | #207 | left out: no npm registry in the box (#198) |
 
 ## Outcome
 
-Written when the wave merges.
+U1: a `[NEED]` whose `<other-repo>` is its own `<repo>` is neither delivered to nor kept for that
+repository: it stays in conductor's mailbox for the supervisor, as a need to `conductor` does, the
+message stays `Received`, and no `need-unroutable` alert is raised. A running controller of the
+repository is answered once that it stays there; one that does not run is told nothing, since
+telling it would keep a message for it.
+
+U2: on the host, `pause-controller` for a session in the box goes to the box's runtime through
+conductord (`POST controllers/{id}/pause`, a write under the operator's settings grant, as stop is):
+the runtime stops the session and records `Paused`; a runtime not reached leaves the record
+`Running` and exits 1.
+
+U3 is committed on its own branch (`CHOICES` gains `controllers.unit_merge`, with its Vitest case),
+but the box resolves no package registry, so neither `npm ci`, Vitest nor the `dist/` rebuild ran;
+it is left out of this wave rather than merged with a stale `dist/`, and waits for a build with
+registry access.
+
+In the box: the specification, a fresh generation, `cargo fmt --check`, workspace clippy, the docs
+check and the touched suites; the suites that launch a session or bind a socket are proven by CI.
