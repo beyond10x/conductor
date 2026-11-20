@@ -23,6 +23,7 @@ use std::path::{Component, Path, PathBuf};
 use std::process::{Child, Command, Output, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver};
+use std::sync::{Mutex, OnceLock, PoisonError};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -627,6 +628,70 @@ pub fn spent() -> Result<Option<Duration>> {
             Some(left) if !left.is_zero() => Ok(Some(left)),
             _ => Err(anyhow::Error::new(OverBudget)),
         },
+    }
+}
+
+/// The variable a debug build reads the log of its collectors' waits from ([`sleep`]): each wait
+/// is appended to the file it names, in milliseconds, instead of slept, so a test of a
+/// rate-limited forge read takes none of the 5-45 s waits (`story:forge-rate-limit-retried`). A
+/// release build has no such switch.
+pub const TEST_WAITS_VARIABLE: &str = "CONDUCTOR_TEST_COLLECT_WAITS";
+
+/// What [`sleep`] hands each wait to instead of sleeping, once [`replace_sleep`] set it.
+static SLEEP: OnceLock<fn(Duration)> = OnceLock::new();
+
+/// From now on every wait [`sleep`] takes in this process is handed to `hook` instead of slept:
+/// the seam a test that takes its snapshot through the library sets. The first hook set stays.
+pub fn replace_sleep(hook: fn(Duration)) {
+    let _ = SLEEP.set(hook);
+}
+
+/// Waits `wait`: every wait a collector takes goes through here (`story:forge-rate-limit-retried`),
+/// the seam a test replaces ([`replace_sleep`], [`TEST_WAITS_VARIABLE`]).
+pub fn sleep(wait: Duration) {
+    if let Some(hook) = SLEEP.get() {
+        hook(wait);
+        return;
+    }
+    #[cfg(debug_assertions)]
+    if let Some(log) = std::env::var_os(TEST_WAITS_VARIABLE) {
+        use std::io::Write as _;
+        if let Ok(mut file) = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(log)
+        {
+            let _ = writeln!(file, "{}", wait.as_millis());
+        }
+        return;
+    }
+    thread::sleep(wait);
+}
+
+/// The instant before which no forge read of this process starts, once one was rate-limited
+/// ([`hold_forge`]): every thread of the collector waits for the same one.
+static NOT_BEFORE: Mutex<Option<Instant>> = Mutex::new(None);
+
+/// No forge read starts before `until` ([`forge_turn`]); a later instant held already stays.
+pub(crate) fn hold_forge(until: Instant) {
+    let mut held = NOT_BEFORE.lock().unwrap_or_else(PoisonError::into_inner);
+    *held = Some(held.map_or(until, |held| held.max(until)));
+}
+
+/// Waits, before a forge read, until the instant [`hold_forge`] holds, but not past the
+/// collector's deadline ([`deadline`]).
+pub(crate) fn forge_turn() {
+    let held = *NOT_BEFORE.lock().unwrap_or_else(PoisonError::into_inner);
+    let Some(until) = held else {
+        return;
+    };
+    let now = Instant::now();
+    let mut wait = until.saturating_duration_since(now);
+    if let Some(deadline) = deadline() {
+        wait = wait.min(deadline.saturating_duration_since(now));
+    }
+    if !wait.is_zero() {
+        sleep(wait);
     }
 }
 

@@ -105,6 +105,17 @@ when all five answered.
 | specifications | the same exports, `ess specify validate`, `ess verify conform synthesize` | per repository: specification present, opted out or missing; valid or refused; scenario count |
 | sessions | `claude agents --json` | live sessions, their cwd, the repository each is bound to |
 
+A forge read (`glab api`, `gh api`) the forge answers `HTTP 429`, `502` or `503` on the program's
+standard error is retried after 5 s, 15 s and 45 s; each wait is at most 60 s, and a wait that
+would end past the collector's deadline is not taken. While one read waits, every forge read of
+the collector waits for the same instant. A read still refused fails the collector, its line
+naming the forge, the path and `rate limited (HTTP 429)`; any other failure, and every git or aep
+command, is run once more at once. The paths of each GitLab commit read whole from
+`repository/commits/<sha>/diff` are kept in `forge-diffs.json` under the instance's cache, by
+host, project and sha, so a later snapshot asks only for commits it has not read; commits that
+left the 7-day window are dropped when the file is written, and a file that does not read is
+written anew.
+
 A `gitlab` source names its `host` (default `gitlab.com`) and is read through `glab api --hostname
 <host>`: repositories and specifications, merge requests as pull requests, pipelines as workflow
 runs, releases. `gh` is needed only with a `github` source, `glab` only with a `gitlab` source.
