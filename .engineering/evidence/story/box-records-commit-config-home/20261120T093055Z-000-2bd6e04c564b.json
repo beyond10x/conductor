@@ -1,0 +1,12 @@
+{
+  "at": "2026-11-20T09:30:55Z",
+  "actor": "human:unknown",
+  "artifact": "story:box-records-commit-config-home",
+  "kind": "story",
+  "revision": 8,
+  "change": {
+    "change": "evidence",
+    "kind": "test_result",
+    "source": "cargo test -p conductor-cli --test run_records --test doctor at c668a451: run_records 16 passed, doctor 51 passed; four acceptance tests failed on the code before (the_records_commit_runs_the_bot_route_with_the_instance_gates_policy, the_records_commit_passes_the_box_config_dir_to_b10x_gates_when_the_runtime_has_none, doctor_names_a_boxed_gates_instance_without_a_bot_key_in_its_config_dir, doctor_reads_the_bot_key_under_box_env_xdg_config_home); cargo clippy -p conductor-cli --all-targets -D warnings clean"
+  }
+}

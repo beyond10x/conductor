@@ -1695,7 +1695,8 @@ fn kind_lines(flag: Option<&Path>) -> Vec<(String, Option<String>)> {
 /// what its controllers need, a row `box <instance> tools: ` for each directory of its
 /// `box.tools` that is not there ([`crate::placement::tools_missing`], reported, not a failure),
 /// and that of [`disk_path_line`] when its `thresholds.disk_path` is on
-/// its tmpfs. A box the local daemon would open gets the rows of [`forge_work_lines`] and
+/// its tmpfs. A box on this host's daemon gets the rows of [`bot_route_lines`] (reported, not a
+/// failure). A box the local daemon would open gets the rows of [`forge_work_lines`] and
 /// [`bypass_line`]. It opens no box, starts nothing and writes nothing; only
 /// [`doctor_with`] calls it, never [`check_in`], which the dashboard's health thread repeats.
 /// A config that does not load, no config file, and a file that writes no `daemon.store`
@@ -1827,6 +1828,10 @@ fn box_lines(
                     }),
             );
             rows.extend(disk_path_line(name, instance, &request.writable_roots));
+            // The paths are this host's: a box on a remote daemon reads that host's.
+            if !remote {
+                rows.extend(bot_route_lines(name, instance, &request));
+            }
             // Reported, not a failure: the box starts without the slot.
             if let (None, Some(unsealed)) = (&refused, &answer.unsealed) {
                 rows.push((format!("box {name} token: {}", one_line(unsealed)), None));
@@ -1886,6 +1891,75 @@ fn disk_path_line(
             None,
         )
     })
+}
+
+/// The bot route's files under the box config directory, each with what it is: the bot's config
+/// and the key `b10x-gates` reads beside it.
+const BOT_ROUTE_FILES: [(&str, &str); 2] = [
+    ("b10x/b10x-bot.json", "config"),
+    ("b10x/b10x-bot.private-key.pem", "key"),
+];
+
+/// The rows `box <name> bot route: ` of the box of `instance` on `forge.route: gates`
+/// (`story:box-records-commit-config-home`): one for each of the bot route's files
+/// ([`BOT_ROUTE_FILES`]) that is not under the `XDG_CONFIG_HOME` its records commit runs
+/// `b10x-gates` with ([`crate::placement::bot_config_home`]), with the path to put it at; and,
+/// with a `gates_policy`, one when that policy lies under no directory the box binds
+/// (`request`'s writable and read-only roots and files), so the runtime in the box cannot read
+/// it. Reported, not a failure; only the paths are looked at, never what the files hold.
+fn bot_route_lines(
+    name: &str,
+    instance: &Instance,
+    request: &crate::placement::BoxRequest,
+) -> Vec<(String, Option<String>)> {
+    if instance.forge.route != ForgeRoute::Gates {
+        return Vec::new();
+    }
+    let Some(home) = crate::placement::bot_config_home(instance) else {
+        return Vec::new();
+    };
+    let mut rows: Vec<(String, Option<String>)> = BOT_ROUTE_FILES
+        .iter()
+        .filter(|(file, _)| !home.join(file).is_file())
+        .map(|(file, what)| {
+            (
+                format!(
+                    "box {name} bot route: {} is not there; put the bot route's {what} there \
+                     (the records commit in the box runs b10x-gates with XDG_CONFIG_HOME {}: \
+                     box.env's, else <cache>/xdg-config)",
+                    home.join(file).display(),
+                    home.display()
+                ),
+                None,
+            )
+        })
+        .collect();
+    if let Some(policy) = &instance.gates_policy {
+        let policy = Path::new(policy);
+        let bound = request
+            .writable_roots
+            .iter()
+            .map(|root| root.path.as_str())
+            .chain(request.read_only_roots.iter().map(String::as_str))
+            .any(|root| policy.starts_with(root))
+            || request
+                .read_only_files
+                .iter()
+                .any(|file| Path::new(&file.mount) == policy);
+        if !bound {
+            rows.push((
+                format!(
+                    "box {name} bot route: gates_policy {} lies under no directory the box \
+                     binds, so the records commit in the box cannot read it; put it under one, \
+                     such as {}",
+                    policy.display(),
+                    instance.cache
+                ),
+                None,
+            ));
+        }
+    }
+    rows
 }
 
 /// The rows of a box the local daemon would open about the forge work of its controllers
