@@ -64,7 +64,7 @@ use conductor_model::behaviour::{
 };
 use conductor_model::config::{Instance, SessionName};
 use conductor_model::dispatch::{
-    ControllerState, DispatchLogEvent, DispatchLogLine, DispatchState, SpawnRefusal,
+    ControllerState, DispatchLogEvent, DispatchLogLine, DispatchState, MessageKind, SpawnRefusal,
     WorkStartRefusal,
 };
 use conductor_model::obligation::UnmetObligation;
@@ -806,16 +806,20 @@ impl<'s, 'a> Tick<'s, 'a> {
     ///
     /// The store does not open.
     pub fn spawn(&mut self, repo: &str) -> Result<Result<(), String>> {
-        Ok(self.try_start(repo)?.map_err(|(_, why)| why))
+        Ok(self.try_start(repo, false)?.map_err(|not| match not {
+            NotStarted::Yielded(why) | NotStarted::Refused(_, why) => why,
+        }))
     }
 
-    /// [`Tick::spawn`], answering with why it did not start the `SpawnRefusal` of `conductor
-    /// spawn`'s refusal, where one refused it.
+    /// [`Tick::spawn`], answering why it did not start: the place it yields to a unit of work
+    /// ([`Tick::kept_for_unit`]), else the `SpawnRefusal` of `conductor spawn`'s refusal, where
+    /// one refused it. `held` says whether the caller held a `Running` or `Paused` controller of
+    /// `repo` as the start began; a start with none held is a respawn.
     ///
     /// # Errors
     ///
     /// The store does not open.
-    fn try_start(&mut self, repo: &str) -> Result<Result<(), (Option<SpawnRefusal>, String)>> {
+    fn try_start(&mut self, repo: &str, held: bool) -> Result<Result<(), NotStarted>> {
         let _one = STARTS
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -825,15 +829,22 @@ impl<'s, 'a> Tick<'s, 'a> {
         let open = if default {
             let Ok(crate::dispatch::Open::One(id)) = crate::dispatch::open_of(self.state, repo)
             else {
-                return Ok(Err((None, DEFAULT_CHARTER.to_owned())));
+                return Ok(Err(NotStarted::Refused(None, DEFAULT_CHARTER.to_owned())));
             };
             Some(id)
         } else {
             None
         };
+        // Before `make_room`, so no idle controller is stopped for a start that then yields.
+        if let Some(why) = self.kept_for_unit(repo, held)? {
+            return Ok(Err(NotStarted::Yielded(why)));
+        }
         self.make_room(repo)?;
         if let Some(limit) = at_limit(self.state)? {
-            return Ok(Err((None, format!("max_working {limit} reached"))));
+            return Ok(Err(NotStarted::Refused(
+                None,
+                format!("max_working {limit} reached"),
+            )));
         }
         let dispatch = if default {
             open
@@ -859,13 +870,106 @@ impl<'s, 'a> Tick<'s, 'a> {
                 self.wrote(DispatchLogEvent::Sent);
                 Ok(Ok(()))
             }
-            Err(error) => Ok(Err((
+            Err(error) => Ok(Err(NotStarted::Refused(
                 error
                     .downcast_ref::<crate::spawn::Refused>()
                     .map(|refused| refused.0.refusal),
                 one_line(&format!("{error:#}")),
             ))),
         }
+    }
+
+    /// Why a start of `repo` is not made though a place may be free: the place is kept for a unit
+    /// of work that waits for one (issue #245,
+    /// `story:blocked-repository-yields-place-to-waiting-unit`). Only a repository whose every
+    /// open dispatch is `Blocked` yields. A unit waits while it is a `Sent` dispatch with a
+    /// reference, of another repository with no `Running` or `Paused` controller, not left to
+    /// the operator after its failed starts. The start yields to a waiting unit its own need
+    /// opened ([`opened_by_need_of`]); and, when it is a respawn (`held` false), to any waiting
+    /// unit while the free places under `controllers.max_working` do not exceed the repositories
+    /// the waiting units are in. Answers `max_working <n>: the place is kept for <dispatch> of
+    /// <repo>`, naming the unit the first rule found, else the first waiting unit in store order.
+    ///
+    /// # Errors
+    ///
+    /// The store does not open, or the dispatch log does not read.
+    fn kept_for_unit(&self, repo: &str, held: bool) -> Result<Option<String>> {
+        let store = crate::state::open(self.state)?;
+        let dispatches = DispatchStorage::list(&store);
+        let controllers = ControllerStorage::list(&store);
+        store
+            .check()
+            .context("read the dispatches and controllers")?;
+        let mut open = dispatches
+            .iter()
+            .filter(|held| {
+                held.data.repository.0 == repo
+                    && matches!(
+                        held.state,
+                        DispatchState::Sent | DispatchState::Started | DispatchState::Blocked
+                    )
+            })
+            .peekable();
+        if open.peek().is_none() || !open.all(|held| held.state == DispatchState::Blocked) {
+            return Ok(None);
+        }
+        let controlled = |other: &str| {
+            controllers.iter().any(|held| {
+                held.data.repository.0 == other
+                    && matches!(
+                        held.state,
+                        ControllerState::Running | ControllerState::Paused
+                    )
+            })
+        };
+        let records = Path::new(&self.instance().records);
+        let mut waiting = Vec::new();
+        for unit in &dispatches {
+            let other = unit.data.repository.0.as_str();
+            if unit.state != DispatchState::Sent
+                || unit.data.reference.is_none()
+                || other == repo
+                || controlled(other)
+                || crate::dispatch::failed_starts(
+                    records,
+                    &unit.data.sent_at,
+                    other,
+                    &unit.data.dispatch_id.0,
+                )? >= crate::dispatch::FAILED_STARTS_MOST
+            {
+                continue;
+            }
+            waiting.push(unit);
+        }
+        let limit = self.instance().controllers.max_working;
+        let kept =
+            |id: &str, of: &str| format!("max_working {limit}: the place is kept for {id} of {of}");
+        if let Some(unit) = waiting
+            .iter()
+            .find(|unit| opened_by_need_of(unit.data.reference.as_deref(), &unit.data.brief, repo))
+        {
+            return Ok(Some(kept(
+                &unit.data.dispatch_id.0,
+                &unit.data.repository.0,
+            )));
+        }
+        if held {
+            return Ok(None);
+        }
+        let Some(first) = waiting.first() else {
+            return Ok(None);
+        };
+        let running = controllers
+            .iter()
+            .filter(|held| held.state == ControllerState::Running)
+            .count();
+        let free = limit.saturating_sub(i64::try_from(running).unwrap_or(i64::MAX));
+        let repos: std::collections::BTreeSet<&str> = waiting
+            .iter()
+            .map(|unit| unit.data.repository.0.as_str())
+            .collect();
+        Ok((free <= i64::try_from(repos.len()).unwrap_or(i64::MAX))
+            .then(|| kept(&first.data.dispatch_id.0, &first.data.repository.0)))
     }
 
     /// Starts `repo`'s controller again for its open dispatch, as [`Tick::spawn`] does; when the
@@ -878,14 +982,20 @@ impl<'s, 'a> Tick<'s, 'a> {
     /// # Errors
     ///
     /// The store does not open, or a dispatch does not move.
-    pub fn start_again(&mut self, repo: &str, why_gone: &str) -> Result<Result<bool, String>> {
-        match self.try_start(repo)? {
-            Ok(()) => Ok(Ok(true)),
-            Err((Some(SpawnRefusal::NoCharter), why)) => {
+    pub fn start_again(
+        &mut self,
+        repo: &str,
+        why_gone: &str,
+        held: bool,
+    ) -> Result<Result<Again, String>> {
+        match self.try_start(repo, held)? {
+            Ok(()) => Ok(Ok(Again::Started)),
+            Err(NotStarted::Yielded(why)) => Ok(Ok(Again::Yielded(why))),
+            Err(NotStarted::Refused(Some(SpawnRefusal::NoCharter), why)) => {
                 self.end_open(repo, &format!("conductor run: {why_gone}, and {why}"))?;
-                Ok(Ok(false))
+                Ok(Ok(Again::Ended))
             }
-            Err((_, why)) => Ok(Err(why)),
+            Err(NotStarted::Refused(_, why)) => Ok(Err(why)),
         }
     }
 
@@ -1158,6 +1268,7 @@ impl<'s, 'a> Tick<'s, 'a> {
                     ControllerState::Running | ControllerState::Paused
                 )
         });
+        let holding = held.is_some();
         if let Some(held) = held {
             let _ = crate::controller::stop_controller(
                 self.state,
@@ -1174,12 +1285,18 @@ impl<'s, 'a> Tick<'s, 'a> {
         if let Some(path) = resume {
             resume_point(&self.charter(repo), path)?;
         }
-        let started = self
-            .start_again(repo, &format!("its session {session} is {reason}"))?
+        let again = self
+            .start_again(repo, &format!("its session {session} is {reason}"), holding)?
             .map_err(|why| anyhow!("spawn {repo} again: {why}"))?;
         handlers::forget(self, session);
-        if !started {
-            return Ok(());
+        match again {
+            Again::Started => {}
+            Again::Ended => return Ok(()),
+            // The place is kept for a waiting unit of work: no error, the tick goes on.
+            Again::Yielded(why) => {
+                let _ = writeln!(io::stderr().lock(), "conductor run: {repo} waits: {why}");
+                return Ok(());
+            }
         }
         let mut line = self.line(DispatchLogEvent::ControllerRestarted, repo)?;
         line.session = Some(session.to_owned());
@@ -1188,6 +1305,35 @@ impl<'s, 'a> Tick<'s, 'a> {
         line.line = cause.map(str::to_owned);
         self.write(&line)
     }
+}
+
+/// Why [`Tick::try_start`] made no start.
+enum NotStarted {
+    /// The place is kept for a unit of work that waits for one ([`Tick::kept_for_unit`]): why.
+    Yielded(String),
+    /// Refused: the `SpawnRefusal` of `conductor spawn`'s refusal, where one refused it, and why.
+    Refused(Option<SpawnRefusal>, String),
+}
+
+/// What [`Tick::start_again`] did, when nothing failed.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Again {
+    /// The controller started.
+    Started,
+    /// The repository has no charter to start from: its open dispatches were ended.
+    Ended,
+    /// The start yielded its place to a waiting unit of work, for the reason given.
+    Yielded(String),
+}
+
+/// Whether the unit of work with `reference` and `brief` was opened by a need of `repo`: its
+/// reference starts `need-` and its brief's first line, the need's whole message
+/// (`run/mailbox.rs`), reads as a `[NEED <repo> <request-id>]` naming `repo` as its `<repo>`.
+fn opened_by_need_of(reference: Option<&str>, brief: &str, repo: &str) -> bool {
+    let first = brief.lines().next().unwrap_or_default();
+    reference.is_some_and(|reference| reference.starts_with("need-"))
+        && crate::message::read(first).kind == Some(MessageKind::Need)
+        && crate::message::named_repository(first).as_deref() == Some(repo)
 }
 
 /// Held around a count of the running controllers and the start it allows: the work call's
