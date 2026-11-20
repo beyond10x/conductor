@@ -6,6 +6,13 @@
 //! the file writes it, none for a removal. `POST /v1/instances`, `PUT /v1/instances/{name}` and
 //! `DELETE /v1/instances/{name}` call these ([`crate::daemon::api`]).
 //!
+//! Only the text of that one `instances` item changes (`super::edit`,
+//! story:config-put-touches-only-its-path): a replaced or added item is YAML's block writing of the
+//! mapping, indented to the list's items, and a removed item's lines go; every other line, its
+//! comments included, is kept. Where the text cannot be edited so, the file is written whole and
+//! one line naming why goes to standard error and into the commit's body. A change that leaves the
+//! text as it was writes and commits nothing.
+//!
 //! They share [`super::put`]'s lock, its write by rename and its commit: one run at a time reads,
 //! writes, commits and records, and a commit that fails puts the old text back. A refusal writes,
 //! commits and records nothing. The daemon reconciles on its next tick, as for any change of the
@@ -29,7 +36,7 @@ use conductor_model::operator::{Actor, ActorKind};
 use conductor_model::primitives::{Timestamp, Uuid};
 use serde_yaml::{Mapping, Value as Yaml};
 
-use super::{Problem, VERSION_2, parse};
+use super::{Problem, VERSION_2, edit, parse};
 use crate::store::Store;
 
 /// Why a change of a whole instance was refused; nothing was written, committed or recorded.
@@ -293,7 +300,15 @@ fn change(
             )));
         }
     }
-    let new = serde_yaml::to_string(&yaml).context("write the changed config as YAML")?;
+    // The text of that one item alone, where the locator can edit it and the edit reads back as
+    // the changed tree; else the tree written whole, and why.
+    let edited = match (asked.change, mapping.as_ref()) {
+        (Change::Add, Some(mapping)) => edit::whole(&old, edit::Whole::Add(mapping)),
+        (Change::Put, Some(mapping)) => edit::whole(&old, edit::Whole::Put(name, mapping)),
+        (Change::Remove, _) => edit::whole(&old, edit::Whole::Remove(name)),
+        (Change::Add | Change::Put, None) => Err("no mapping".to_owned()),
+    };
+    let (new, whole) = edit::checked(edited, &yaml).context("write the changed config as YAML")?;
     if let Err(problems) = parse(&new, home) {
         return Ok(Err(Refusal::Invalid(problems)));
     }
@@ -303,8 +318,21 @@ fn change(
         .context("write the instance's mapping as YAML")?;
     let who = crate::actor::written(asked.actor);
     let subject = format!("config: instance {name} {} by {who}", asked.change.verb());
-    let body = format!("{}\n\nActor: {who}", asked.reason);
-    let committed = super::put::replace(file, &old, &new, &subject, &body)?;
+    let whole = whole
+        .map(|why| format!("config instance: instances.{name}: {why}; the file is written whole"));
+    let body = match &whole {
+        Some(line) => format!("{}\n\n{line}\n\nActor: {who}", asked.reason),
+        None => format!("{}\n\nActor: {who}", asked.reason),
+    };
+    // A text the change leaves as it was is not written, and there is nothing to commit.
+    let committed = if new == old {
+        None
+    } else {
+        if let Some(line) = &whole {
+            eprintln!("{line}");
+        }
+        super::put::replace(file, &old, &new, &subject, &body)?
+    };
     let data = ConfigRevisionData {
         revision_id: RevisionId(Uuid(eventlog_core::new_event_id())),
         actor: asked.actor.clone(),

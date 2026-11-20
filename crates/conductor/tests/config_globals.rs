@@ -704,3 +704,309 @@ impl Revisions for conductor_cli::store::Store {
         conductor_model::behaviour::ConfigRevisionStorage::list(self)
     }
 }
+
+/// story:config-put-touches-only-its-path: a file written in its owner's style, with comments, a
+/// flow mapping and a flow role item, so that a put which rewrote the whole file would change
+/// more than the asserted lines.
+const STYLED: &str = "\
+# the host's config: written by hand
+version: conductor.config/2
+daemon: {store: \"sqlite:~/daemon/conductor.sqlite\"}
+
+globals:
+  # every instance
+  cadence:
+    cycle: 3h   # slow on purpose
+  thresholds: {disk_low: 20G}
+
+instances:
+  # the first
+  - name: one
+    placement: systemd
+    session_prefix: one
+    sources: [{github: example-org}]
+    checkouts: {root: ~/one, trees: ~/one-trees}
+    controllers: {max_working: 4, max_subagents: 2}   # caps
+    roles:
+      - {role: director, harness: claude, model: opus}
+";
+
+/// A case whose config file `text` is committed in a git checkout of its own: the file.
+fn committed(case: &Case, text: &str) -> PathBuf {
+    let file = case.write("conductor.yaml", text);
+    git(&case.dir, &["init", "-q"]);
+    git(&case.dir, &["add", "conductor.yaml"]);
+    git(&case.dir, &["commit", "-q", "-m", "the config"]);
+    file
+}
+
+/// `conductor config put` of `words` (after `--level`), which must succeed: its output.
+fn put(case: &Case, file: &Path, words: &[&str]) -> Output {
+    let mut all = vec!["config", "put", "--level"];
+    all.extend_from_slice(words);
+    all.extend_from_slice(&["--reason", "a styled change"]);
+    let output = case.run(file, &all);
+    assert_eq!(output.status.code(), Some(0), "{}", describe(&output));
+    output
+}
+
+/// The lines `new` holds in place of `old`'s: the ones removed, then the ones added, between the
+/// longest common head and tail.
+fn changed_lines(old: &str, new: &str) -> (Vec<String>, Vec<String>) {
+    let old: Vec<&str> = old.lines().collect();
+    let new: Vec<&str> = new.lines().collect();
+    let mut front = 0;
+    while front < old.len() && front < new.len() && old[front] == new[front] {
+        front += 1;
+    }
+    let mut back = 0;
+    while back < old.len() - front
+        && back < new.len() - front
+        && old[old.len() - 1 - back] == new[new.len() - 1 - back]
+    {
+        back += 1;
+    }
+    let owned = |lines: &[&str]| lines.iter().map(|line| (*line).to_owned()).collect();
+    (
+        owned(&old[front..old.len() - back]),
+        owned(&new[front..new.len() - back]),
+    )
+}
+
+fn lines(said: &[&str]) -> Vec<String> {
+    said.iter().map(|line| (*line).to_owned()).collect()
+}
+
+/// One put on a fresh copy of [`STYLED`]: the lines it removed and added.
+fn styled_put(name: &str, words: &[&str]) -> (Vec<String>, Vec<String>) {
+    let case = Case::new(name);
+    let file = committed(&case, STYLED);
+    put(&case, &file, words);
+    let new = fs::read_to_string(&file).expect("read");
+    assert!(
+        new.starts_with("# the host's config: written by hand\n"),
+        "{new}"
+    );
+    let output = case.run(&file, &["config", "validate"]);
+    assert_eq!(output.status.code(), Some(0), "{}", describe(&output));
+    changed_lines(STYLED, &new)
+}
+
+#[test]
+fn put_changes_one_entry_of_a_flow_mapping_and_no_other_line() {
+    let case = Case::new("put-styled-flow");
+    let file = committed(&case, STYLED);
+    put(
+        &case,
+        &file,
+        &[
+            "instance",
+            "--instance",
+            "one",
+            "--path",
+            "controllers.max_working",
+            "--value",
+            "5",
+        ],
+    );
+    let new = fs::read_to_string(&file).expect("read");
+    assert_eq!(
+        changed_lines(STYLED, &new),
+        (
+            lines(&["    controllers: {max_working: 4, max_subagents: 2}   # caps"]),
+            lines(&["    controllers: {max_working: 5, max_subagents: 2}   # caps"])
+        ),
+        "{new}"
+    );
+    let rows = effective(&case, &file, "one");
+    let found = row(&rows, None, "controllers.max_working");
+    assert!(found["value"] == 5 || found["value"] == "5", "{found}");
+}
+
+#[test]
+fn put_keeps_a_block_entrys_style_and_comment() {
+    // A value replaced on its line, its trailing comment kept.
+    assert_eq!(
+        styled_put(
+            "put-styled-block",
+            &["global", "--path", "cadence.cycle", "--value", "2h"]
+        ),
+        (
+            lines(&["    cycle: 3h   # slow on purpose"]),
+            lines(&["    cycle: 2h   # slow on purpose"])
+        )
+    );
+    // A new key: one line at the mapping's indentation.
+    assert_eq!(
+        styled_put(
+            "put-styled-new-key",
+            &["global", "--path", "cadence.watch", "--value", "7m"]
+        ),
+        (vec![], lines(&["    watch: 7m"]))
+    );
+    // A new key under a mapping the instance lacks: its lines in the parent's block style.
+    assert_eq!(
+        styled_put(
+            "put-styled-new-mapping",
+            &[
+                "instance",
+                "--instance",
+                "one",
+                "--path",
+                "cadence.watch",
+                "--value",
+                "7m"
+            ]
+        ),
+        (vec![], lines(&["    cadence:", "      watch: 7m"]))
+    );
+    // A removal: that entry's line only.
+    assert_eq!(
+        styled_put(
+            "put-styled-remove-block",
+            &["global", "--path", "thresholds"]
+        ),
+        (lines(&["  thresholds: {disk_low: 20G}"]), vec![])
+    );
+}
+
+#[test]
+fn put_inserts_and_removes_inside_a_flow_mapping() {
+    assert_eq!(
+        styled_put(
+            "put-styled-flow-insert",
+            &[
+                "global",
+                "--path",
+                "thresholds.silent_session",
+                "--value",
+                "45m"
+            ]
+        ),
+        (
+            lines(&["  thresholds: {disk_low: 20G}"]),
+            lines(&["  thresholds: {disk_low: 20G, silent_session: 45m}"])
+        )
+    );
+    assert_eq!(
+        styled_put(
+            "put-styled-flow-remove",
+            &[
+                "instance",
+                "--instance",
+                "one",
+                "--path",
+                "controllers.max_subagents"
+            ]
+        ),
+        (
+            lines(&["    controllers: {max_working: 4, max_subagents: 2}   # caps"]),
+            lines(&["    controllers: {max_working: 4}   # caps"])
+        )
+    );
+}
+
+#[test]
+fn put_at_a_flow_role_item_keeps_it_one_flow_line() {
+    assert_eq!(
+        styled_put(
+            "put-styled-role",
+            &[
+                "role",
+                "--instance",
+                "one",
+                "--role",
+                "director",
+                "--path",
+                "model",
+                "--value",
+                "sonnet"
+            ]
+        ),
+        (
+            lines(&["      - {role: director, harness: claude, model: opus}"]),
+            lines(&["      - {role: director, harness: claude, model: sonnet}"])
+        )
+    );
+}
+
+#[test]
+fn a_global_put_adds_the_globals_a_file_lacks_and_keeps_every_line() {
+    let case = Case::new("put-styled-no-globals");
+    let start = STYLED.find("globals:").expect("globals");
+    let end = STYLED.find("instances:").expect("instances");
+    let text = format!("{}{}", &STYLED[..start], &STYLED[end..]);
+    let file = committed(&case, &text);
+    put(
+        &case,
+        &file,
+        &["global", "--path", "cadence.watch", "--value", "7m"],
+    );
+    let new = fs::read_to_string(&file).expect("read");
+    assert_eq!(
+        changed_lines(&text, &new),
+        (vec![], lines(&["globals:", "  cadence:", "    watch: 7m"])),
+        "{new}"
+    );
+}
+
+#[test]
+fn a_put_the_locator_cannot_edit_writes_the_file_whole_and_says_so() {
+    let case = Case::new("put-styled-fallback");
+    let text = STYLED
+        .replace(
+            "controllers: {max_working: 4, max_subagents: 2}   # caps",
+            "controllers: &caps {max_working: 4, max_subagents: 2}",
+        )
+        .replace(
+            "      - {role: director, harness: claude, model: opus}\n",
+            "      - {role: director, harness: claude, model: opus}\n  - name: two\n    \
+             placement: systemd\n    session_prefix: two\n    sources: [{github: example-org}]\n    \
+             checkouts: {root: ~/two, trees: ~/two-trees}\n    controllers: *caps\n",
+        );
+    let file = committed(&case, &text);
+    let output = put(
+        &case,
+        &file,
+        &[
+            "instance",
+            "--instance",
+            "one",
+            "--path",
+            "controllers.max_working",
+            "--value",
+            "5",
+        ],
+    );
+    let said = stderr(&output);
+    let line = "config put: instances[0].controllers.max_working: an anchor, alias or tag on the \
+                path; the file is written whole";
+    assert_eq!(said, format!("{line}\n"), "{}", describe(&output));
+    let new = fs::read_to_string(&file).expect("read");
+    assert!(!new.contains("# the host's config"), "{new}");
+    let written: Value = serde_yaml::from_str(&new).expect("yaml");
+    assert_eq!(written["instances"][0]["controllers"]["max_working"], 5);
+    assert_eq!(written["instances"][1]["controllers"]["max_working"], 4);
+    let message = git(&case.dir, &["log", "-1", "--format=%B"]);
+    assert!(message.lines().any(|said| said == line), "{message}");
+    let output = case.run(&file, &["config", "validate"]);
+    assert_eq!(output.status.code(), Some(0), "{}", describe(&output));
+}
+
+#[test]
+fn the_same_value_put_twice_writes_and_commits_nothing_the_second_time() {
+    let case = Case::new("put-styled-twice");
+    let file = committed(&case, STYLED);
+    let words = ["global", "--path", "thresholds.disk_low", "--value", "30G"];
+    put(&case, &file, &words);
+    let text = fs::read_to_string(&file).expect("read");
+    let head = git(&case.dir, &["rev-parse", "HEAD"]);
+    let output = put(&case, &file, &words);
+    assert!(
+        stdout(&output).contains("unchanged: the file already holds that value"),
+        "{}",
+        describe(&output)
+    );
+    assert_eq!(fs::read_to_string(&file).expect("read"), text);
+    assert_eq!(git(&case.dir, &["rev-parse", "HEAD"]), head);
+}

@@ -84,8 +84,14 @@ every path absolute, as `text`, `json` or `yaml`, and writes an absent optional 
 removed at that level. A level with the wrong scope is refused (`LevelScopeMismatch`), and a file
 that would not validate (`ConfigInvalid`). An agent's change is refused (`ActorNotHuman`) unless
 `globals.tuning.keys` names the path and the value is a number inside its range. An accepted change
-rewrites the whole file, so its comments are not kept, commits it alone with the actor in the
-subject and the reason in the body, and records a `ConfigRevision` under the daemon's tenant. A
+edits only the text of that key, in the style it stands in (a flow mapping's entry stays in the
+flow mapping), and keeps the file's comments, key order, quoting and blank lines. Where it cannot
+(an anchor, alias, merge key or tag on the path, a document marker, a value over more than one
+line), it writes the whole file and says so in one line, `config put: <yaml path>: <why>; the file
+is written whole`, on standard error and in the commit body. A value the file already holds
+writes and commits nothing and prints `unchanged`. The change is committed alone, with the actor
+in the subject and the reason in the body, and recorded as a `ConfigRevision` under the daemon's
+tenant. A
 failed commit puts the old text back. `PUT /v1/config` takes the same change as JSON from an
 operator holding `ChangeSettings`, and answers `422`, or `403` for `ActorNotHuman`.
 
