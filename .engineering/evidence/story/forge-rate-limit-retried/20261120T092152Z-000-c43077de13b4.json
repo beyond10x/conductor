@@ -1,0 +1,13 @@
+{
+  "at": "2026-11-20T09:21:52Z",
+  "actor": "human:unknown",
+  "artifact": "story:forge-rate-limit-retried",
+  "kind": "story",
+  "revision": 10,
+  "change": {
+    "change": "evidence",
+    "kind": "test_result",
+    "source": "cargo test -p conductor-cli --test collect_gitlab --test collect_github --test instance_sources --test collect_stores --test no_organization --test isolated_home --test snapshot --test adv_snapshot: all passed at 362c2828; the 6 acceptance tests failed before the change; clippy -D warnings clean",
+    "reference": "crates/conductor/tests/collect_gitlab.rs"
+  }
+}

@@ -1249,3 +1249,221 @@ fn a_checkout_outside_the_include_list_is_not_in_the_workspace_file() {
     assert!(workspace.contains("  - name: checks\n"), "{workspace}");
     assert!(!workspace.contains("tools"), "{workspace}");
 }
+
+// ---------------------------------------------------------------------------------------------
+// story:forge-rate-limit-retried
+// ---------------------------------------------------------------------------------------------
+
+/// The variable a debug build of the binary reads its collectors' waits' log from: each wait is
+/// appended to that file, in milliseconds, instead of slept.
+const WAITS_VARIABLE: &str = "CONDUCTOR_TEST_COLLECT_WAITS";
+
+/// The read of `alpha`'s releases the repositories collector makes.
+const RELEASES: &str = "projects/101/releases?per_page=20";
+
+impl Case {
+    /// The fake `glab` in front of the answering one: a read whose API path is `path` is
+    /// answered `HTTP 429` on standard error and exit 1, the first time only when `once`, every
+    /// time otherwise; every other read is the answering `glab`'s.
+    fn rate_limited(&self, path: &str, once: bool) {
+        let answering = self.bin().join("glab-answers");
+        fs::rename(self.bin().join("glab"), &answering).expect("move the answering glab");
+        let marker = self.dir.join("rate-limited");
+        let limited = format!(
+            "printf '%s\\n' \"$*\" >> '{log}'; printf 'glab: 429 Too Many Requests (HTTP 429)\\n' \
+             >&2; exit 1",
+            log = text(&self.log("limited"))
+        );
+        let body = if once {
+            format!(
+                "if [ ! -e '{marker}' ]; then : > '{marker}'; {limited}; fi",
+                marker = text(&marker)
+            )
+        } else {
+            limited
+        };
+        self.script(
+            "glab",
+            &format!(
+                "#!/bin/sh\nfor last in \"$@\"; do :; done\nif [ \"$last\" = '{path}' ]; then \
+                 {body}; fi\nexec '{answering}' \"$@\"\n",
+                answering = text(&answering)
+            ),
+        );
+    }
+
+    /// `snapshot start-snapshot` at [`NOW`] with `extra` arguments, the collectors' waits logged
+    /// to `waits.log` instead of slept when `logged`.
+    fn snapshot_with(&self, config: &Path, extra: &[&str], logged: bool) -> Output {
+        let mut command = common::conductor(self.home());
+        command
+            .current_dir(self.dir.join("work"))
+            .env_clear()
+            .env("HOME", self.home())
+            .env("PATH", self.bin())
+            .env("CONDUCTOR_CONFIG", config)
+            .arg("--state-dir")
+            .arg(self.state())
+            .args([
+                "snapshot",
+                "start-snapshot",
+                "--started-at",
+                NOW,
+                "--disk-free-bytes",
+                "100000000000",
+            ])
+            .args(extra)
+            .stdin(Stdio::null());
+        if logged {
+            command.env(WAITS_VARIABLE, self.dir.join("waits.log"));
+        }
+        command.output().expect("the conductor binary runs")
+    }
+
+    /// The waits the collectors logged, in milliseconds, in the order they were logged.
+    fn waits(&self) -> Vec<u64> {
+        fs::read_to_string(self.dir.join("waits.log"))
+            .map(|log| {
+                log.lines()
+                    .map(|line| line.trim().parse().expect("a wait in milliseconds"))
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    /// The diff reads `glab` logged.
+    fn diff_reads(&self) -> usize {
+        self.lines("glab")
+            .iter()
+            .filter(|line| line.contains("/diff"))
+            .count()
+    }
+
+    fn forge_diffs(&self) -> PathBuf {
+        self.dir.join("cache/forge-diffs.json")
+    }
+}
+
+/// One `HTTP 429` on a project's read is waited out (5 s, the first wait of the schedule) and
+/// the read asked again; the snapshot completes with the project's row.
+#[test]
+fn a_project_read_answered_429_once_is_retried_and_the_snapshot_completes() {
+    let case = Case::new("rate-limited-once");
+    case.alpha();
+    let config = case.config();
+    case.rate_limited(RELEASES, true);
+    let output = case.snapshot_with(&config, &[], true);
+    assert_eq!(output.status.code(), Some(0), "{}", describe(&output));
+
+    assert_eq!(case.lines("limited").len(), 1, "answered 429 once");
+    let waits = case.waits();
+    assert!(waits.contains(&5000), "the first wait is 5 s: {waits:?}");
+    assert!(
+        waits.iter().all(|wait| *wait <= 5000),
+        "no wait past the first: {waits:?}"
+    );
+    let rows = case.rows(&config, "repositories");
+    let alpha = rows
+        .iter()
+        .find(|row| row["repository"] == json!("alpha"))
+        .expect("alpha's row");
+    assert_eq!(alpha["latest_release"], json!("v1.2.0"), "{alpha:#}");
+}
+
+/// With a collector budget of 2 s, a rate-limited read takes no wait that ends past it: the
+/// snapshot ends well before the 5 s first wait would, and the read's line names the rate limit.
+#[test]
+fn a_rate_limited_read_waits_no_longer_than_the_collector_deadline() {
+    let case = Case::new("rate-limited-deadline");
+    case.alpha();
+    let config = case.config();
+    case.rate_limited(RELEASES, false);
+    let started = std::time::Instant::now();
+    let output = case.snapshot_with(&config, &["--budget", "2"], false);
+    let took = started.elapsed();
+    assert!(
+        took < std::time::Duration::from_secs(5),
+        "took {took:?}: {}",
+        describe(&output)
+    );
+    assert_eq!(output.status.code(), Some(1), "{}", describe(&output));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("rate limited (HTTP 429)"), "{stderr}");
+}
+
+/// A read still answered `HTTP 429` after the three waits (5 s, 15 s, 45 s) fails the snapshot,
+/// its line naming the forge, the path and the rate limit.
+#[test]
+fn a_read_still_rate_limited_after_its_retries_names_http_429() {
+    let case = Case::new("rate-limited-always");
+    case.alpha();
+    let config = case.config();
+    case.rate_limited(RELEASES, false);
+    let output = case.snapshot_with(&config, &[], true);
+    assert_eq!(output.status.code(), Some(1), "{}", describe(&output));
+
+    assert_eq!(
+        case.lines("limited").len(),
+        4,
+        "asked once and 3 times more"
+    );
+    let waits = case.waits();
+    let schedule: Vec<u64> = waits
+        .iter()
+        .copied()
+        .filter(|wait| [5000, 15000, 45000].contains(wait))
+        .collect();
+    assert_eq!(schedule, [5000, 15000, 45000], "{waits:?}");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let line = stderr
+        .lines()
+        .find(|line| line.contains("rate limited (HTTP 429)"))
+        .unwrap_or_else(|| panic!("a line names the rate limit: {stderr}"));
+    assert!(line.contains(HOST) && line.contains(RELEASES), "{line}");
+}
+
+/// The paths of a commit read whole are kept in the instance's cache: a second snapshot asks
+/// the forge for no diff of a commit the first one read.
+#[test]
+fn a_second_snapshot_asks_no_diff_of_a_commit_the_first_read() {
+    let case = Case::new("diffs-kept");
+    case.alpha();
+    let config = case.config();
+    case.snapshot(&config);
+    assert_eq!(case.diff_reads(), 1, "{:#?}", case.lines("glab"));
+    let kept = fs::read_to_string(case.forge_diffs()).expect("the diffs are kept");
+    assert!(
+        kept.contains("abc123") && kept.contains("src/board.rs"),
+        "{kept}"
+    );
+
+    case.snapshot(&config);
+    assert_eq!(case.diff_reads(), 1, "{:#?}", case.lines("glab"));
+    let rows = case.rows(&config, "repositories");
+    let real: Vec<&Value> = rows
+        .iter()
+        .filter(|row| row["repository"] == json!("alpha"))
+        .map(|row| &row["real_commits_7d"])
+        .collect();
+    assert_eq!(real, [&json!(1), &json!(1)], "{rows:#?}");
+}
+
+/// A kept-diffs file that does not read stops nothing: the snapshot completes, the diff is read
+/// from the forge, and the file is written anew.
+#[test]
+fn a_cache_that_does_not_read_is_written_anew_and_stops_nothing() {
+    let case = Case::new("diffs-unreadable");
+    case.alpha();
+    let config = case.config();
+    fs::create_dir_all(case.dir.join("cache")).expect("create the cache");
+    fs::write(case.forge_diffs(), "{ not json").expect("write a broken file");
+    case.snapshot(&config);
+
+    assert_eq!(case.diff_reads(), 1, "{:#?}", case.lines("glab"));
+    let kept = fs::read_to_string(case.forge_diffs()).expect("the diffs are kept");
+    let _: Value = serde_json::from_str(&kept).expect("the file is JSON again");
+    assert!(
+        kept.contains("abc123") && kept.contains("src/board.rs"),
+        "{kept}"
+    );
+}

@@ -16,7 +16,7 @@ relations:
 scope:
 - confidence: cited
   path: crates/conductor/src/collect/gitlab.rs
-- confidence: inferred
+- confidence: cited
   path: crates/conductor/src/collect/mod.rs
 - confidence: cited
   path: crates/conductor/src/collect/repositories.rs
@@ -24,9 +24,9 @@ scope:
   path: crates/conductor/tests/collect_github.rs
 - confidence: cited
   path: crates/conductor/tests/collect_gitlab.rs
-- confidence: inferred
+- confidence: cited
   path: docs/design/conductor.md
-revision: 9
+revision: 10
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-20T08:50:44Z", actor: "human:unknown", revision: 8}
 - {from: "proposed", to: "active", at: "2026-11-20T08:50:44Z", actor: "human:unknown", revision: 9}
