@@ -1,0 +1,12 @@
+{
+  "at": "2026-11-20T03:28:56Z",
+  "actor": "human:unknown",
+  "artifact": "story:spawn-charter-carries-brief",
+  "kind": "story",
+  "revision": 4,
+  "change": {
+    "change": "evidence",
+    "kind": "test_result",
+    "source": "cargo test -p conductor-cli --test spawn a_spawn_for_a_dispatch_without_a_reference_carries_its_brief_in_the_charter (failed on main, passes) and --lib spawn::tests (3 passed); clippy -p conductor-cli --all-targets -D warnings clean"
+  }
+}

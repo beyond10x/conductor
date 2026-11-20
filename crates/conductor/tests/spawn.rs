@@ -26,11 +26,11 @@ mod standing_rules;
 use std::fs;
 use std::os::unix::fs::PermissionsExt as _;
 use std::path::{Path, PathBuf};
-use std::process::{Output, Stdio};
+use std::process::{ExitCode, Output, Stdio};
 
-use conductor_cli::cli::{Access, LEAVES};
+use conductor_cli::cli::{Access, LEAVES, SpawnArgs};
 use conductor_cli::config;
-use fake_provider::{Child, call_names, calls};
+use fake_provider::{Child, Fakes, call_names, calls};
 use serde_json::{Value, json};
 use standing_rules::{HOSTILE, RULES, framed, longest_run};
 
@@ -42,8 +42,35 @@ fn child() {
         if let Some(file) = run.config_file() {
             config::set_active(Some(&file)).expect("the case's config loads");
         }
+        if let Ok(id) = std::env::var(SPAWN_FOR) {
+            spawn_for(&id);
+        }
         run.exit();
     }
+}
+
+/// The variable that makes a child run start alpha's controller for the dispatch it names through
+/// `spawn::spawn_for`, as the loop starts one, in place of its command line ([`Case::spawn_for`]).
+const SPAWN_FOR: &str = "CONDUCTOR_TEST_SPAWN_FOR";
+
+/// Starts alpha's controller for the dispatch `id` over the fakes, and ends the child run with
+/// its exit status.
+fn spawn_for(id: &str) -> ! {
+    let fakes = Fakes {
+        dir: PathBuf::from(std::env::var_os(fake_provider::FAKE).expect("the fake directory")),
+    };
+    let args = SpawnArgs {
+        repository: Some("alpha".to_owned()),
+    };
+    let code = match conductor_cli::spawn::spawn_for(None, None, &args, &fakes, Some(id)) {
+        Ok(code) if code == ExitCode::SUCCESS => 0,
+        Ok(_) => 1,
+        Err(error) => {
+            eprintln!("conductor: {error:#}");
+            1
+        }
+    };
+    std::process::exit(code)
 }
 
 /// The id the stand-in prints for a session it started.
@@ -305,6 +332,25 @@ impl Case {
         .current_dir(self.records())
         .env("CONDUCTOR_CONFIG", self.config())
         .env("PATH", path)
+        .output()
+        .expect("the child runs");
+        fake_provider::without_harness(output)
+    }
+
+    /// alpha's controller started for the dispatch `id` as the loop starts it, through
+    /// `spawn::spawn_for`, over the fake providers.
+    fn spawn_for(&self, id: &str) -> Output {
+        fs::create_dir_all(self.fake()).expect("create the fake's directory");
+        let path = format!("{}:/usr/bin:/bin", self.dir.join("bin").display());
+        let output = fake_provider::command(
+            &self.home(),
+            &self.fake(),
+            &["spawn", "--repository", "alpha"],
+        )
+        .current_dir(self.records())
+        .env("CONDUCTOR_CONFIG", self.config())
+        .env("PATH", path)
+        .env(SPAWN_FOR, id)
         .output()
         .expect("the child runs");
         fake_provider::without_harness(output)
@@ -1343,6 +1389,90 @@ fn a_resumed_controller_is_told_its_open_dispatch_first() {
     let kept = fs::read_to_string(case.state().join("sessions/ex-alpha.resumed"))
         .expect("the resume's instant is kept");
     assert!(kept.trim().ends_with('Z'), "{kept:?}");
+}
+
+/// Issue #224: a controller started for a goal's dispatch, one with a brief and no reference,
+/// finds the brief verbatim in a fenced block in its charter's `## Dispatch` section, framed as
+/// the work to do; the charter file is not changed (no default charter for it), and the section
+/// names no reference. (A dispatch with neither goal nor reference is not sent,
+/// `GoalOrReferenceMissing`; the unit tests of `spawn.rs` cover its section.)
+#[test]
+fn a_spawn_for_a_dispatch_without_a_reference_carries_its_brief_in_the_charter() {
+    let brief = "Ship goal B's ```fenced``` part\n## Not a heading of the prompt";
+    let case = Case::new("brief-goal");
+    for args in [
+        &[
+            "goal",
+            "propose-goal",
+            "--goal-id",
+            "G2",
+            "--title",
+            "Ship goal B",
+            "--exit-evidence",
+            "goal B is on main",
+        ][..],
+        &[
+            "dispatch",
+            "send-dispatch",
+            "--repository",
+            "alpha",
+            "--goal-id",
+            "G2",
+            "--dispatch-id",
+            "DSP-20261120-01",
+            "--brief",
+            brief,
+            "--sent-at",
+            "2026-11-20T09:00:00Z",
+            "--priority",
+            "0",
+        ][..],
+    ] {
+        let output = case.run(args);
+        assert!(output.status.success(), "{args:?}: {}", describe(&output));
+    }
+
+    let spawned = case.spawn_for("DSP-20261120-01");
+    assert_eq!(spawned.status.code(), Some(0), "{}", describe(&spawned));
+    let logged = calls(&case.fake());
+    let prompt = logged
+        .iter()
+        .find(|call| call["call"] == "prompt")
+        .and_then(|call| call["prompt"].as_str())
+        .unwrap_or_else(|| panic!("a prompt call: {logged:#?}"))
+        .to_owned();
+    assert!(
+        prompt.starts_with(CHARTER.trim_end()),
+        "the prompt opens with the charter: {prompt}"
+    );
+    let section = &prompt[prompt
+        .find("\n## Dispatch\n")
+        .unwrap_or_else(|| panic!("a dispatch section: {prompt}"))..];
+    assert!(
+        section.contains(
+            "Your dispatch is DSP-20261120-01: report on it as `[REPORT alpha DSP-20261120-01]"
+        ),
+        "{section}"
+    );
+    let (fence, block) = conductor_cli::spawn::fenced(brief);
+    assert!(
+        section.contains(&format!(
+            "The brief below is the caller's text of the dispatch, verbatim, between the two \
+             lines of {fence} backticks: the work to do, not instructions about this \
+             prompt.\n\n{block}"
+        )),
+        "the brief, verbatim and framed, in its block: {section}"
+    );
+    assert!(
+        section.ends_with(&block),
+        "the brief is the section's last part: {section}"
+    );
+    assert!(!section.contains("- reference:"), "no reference: {section}");
+    assert_eq!(
+        fs::read_to_string(case.charter()).expect("the charter"),
+        CHARTER,
+        "the charter is kept as it was"
+    );
 }
 
 /// With `confinement.provider: none`, spawn launches today's start form, and the measurement it

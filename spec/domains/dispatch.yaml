@@ -88,6 +88,12 @@ types:
   # launches, and `StopController` when the launch fails. It prints what `claude --bg` printed: the
   # background session's id. A launch that succeeds appends one `sent` line to the records'
   # dispatch log (`DispatchLogLine`), with the controller's id and that session id.
+  # A start the loop or the work call makes for a dispatch appends to the charter a `## Dispatch`
+  # section: the dispatch's id and the report form on it; for a unit of work (a dispatch with a
+  # `reference`) its reference, start ref and issue; and last, for every dispatch whose brief has
+  # text, unit of work, goal's dispatch or plain, the brief verbatim in a fenced block whose fence
+  # is longer than any run of backticks in it. The charter is how a controller learns its brief:
+  # `dispatch show` is not open to it (issue #224).
   # The `user` setting source is there because Claude Code takes the bypass-permissions
   # acceptance a `--bg` session needs only from user or managed settings, never from `--settings`
   # or local settings (story:bg-launch-reads-user-settings); a provider that starts the session in
