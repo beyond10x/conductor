@@ -2,7 +2,7 @@
 format: aep.planning-md/3
 id: story:decision-request-input-json
 kind: story
-status: active
+status: implemented
 title: raise-decision-request and escalate-request read --input-json
 summary: The two decision commands read their input fields from one JSON object on standard input; every other command still answers not implemented
 refs:
@@ -18,10 +18,11 @@ scope:
   path: crates/conductor/tests/decision.rs
 - confidence: cited
   path: docs/design/conductor.md
-revision: 6
+revision: 7
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-20T14:13:24Z", actor: "human:unknown", revision: 5}
 - {from: "proposed", to: "active", at: "2026-11-20T14:13:26Z", actor: "human:unknown", revision: 6}
+- {from: "active", to: "implemented", at: "2026-11-20T17:26:43Z", actor: "human:unknown", revision: 7, decided_on: {"recorded":{"test_result":1}}}
 ---
 ## Why
 

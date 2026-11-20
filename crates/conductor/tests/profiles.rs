@@ -145,6 +145,35 @@ fn no_profile_arms_a_timer_watches_messages_by_send_message_or_restarts_conducto
     }
 }
 
+/// `story:supervisor-watch-command` (issues #254, #247): the supervisor's watch is the command
+/// `conductor supervisor watch`, re-armed in the turn it exits, with the product checkout as a
+/// `--checkout`; the watch it wrote by hand (`inotifywait`, a `sleep 30` loop) and the manual
+/// unpushed check of the product checkout (`git log --branches --not --remotes`) are gone, and
+/// the profile stays within its cap of 463 lines.
+#[test]
+fn the_supervisor_watches_with_conductor_supervisor_watch() {
+    let text = profile("supervisor.md");
+    assert!(
+        text.contains("conductor supervisor watch --checkout <product checkout>"),
+        "supervisor.md: names `conductor supervisor watch --checkout <product checkout>`"
+    );
+    assert!(
+        text.contains("Re-arm it in the turn it exits"),
+        "supervisor.md: re-arms the watch in the turn it exits"
+    );
+    for gone in ["inotifywait", "sleep 30", "log --branches --not --remotes"] {
+        assert!(
+            !text.contains(gone),
+            "supervisor.md: still names {gone:?}, which `conductor supervisor watch` replaced"
+        );
+    }
+    let lines = text.lines().count();
+    assert!(
+        lines <= 463,
+        "supervisor.md: {lines} lines, over its cap of 463"
+    );
+}
+
 /// `story:roles-in-the-binary`: a harness permission prompt is refused with `Escape` and the pane
 /// checked; no key that selects an option answers it. On a three-option prompt `2` and `Down`
 /// then `Enter` both select "Yes, and don't ask again", which approves the call. The prompt is

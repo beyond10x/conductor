@@ -28,7 +28,7 @@ ring = "0.17"
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 keyring-core = { version = "1", features = ["sample"] }
 ratatui = { version = "0.30", default-features = false, features = ["crossterm"] }
-nix = { version = "0.30", default-features = false, features = ["fs", "poll", "signal", "term"] }
+nix = { version = "0.30", default-features = false, features = ["fs", "inotify", "poll", "signal", "term"] }
 secrets-core = { git = "https://github.com/beyond10x/secrets", tag = "v0.6.0" }
 secrets-federation = { git = "https://github.com/beyond10x/secrets", tag = "v0.6.0" }
 secrets-keychain = { git = "https://github.com/beyond10x/secrets", tag = "v0.6.0", features = ["native-keychain"] }

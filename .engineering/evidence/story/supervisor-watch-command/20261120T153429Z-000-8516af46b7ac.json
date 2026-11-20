@@ -1,0 +1,13 @@
+{
+  "at": "2026-11-20T15:34:29Z",
+  "actor": "human:unknown",
+  "artifact": "story:supervisor-watch-command",
+  "kind": "story",
+  "revision": 13,
+  "change": {
+    "change": "evidence",
+    "kind": "test_result",
+    "source": "cargo test -p conductor-cli --test supervisor_watch (21 passed, the 9 review cases failed first); clippy -D warnings clean; ess specify validate, http validate, model regenerates byte for byte",
+    "reference": "crates/conductor/tests/supervisor_watch.rs"
+  }
+}

@@ -1,5 +1,5 @@
 // generated from conductor v1
-// contract digest 5e3a2e3e3f11ff3c49e7cf6aff0495c16f2a70e77b27a0f70420b82c61e9bb36
+// contract digest 7e3629c3da2f4e81aa7801e5c98183954d804dc4f5b461385f0925b0fb0c265d
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! Every actor the specification declares, and the commands each may invoke — as data.

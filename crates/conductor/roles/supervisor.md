@@ -114,12 +114,12 @@ A rule that must outlive this host goes into the conductor repository through co
 
 The instances' `run` units are the loop and need no model; this session never polls them in a
 model turn. But the loop sends you no event, so between events nobody reads the mailboxes. So the
-routine runs on an event and at the latest 20 min after the last pass: one background Bash that
-exits when a new file lands in any `<state>/mailbox/conductor/`, a `]: context: `, `LaunchFailed`,
-`no open dispatch`, `lists no lettered option`, `DispatchNotFound` or `snapshot exited` line appears
-in a run journal, or 20 min pass (`inotifywait` if installed, else a shell loop with `sleep 30`
-inside the Bash, never in your turn). Match `]: context: `, not `context: `: a worktree name can end
-in `-context`. Re-arm it in the turn it exits, before any step that runs over a minute.
+routine runs on an event: one background Bash,
+`conductor supervisor watch --checkout <product checkout>`, which exits on the first trigger of
+any instance (MAIL, LOG, DAEMON, INBOX, DISK, UNPUSHED, GREEN, IDLE, CIEND) or after 20 min
+with `TIMEOUT`, one line each: `<TRIGGER> <instance> <subject> <detail>`; handle every line.
+Re-arm it in the turn it exits, before any step that runs over a minute; its cursors persist, so a
+restart skips nothing. Write no watch of your own.
 
 Never call AskUserQuestion: this session runs with `--bg`, the dialog has no reader, and every
 message queues behind it. A choice that is the operator's goes into your report and the hand-off as
@@ -200,8 +200,7 @@ one background Bash that exits on it.
    `maintainer` in `host.roles`; it builds conductor for every instance) by `SendMessage` with the
    evidence (command output, `file:line`); you do not edit the conductor repository yourself.
    Follow it until it is released and installed.
-   Every pass: `git -C <product checkout> log --branches --not --remotes --format='%h %ci %D %s'`
-   and `git -C <product checkout> worktree list`. A commit with no remote branch older than 30 min,
+   An `UNPUSHED` line of the product checkout (a commit no remote branch holds, over 30 min old),
    or a maintainer hand-over that does not name each branch with `pushed: yes`, is a deviation: the
    maintainer pushes the branch and opens or updates its pull request before anything else; a
    release follows a green pull request within the K5 target.

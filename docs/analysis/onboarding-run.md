@@ -555,3 +555,12 @@ No onboarding run is due: 1.21.0 changes nothing onboarding runs. `SETUP.md`, `c
 fails no longer fails the snapshot: the snapshot completes, names its `failed_collectors`, and the
 failed run carries its `reason`; `snapshot start-snapshot` names each failed collector on standard
 error and exits 0. A dialing runtime says a refusal of the host's token pool once.
+
+## v1.22.0
+
+No onboarding run is due: 1.22.0 changes nothing onboarding runs. `SETUP.md`, `conductor setup`,
+`conductor doctor`, the install path and the prerequisites are as in 1.21.0. The release adds
+`conductor supervisor watch` for the host supervisor, with the optional config key
+`globals.supervisor`, which an onboarding run does not configure; a waiting unit of work gets a
+place a blocked repository held; a secret refresh is a credential request; and two decision
+commands read `--input-json`.

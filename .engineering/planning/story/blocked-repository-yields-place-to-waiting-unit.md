@@ -2,7 +2,7 @@
 format: aep.planning-md/3
 id: story:blocked-repository-yields-place-to-waiting-unit
 kind: story
-status: active
+status: implemented
 title: A place a stop frees goes to the waiting unit of work, not to the Blocked repository
 summary: A Blocked-only repository yields a place to the unit of work its own need opened, and is not respawned while any unit waits for a place
 refs:
@@ -25,10 +25,11 @@ scope:
   path: docs/design/conductor-run.md
 - confidence: cited
   path: website/docs/concepts/the-loop.md
-revision: 13
+revision: 14
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-20T14:13:19Z", actor: "human:unknown", revision: 10}
 - {from: "proposed", to: "active", at: "2026-11-20T14:13:20Z", actor: "human:unknown", revision: 11}
+- {from: "active", to: "implemented", at: "2026-11-20T17:26:43Z", actor: "human:unknown", revision: 14, decided_on: {"recorded":{"test_result":2}}}
 ---
 ## Why
 

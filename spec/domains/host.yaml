@@ -180,6 +180,84 @@ types:
       - {name: shortfall_bytes, type: Integer}
       - {name: left, type: List<conductor.host.LeftOver>}
 
+  # The input of `conductor supervisor watch [--instance <name>]... [--checkout <path>]...
+  # [--timeout <duration>] [--hold <ref>]... [--format text|json]` (story:supervisor-watch-command,
+  # issues #254 and #247): the host supervisor's one background command. It blocks until the first
+  # supervisor trigger fires on any instance of the config file, or on each instance `instance`
+  # names, then reads every trigger once more and prints one line per fired trigger, sorted by
+  # trigger then instance, `<TRIGGER> <instance> <subject> <detail>` (`format` text, the default),
+  # or one `SupervisorTrigger` object per line (`format` json). `subject` holds no white space, `-`
+  # when there is none; `detail` is the rest of the line, newlines written as spaces. `timeout` is
+  # `<n>s`, `<n>m` or `<n>h`, at most 24h, `20m` when absent; past it with no other trigger the one line is
+  # `TIMEOUT`. Each `checkout` is a path outside every instance (the product checkout) whose local
+  # commits `UNPUSHED` reads, its instance `-`. Each `hold` is a request `GREEN` passes over
+  # (story:supervisor-watch-forge-triggers): `<repo>#<n>`, `<repo>!<n>`, `#<n>`, `!<n>`, `<n>` or
+  # the request's URL.
+  #
+  # Its cursors and baselines are files under `supervisor-watch/<instance>/` of the host directory,
+  # one small file each, written to a temporary file and renamed into place, and kept across runs;
+  # one run per host directory holds the exclusive lock `supervisor-watch/lock`, which the kernel
+  # lets go when the process dies. A cursor moves only once the lines it covers are written and
+  # flushed to standard output: delivery is at least once, and a restart skips nothing; a pass that
+  # fires nothing moves its cursors at once. A first run
+  # with no cursor for an instance starts its mail, log and daemon cursors at the newest file, the
+  # log's end and the newest record, and names on standard error how many mail files it passed over. File sources are read on
+  # a change or every 30 s. A source that cannot be read is one note on standard error, and the
+  # watch reads the others. It opens only stores that exist, read only, writes nothing but
+  # `supervisor-watch/`, and creates no store or state directory.
+  - name: conductor.host.WatchSupervisor
+    kind: struct
+    fields:
+      - {name: instance, type: List<String>}
+      - {name: checkout, type: List<String>}
+      - {name: timeout, type: Optional<String>}
+      - {name: hold, type: List<String>}
+      - {name: format, type: Optional<String>}
+
+  # One supervisor trigger (story:supervisor-watch-command). `Mail`: a file of the instance's
+  # mailbox `<state>/mailbox/conductor/` past the mail cursor, or within 5 s of ULID time below it
+  # and not handled yet (a report `progress`, `started`, `unblocked` or `blocked ci` only when its
+  # text holds `waits on` or `waiting for`; a file that cannot be read with its error). `Log`: a
+  # line past the log cursor carrying one of the runtime's trigger strings, of
+  # `<state>/sessions/runtime.log` for a boxed instance, of its runtime unit's journal for one in a
+  # unit; a missing log is a note. `Daemon`: a `conductor.instance.Reconciliation` of the instance past the daemon cursor
+  # with reason `LostRuntime`, or action `Upgrade` with reason `OperatorCommand`. `Inbox`: the file
+  # `globals.supervisor.inbox` holds a request id `globals.supervisor.outbox` does not. `Disk`:
+  # free bytes on `thresholds.disk_path` under `thresholds.disk_low`, or 5 GiB under the baseline,
+  # which moves only when a `Disk` line fires or once an hour. `Unpushed`: a local commit no remote branch holds, over 30 min old, in a
+  # checkout under `checkouts.root`, a managed tree, or a `--checkout`, or of a worktree's detached
+  # HEAD. `Green` (story:supervisor-watch-forge-triggers): an open request that is no draft and
+  # has no auto-merge, whose checks or head pipeline all ended green over 15 min ago, once per
+  # head sha, unless a `hold` names it; subject `<repo>#<n>` (GitHub) or `<repo>!<iid>` (GitLab).
+  # `CiEnd`: the newest report of a `Running` controller's repository is `blocked ci <ref>`, and
+  # the checks or head pipeline of the open request the ref names (in the repository it names,
+  # else the controller's) ended after the report was written; once per ref and report. Both read
+  # the forge of the instance's `github` and `gitlab` sources with the host's `gh` and `glab`, at
+  # most every 2 min per instance, only for the repositories with an open request, and within 60 s
+  # per reading (or the run's `timeout`, when nearer; the rest at the next due reading, one note);
+  # the last reading of a run, once lines are pending, reads no forge. A read that fails is one
+  # note, and doubles that instance's interval up to 16 min until a read succeeds; an instance
+  # with `forge_access: anonymous` is not read, one note per run. `Idle`: a `Running`
+  # controller with an open dispatch whose transcripts (its checkout's and its own trees') have not
+  # been written for 15 min, or with none, whose dispatch was sent 15 min ago; at most once per 30
+  # min, unless its newest report waits on a person. `Timeout`: `timeout` passed with no
+  # other trigger.
+  - name: conductor.host.SupervisorTriggerKind
+    kind: enum
+    variants: [Mail, Log, Daemon, Inbox, Disk, Unpushed, Green, Idle, CiEnd, Timeout]
+
+  # One fired trigger as `conductor supervisor watch` prints it: the trigger, the instance (`-` for
+  # one of no instance), the subject (no white space, `-` for none), the detail on one line, and
+  # when it was read.
+  - name: conductor.host.SupervisorTrigger
+    kind: struct
+    fields:
+      - {name: trigger, type: conductor.host.SupervisorTriggerKind}
+      - {name: instance, type: String}
+      - {name: subject, type: String}
+      - {name: detail, type: String}
+      - {name: at, type: Timestamp}
+
 entities:
   # One grant on the host ledger. A disk reservation is asked for with the bytes of its expected
   # peak and the command it covers, and is answered in arrival order (story:build-run-queue):
@@ -402,6 +480,32 @@ errors:
     summary: A size is negative, or a reservation asks for nothing.
     fields:
       - name: bytes
+        type: Integer
+
+  # `conductor supervisor watch --timeout` is not `<n>s`, `<n>m` or `<n>h` with `n` above 0, or is
+  # over 24h (story:supervisor-watch-command); nothing was read or written.
+  - name: conductor.host.InvalidWatchTimeout
+    summary: The watch's timeout is not a whole number of seconds, minutes or hours above 0.
+    fields:
+      - name: timeout
+        type: String
+
+  # `conductor supervisor watch` cannot write `supervisor-watch/` of the host directory, where its
+  # lock and cursors live; nothing was read.
+  - name: conductor.host.WatchStateUnwritable
+    summary: The supervisor watch cannot write its directory under the host directory.
+    fields:
+      - name: path
+        type: String
+      - name: detail
+        type: String
+
+  # Another `conductor supervisor watch` holds `supervisor-watch/lock` of the host directory: one
+  # run per host directory. The kernel lets the lock go when that process dies.
+  - name: conductor.host.SupervisorWatchRunning
+    summary: Another supervisor watch runs on this host directory; this one read nothing.
+    fields:
+      - name: pid
         type: Integer
 
 events:

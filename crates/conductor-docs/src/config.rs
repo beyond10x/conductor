@@ -193,6 +193,9 @@ globals:
   tuning:
     keys:
       - {path: thresholds.context_handover, min: 100000, max: 400000}
+  supervisor:
+    inbox: ~/operator/inbox
+    outbox: ~/operator/outbox
 default: sample
 instances:
   - name: sample

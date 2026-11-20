@@ -216,6 +216,8 @@ Every command takes these, before or after its name.
 | [`conductor status`](#conductor-status) | Print what asks for attention, one line each, from the store alone (the newest complete snapshot's id and age, its deviations, blocked dispatches, waits, pending requests and usage); --full prints its sessions and every open dispatch besides; start no snapshot and create nothing |
 | [`conductor store`](#conductor-store) |  |
 | [`conductor store migrate`](#conductor-store-migrate) | Read the eventlog tree under the state directory once into the store's database, record the migration there, and print the counts read; refuse a tree read before (AlreadyMigrated) or none there (SourceMissing) |
+| [`conductor supervisor`](#conductor-supervisor) |  |
+| [`conductor supervisor watch`](#conductor-supervisor-watch) | Block until the first supervisor trigger fires on any instance of the config file (or each --instance) - a new mailbox file, a runtime log line, a lost runtime or operator upgrade, the operator inbox, low disk, an unpushed commit (also of each --checkout), an idle controller - then print one line per fired trigger, TRIGGER instance subject detail, or TIMEOUT after --timeout (20m); cursors persist under supervisor-watch/ of the host directory and move only after the lines are printed; exit 1 naming InvalidWatchTimeout, UnknownInstance, WatchStateUnwritable or SupervisorWatchRunning |
 | [`conductor token`](#conductor-token) |  |
 | [`conductor token reveal`](#conductor-token-reveal) | Print the model_token of an instance whose placement opens no box (--model-token), for the claude-code kind's harness, whose settings name this command as their apiKeyHelper; a token of the host's pool is never printed, it reaches the harness once, in its environment at its start |
 | [`conductor trust`](#conductor-trust) | Mark every git checkout under the instance's checkouts root, and its records directory, as trusted Claude Code workspaces in ~/.claude.json |
@@ -2817,6 +2819,28 @@ Usage: conductor store migrate [OPTIONS]
 | Argument | Required | Default | Meaning |
 |---|---|---|---|
 | `--format <FORMAT>` | no | none | How the counts moved are printed: text or json. Default: text |
+
+## `conductor supervisor`
+
+```text
+Usage: conductor supervisor [OPTIONS] <COMMAND>
+```
+
+## `conductor supervisor watch`
+
+Block until the first supervisor trigger fires on any instance of the config file (or each --instance) - a new mailbox file, a runtime log line, a lost runtime or operator upgrade, the operator inbox, low disk, an unpushed commit (also of each --checkout), an idle controller - then print one line per fired trigger, TRIGGER instance subject detail, or TIMEOUT after --timeout (20m); cursors persist under supervisor-watch/ of the host directory and move only after the lines are printed; exit 1 naming InvalidWatchTimeout, UnknownInstance, WatchStateUnwritable or SupervisorWatchRunning
+
+```text
+Usage: conductor supervisor watch [OPTIONS]
+```
+
+| Argument | Required | Default | Meaning |
+|---|---|---|---|
+| `--instance <NAME>` | no | none | An instance of the config file to watch; repeatable. Default: every instance |
+| `--checkout <PATH>` | no | none | A checkout outside every instance whose local commits UNPUSHED reads, such as the product checkout; repeatable |
+| `--timeout <DURATION>` | no | none | How long to wait for a trigger: &lt;n>s, &lt;n>m or &lt;n>h. Default: 20m |
+| `--hold <REF>` | no | none | A ref GREEN passes over; repeatable |
+| `--format <FORMAT>` | no | none | How each trigger is printed: text or json. Default: text |
 
 ## `conductor token`
 

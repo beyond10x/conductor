@@ -20,6 +20,14 @@ byte for byte to either form is rewritten to the form the key names at the next 
 other charter is the operator's and is never rewritten
 ([the loop](https://beyond10x.github.io/conductor/docs/concepts/the-loop)).
 
+## The supervisor's inbox
+
+`globals.supervisor.inbox` and `globals.supervisor.outbox` (`conductor.config.SupervisorWatch`,
+each a path, absolute or under `~/`) are the operator's inbox and outbox the host supervisor's
+watch reads (`conductor supervisor watch`, story:supervisor-watch-command): each a file of one
+request id per line. Its `INBOX` trigger fires while the inbox holds an id the outbox does not,
+once per new id; with either key absent it is off. Both are absent by default.
+
 ## Keys of a `conductor.config/1` file
 
 A `/1` file loads for one release so a running instance keeps working; conductord does not read

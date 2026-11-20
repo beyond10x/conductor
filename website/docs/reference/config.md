@@ -77,7 +77,7 @@ The `daemon` section (design architecture-next § 4, § 5.2, § 8, § 9): `port`
 
 ## Globals
 
-The `globals` section (design architecture-next § 9, § 10): the defaults every instance starts from, each overridden by an instance key of the same name and by a role's own key. `roles` are the built-in and custom roles with their kind, model and profile; the host roles `supervisor` and `teacher`, which the daemon starts, are written here only (a `conductor.config/1` file's `host.roles` becomes `globals.roles` at `config migrate`). `tuning` is the tuning grant, empty by default (`conductor.improvement.TuningGrant`, § 13 row 7).
+The `globals` section (design architecture-next § 9, § 10): the defaults every instance starts from, each overridden by an instance key of the same name and by a role's own key. `roles` are the built-in and custom roles with their kind, model and profile; the host roles `supervisor` and `teacher`, which the daemon starts, are written here only (a `conductor.config/1` file's `host.roles` becomes `globals.roles` at `config migrate`). `tuning` is the tuning grant, empty by default (`conductor.improvement.TuningGrant`, § 13 row 7). `supervisor` is what the host supervisor's watch reads beside the instances (`SupervisorWatch`); absent, nothing.
 
 | Key | Type | Default | Rule |
 |---|---|---|---|
@@ -135,6 +135,9 @@ The `globals` section (design architecture-next § 9, § 10): the defaults every
 | `globals.tuning.keys[].path` | string | required |  |
 | `globals.tuning.keys[].min` | decimal | required | `min <= max` |
 | `globals.tuning.keys[].max` | decimal | required | `min <= max` |
+| `globals.supervisor` | [SupervisorWatch](#supervisorwatch) | none |  |
+| `globals.supervisor.inbox` | string | none |  |
+| `globals.supervisor.outbox` | string | none |  |
 
 ## Instance
 
@@ -561,6 +564,12 @@ Keys: `name`, `value`, `secret`. Specified as `conductor.config.KubernetesEnv`.
 The daemon runs each instance's runtime as its own pod (design: instance pods, the direct route), beside the systemd unit and the child process; it is a supervisor, not a placement and not a sandbox, so `placement` stays what it is and a placement that opens a box is refused at validate beside this key, naming its YAML path. The daemon reaches the Kubernetes API with its mounted service account and creates, per instance, a Secret `conductor-instance-<name>` (the instance's config file as the daemon renders it, the runtime's API token, the model token and every `env` value), a volume claim `conductor-instance-<name>-data`, and a pod `conductor-instance-<name>` that runs `image` with `conductor --config <data>/conductor.yaml instance serve`, restart policy `Never` (the daemon restarts it), the `restricted` pod security fields, and no service account token. Each of the three carries the labels `app.kubernetes.io/managed-by=conductord`, `app.kubernetes.io/component=instance-runtime`, `conductor/daemon=<owner>` and `conductor/instance=<name>`; the daemon adopts and cleans up by the first three. The daemon builds the pod, its Secret and its claim from this key, the instance's name and the rendered file; what else of a mapping reaches the pod's env is the one variable its `forge_token` fills, the values of the four git identity variables its `git_identity` gives (`Instance`), and, through the kinds and the `gitlab` hosts of its sources, which of the daemon's forge token entries the pod gets and which `credential.https://<host>.helper` keys git gets (`KubernetesEnv`). Nothing an instance's mapping holds reaches the image, the command, a volume, an env source, a service account, a host path, the namespace, a label, an annotation, a variable's name or a helper's value, and a `secret:<name>` in a mapping resolves against the daemon's secrets source only, never a Kubernetes Secret by name. `namespace`: the namespace of the instance pods, the daemon's own or another one. `image`: the image every instance pod runs, `<repository>:<tag>`; a changed image restarts each instance pod on it. `owner`: the value of `conductor/daemon`, which tells one daemon's pods from another's in one namespace. `api_port`: the TCP port the runtime serves its API on in its pod, which the daemon proxies `/v1/instances/{name}/…` to, 1 to 65535. `volume`, `resources` and `env` as their types say. Absent, the daemon runs no pod: every runtime is a systemd unit or a child process, as before. Where this key is set, the file may hold no instance (`instances: []`): every instance arrives through `AddInstance`. Without it, a file with no instance is refused by its path `instances`. `namespace`, `image`, `owner`, `api_port` and `volume.size` are required and have no default.
 
 Keys: `namespace`, `image`, `owner`, `api_port`, `volume`, `resources`, `env`. Specified as `conductor.config.Kubernetes`.
+
+### SupervisorWatch
+
+`globals.supervisor`: the operator's inbox and outbox the supervisor watch's `INBOX` trigger reads (`conductor supervisor watch`), each a path to a file of one request id per line, `~/` read as the home directory. The trigger fires while the inbox holds an id the outbox does not; with either key absent it is off. Absent, both are.
+
+Keys: `inbox`, `outbox`. Specified as `conductor.config.SupervisorWatch`.
 
 ### Box
 

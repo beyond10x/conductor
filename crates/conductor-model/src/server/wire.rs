@@ -1,5 +1,5 @@
 // generated from conductor v1
-// contract digest 5e3a2e3e3f11ff3c49e7cf6aff0495c16f2a70e77b27a0f70420b82c61e9bb36
+// contract digest 7e3629c3da2f4e81aa7801e5c98183954d804dc4f5b461385f0925b0fb0c265d
 // do not edit: regenerate with `ess synthesize --layout crate`
 //! Every generated declaration, as JSON, in the renderings the published wire contracts fix.
 //!
@@ -2023,6 +2023,10 @@ pub fn encode_conductor_config_globals(value: &crate::config::Globals, out: &mut
     encode_conductor_config_limits(&value.limits, out);
     json::member(out, "tuning");
     encode_conductor_improvement_tuning_grant(&value.tuning, out);
+    if let Some(held0) = &value.supervisor {
+        json::member(out, "supervisor");
+        encode_conductor_config_supervisor_watch(&*held0, out);
+    }
     out.push('}');
 }
 
@@ -2032,7 +2036,7 @@ pub fn encode_conductor_config_globals(value: &crate::config::Globals, out: &mut
 ///
 /// [`json::DecodeError`] naming the path and what the declaration says belongs there.
 pub fn decode_conductor_config_globals(value: &json::Value, at: &str) -> Result<crate::config::Globals, json::DecodeError> {
-    json::closed_at(value, at, &["roles", "cadence", "thresholds", "limits", "tuning"])?;
+    json::closed_at(value, at, &["roles", "cadence", "thresholds", "limits", "tuning", "supervisor"])?;
     Ok(crate::config::Globals {
         roles: {
             let at0 = json::nested(at, "roles");
@@ -2065,6 +2069,13 @@ pub fn decode_conductor_config_globals(value: &json::Value, at: &str) -> Result<
             let at4 = json::nested(at, "tuning");
             let member4 = json::member_at(value, at, "tuning")?;
             decode_conductor_improvement_tuning_grant(member4, &at4)?
+        },
+        supervisor: match value.member("supervisor") {
+            None | Some(json::Value::Null) => None,
+            Some(member5) => {
+                let at5 = json::nested(at, "supervisor");
+                Some(decode_conductor_config_supervisor_watch(member5, &at5)?)
+            }
         },
     })
 }
@@ -4029,6 +4040,45 @@ pub fn decode_conductor_config_suggested_prefix(value: &json::Value, at: &str) -
             let at1 = json::nested(at, "session_prefix");
             let member1 = json::member_at(value, at, "session_prefix")?;
             decode_conductor_config_session_prefix(member1, &at1)?
+        },
+    })
+}
+
+/// Writes `conductor.config.SupervisorWatch` as JSON.
+pub fn encode_conductor_config_supervisor_watch(value: &crate::config::SupervisorWatch, out: &mut String) {
+    out.push('{');
+    if let Some(held0) = &value.inbox {
+        json::member(out, "inbox");
+        json::push_text(out, &*held0);
+    }
+    if let Some(held0) = &value.outbox {
+        json::member(out, "outbox");
+        json::push_text(out, &*held0);
+    }
+    out.push('}');
+}
+
+/// Reads `conductor.config.SupervisorWatch` from JSON.
+///
+/// # Errors
+///
+/// [`json::DecodeError`] naming the path and what the declaration says belongs there.
+pub fn decode_conductor_config_supervisor_watch(value: &json::Value, at: &str) -> Result<crate::config::SupervisorWatch, json::DecodeError> {
+    json::closed_at(value, at, &["inbox", "outbox"])?;
+    Ok(crate::config::SupervisorWatch {
+        inbox: match value.member("inbox") {
+            None | Some(json::Value::Null) => None,
+            Some(member0) => {
+                let at0 = json::nested(at, "inbox");
+                Some(json::text_at(member0, &at0, "a string")?.to_owned())
+            }
+        },
+        outbox: match value.member("outbox") {
+            None | Some(json::Value::Null) => None,
+            Some(member1) => {
+                let at1 = json::nested(at, "outbox");
+                Some(json::text_at(member1, &at1, "a string")?.to_owned())
+            }
         },
     })
 }
@@ -8280,6 +8330,197 @@ pub fn decode_conductor_host_show_grants(value: &json::Value, at: &str) -> Resul
             Some(member0) => {
                 let at0 = json::nested(at, "format");
                 Some(json::text_at(member0, &at0, "a string")?.to_owned())
+            }
+        },
+    })
+}
+
+/// Writes `conductor.host.SupervisorTrigger` as JSON.
+pub fn encode_conductor_host_supervisor_trigger(value: &crate::host::SupervisorTrigger, out: &mut String) {
+    out.push('{');
+    json::member(out, "trigger");
+    encode_conductor_host_supervisor_trigger_kind(&value.trigger, out);
+    json::member(out, "instance");
+    json::push_text(out, &value.instance);
+    json::member(out, "subject");
+    json::push_text(out, &value.subject);
+    json::member(out, "detail");
+    json::push_text(out, &value.detail);
+    json::member(out, "at");
+    json::push_text(out, &value.at.0);
+    out.push('}');
+}
+
+/// Reads `conductor.host.SupervisorTrigger` from JSON.
+///
+/// # Errors
+///
+/// [`json::DecodeError`] naming the path and what the declaration says belongs there.
+pub fn decode_conductor_host_supervisor_trigger(value: &json::Value, at: &str) -> Result<crate::host::SupervisorTrigger, json::DecodeError> {
+    json::closed_at(value, at, &["trigger", "instance", "subject", "detail", "at"])?;
+    Ok(crate::host::SupervisorTrigger {
+        trigger: {
+            let at0 = json::nested(at, "trigger");
+            let member0 = json::member_at(value, at, "trigger")?;
+            decode_conductor_host_supervisor_trigger_kind(member0, &at0)?
+        },
+        instance: {
+            let at1 = json::nested(at, "instance");
+            let member1 = json::member_at(value, at, "instance")?;
+            json::text_at(member1, &at1, "a string")?.to_owned()
+        },
+        subject: {
+            let at2 = json::nested(at, "subject");
+            let member2 = json::member_at(value, at, "subject")?;
+            json::text_at(member2, &at2, "a string")?.to_owned()
+        },
+        detail: {
+            let at3 = json::nested(at, "detail");
+            let member3 = json::member_at(value, at, "detail")?;
+            json::text_at(member3, &at3, "a string")?.to_owned()
+        },
+        at: {
+            let at4 = json::nested(at, "at");
+            let member4 = json::member_at(value, at, "at")?;
+            crate::primitives::Timestamp(json::timestamp_at(member4, &at4, "an RFC 3339 instant")?.to_owned())
+        },
+    })
+}
+
+/// Writes `conductor.host.SupervisorTriggerKind` as JSON.
+pub fn encode_conductor_host_supervisor_trigger_kind(value: &crate::host::SupervisorTriggerKind, out: &mut String) {
+    match value {
+        crate::host::SupervisorTriggerKind::Mail => json::push_text(out, "Mail"),
+        crate::host::SupervisorTriggerKind::Log => json::push_text(out, "Log"),
+        crate::host::SupervisorTriggerKind::Daemon => json::push_text(out, "Daemon"),
+        crate::host::SupervisorTriggerKind::Inbox => json::push_text(out, "Inbox"),
+        crate::host::SupervisorTriggerKind::Disk => json::push_text(out, "Disk"),
+        crate::host::SupervisorTriggerKind::Unpushed => json::push_text(out, "Unpushed"),
+        crate::host::SupervisorTriggerKind::Green => json::push_text(out, "Green"),
+        crate::host::SupervisorTriggerKind::Idle => json::push_text(out, "Idle"),
+        crate::host::SupervisorTriggerKind::CiEnd => json::push_text(out, "CiEnd"),
+        crate::host::SupervisorTriggerKind::Timeout => json::push_text(out, "Timeout"),
+    }
+}
+
+/// Reads `conductor.host.SupervisorTriggerKind` from JSON.
+///
+/// # Errors
+///
+/// [`json::DecodeError`] naming the path and what the declaration says belongs there.
+pub fn decode_conductor_host_supervisor_trigger_kind(value: &json::Value, at: &str) -> Result<crate::host::SupervisorTriggerKind, json::DecodeError> {
+    Ok(match json::text_at(value, at, "one of `Mail`, `Log`, `Daemon`, `Inbox`, `Disk`, `Unpushed`, `Green`, `Idle`, `CiEnd`, `Timeout`")? {
+        "Mail" => crate::host::SupervisorTriggerKind::Mail,
+        "Log" => crate::host::SupervisorTriggerKind::Log,
+        "Daemon" => crate::host::SupervisorTriggerKind::Daemon,
+        "Inbox" => crate::host::SupervisorTriggerKind::Inbox,
+        "Disk" => crate::host::SupervisorTriggerKind::Disk,
+        "Unpushed" => crate::host::SupervisorTriggerKind::Unpushed,
+        "Green" => crate::host::SupervisorTriggerKind::Green,
+        "Idle" => crate::host::SupervisorTriggerKind::Idle,
+        "CiEnd" => crate::host::SupervisorTriggerKind::CiEnd,
+        "Timeout" => crate::host::SupervisorTriggerKind::Timeout,
+        other => return Err(json::DecodeError { at: at.to_owned(), expected: "one of `Mail`, `Log`, `Daemon`, `Inbox`, `Disk`, `Unpushed`, `Green`, `Idle`, `CiEnd`, `Timeout`".to_owned(), found: format!("`{other}`") }),
+    })
+}
+
+/// Writes `conductor.host.WatchSupervisor` as JSON.
+pub fn encode_conductor_host_watch_supervisor(value: &crate::host::WatchSupervisor, out: &mut String) {
+    out.push('{');
+    json::member(out, "instance");
+    out.push('[');
+    for (index0, item0) in value.instance.iter().enumerate() {
+        if index0 > 0 {
+            out.push(',');
+        }
+        json::push_text(out, &*item0);
+    }
+    out.push(']');
+    json::member(out, "checkout");
+    out.push('[');
+    for (index0, item0) in value.checkout.iter().enumerate() {
+        if index0 > 0 {
+            out.push(',');
+        }
+        json::push_text(out, &*item0);
+    }
+    out.push(']');
+    if let Some(held0) = &value.timeout {
+        json::member(out, "timeout");
+        json::push_text(out, &*held0);
+    }
+    json::member(out, "hold");
+    out.push('[');
+    for (index0, item0) in value.hold.iter().enumerate() {
+        if index0 > 0 {
+            out.push(',');
+        }
+        json::push_text(out, &*item0);
+    }
+    out.push(']');
+    if let Some(held0) = &value.format {
+        json::member(out, "format");
+        json::push_text(out, &*held0);
+    }
+    out.push('}');
+}
+
+/// Reads `conductor.host.WatchSupervisor` from JSON.
+///
+/// # Errors
+///
+/// [`json::DecodeError`] naming the path and what the declaration says belongs there.
+pub fn decode_conductor_host_watch_supervisor(value: &json::Value, at: &str) -> Result<crate::host::WatchSupervisor, json::DecodeError> {
+    json::closed_at(value, at, &["instance", "checkout", "timeout", "hold", "format"])?;
+    Ok(crate::host::WatchSupervisor {
+        instance: {
+            let at0 = json::nested(at, "instance");
+            let member0 = json::member_at(value, at, "instance")?;
+            {
+                let mut items0 = Vec::new();
+                for (index0, element0) in json::items_at(member0, &at0, "an array")?.iter().enumerate() {
+                    let nested0 = json::nested(&at0, &index0.to_string());
+                    items0.push(json::text_at(element0, &nested0, "a string")?.to_owned());
+                }
+                items0
+            }
+        },
+        checkout: {
+            let at1 = json::nested(at, "checkout");
+            let member1 = json::member_at(value, at, "checkout")?;
+            {
+                let mut items1 = Vec::new();
+                for (index1, element1) in json::items_at(member1, &at1, "an array")?.iter().enumerate() {
+                    let nested1 = json::nested(&at1, &index1.to_string());
+                    items1.push(json::text_at(element1, &nested1, "a string")?.to_owned());
+                }
+                items1
+            }
+        },
+        timeout: match value.member("timeout") {
+            None | Some(json::Value::Null) => None,
+            Some(member2) => {
+                let at2 = json::nested(at, "timeout");
+                Some(json::text_at(member2, &at2, "a string")?.to_owned())
+            }
+        },
+        hold: {
+            let at3 = json::nested(at, "hold");
+            let member3 = json::member_at(value, at, "hold")?;
+            {
+                let mut items3 = Vec::new();
+                for (index3, element3) in json::items_at(member3, &at3, "an array")?.iter().enumerate() {
+                    let nested3 = json::nested(&at3, &index3.to_string());
+                    items3.push(json::text_at(element3, &nested3, "a string")?.to_owned());
+                }
+                items3
+            }
+        },
+        format: match value.member("format") {
+            None | Some(json::Value::Null) => None,
+            Some(member4) => {
+                let at4 = json::nested(at, "format");
+                Some(json::text_at(member4, &at4, "a string")?.to_owned())
             }
         },
     })
@@ -19419,11 +19660,37 @@ pub fn encode_error_conductor_host_invalid_size(value: &crate::host::InvalidSize
     out.push('}');
 }
 
+/// Writes the declared error `conductor.host.InvalidWatchTimeout` as JSON.
+pub fn encode_error_conductor_host_invalid_watch_timeout(value: &crate::host::InvalidWatchTimeout, out: &mut String) {
+    out.push('{');
+    json::member(out, "timeout");
+    json::push_text(out, &value.timeout);
+    out.push('}');
+}
+
 /// Writes the declared error `conductor.host.NotADiskGrant` as JSON.
 pub fn encode_error_conductor_host_not_a_disk_grant(value: &crate::host::NotADiskGrant, out: &mut String) {
     out.push('{');
     json::member(out, "grant_id");
     encode_conductor_host_grant_id(&value.grant_id, out);
+    out.push('}');
+}
+
+/// Writes the declared error `conductor.host.SupervisorWatchRunning` as JSON.
+pub fn encode_error_conductor_host_supervisor_watch_running(value: &crate::host::SupervisorWatchRunning, out: &mut String) {
+    out.push('{');
+    json::member(out, "pid");
+    json::push_integer(out, value.pid);
+    out.push('}');
+}
+
+/// Writes the declared error `conductor.host.WatchStateUnwritable` as JSON.
+pub fn encode_error_conductor_host_watch_state_unwritable(value: &crate::host::WatchStateUnwritable, out: &mut String) {
+    out.push('{');
+    json::member(out, "path");
+    json::push_text(out, &value.path);
+    json::member(out, "detail");
+    json::push_text(out, &value.detail);
     out.push('}');
 }
 

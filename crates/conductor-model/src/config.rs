@@ -1,5 +1,5 @@
 // generated from conductor v1
-// contract digest 5e3a2e3e3f11ff3c49e7cf6aff0495c16f2a70e77b27a0f70420b82c61e9bb36
+// contract digest 7e3629c3da2f4e81aa7801e5c98183954d804dc4f5b461385f0925b0fb0c265d
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! Config — `conductor.config`.
@@ -511,6 +511,8 @@ pub struct Globals {
     pub limits: Limits,
     /// `tuning` — `conductor.improvement.TuningGrant`.
     pub tuning: crate::improvement::TuningGrant,
+    /// `supervisor` — `Optional<conductor.config.SupervisorWatch>`.
+    pub supervisor: Option<SupervisorWatch>,
 }
 
 /// Harness — `conductor.config.Harness`: one of a closed set of names.
@@ -1060,6 +1062,15 @@ pub struct SuggestedPrefix {
     pub instance: InstanceName,
     /// `session_prefix` — `conductor.config.SessionPrefix`.
     pub session_prefix: SessionPrefix,
+}
+
+/// SupervisorWatch — `conductor.config.SupervisorWatch`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SupervisorWatch {
+    /// `inbox` — `Optional<String>`.
+    pub inbox: Option<String>,
+    /// `outbox` — `Optional<String>`.
+    pub outbox: Option<String>,
 }
 
 /// Thresholds — `conductor.config.Thresholds`.
