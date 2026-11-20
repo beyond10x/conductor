@@ -67,7 +67,7 @@ it ended, so a loop stopped during it runs it again at its next start; one start
 | `usage limit: …` | mark each named session `limit` with the reset its line names (`limit.rs` reads the 5-hour and the weekly form; with none, the token's limit window), kept with its attempts in `limited.json`; the pool token the session holds is marked `Limited` until that reset (through conductord for a runtime in a box), and when another token of the host's pool has headroom the session is resumed on it in the same tick, else marked to the first reset of a token of the pool, ahead of its own when another resets first (`story:limit-aware-token-reassignment`); on the first tick after that reset, resume (`spawn::resume`, the controller role's launch and model) each marked session once, or respawn one over the threshold. The loop asks no headroom probe: the session's own line and the tokens' state are the answer. The `usage-limit` line names the token and its reset, the `resumed` line the token resumed on, never a value. A second limit after such a resume backs off 5 minutes, doubling, at most an hour, never before a newly named reset; a marked session whose process is gone is recorded stopped with reason `usage limit`, giving back its `max_working` place, and resumed from its transcript at the reset (`story:auto-resume`, `story:limit-resume-at-reset`) | `usage-limit`, `resumed` |
 | `PR checks done: <repo>#<n> …`, `PR merged: <repo>#<n> …` (`story:merge-wakes-idle-controller`), `main CI after merge: <repo>#<n> …` (`story:default-branch-pipeline-wakes-controller`), `CI red on main: <repo> …`, `CI green again …` | deliver the line as `[REPORT <repo> -] watch: <line>` to the live controller; red `main` with no controller: dispatch v1 spawns one when the repository has a charter, else a deviation line | `relayed`, `red-ci` |
 | `session stalled`, `session silent` | first: deliver `[REPORT <repo> -] check-in: report your state or blocked`; second for the same session: stop and respawn from the charter | `stalled`, `controller-restarted` |
-| `session gone` with an open dispatch | respawn from the charter | `controller-restarted` |
+| `session gone` with an open dispatch | respawn from the charter; a repository whose every open dispatch is `Blocked` yields instead (see Yield below), one journal line `<repo> waits: …` and the session forgotten | `controller-restarted` |
 | `session exited (blocked)` with an open dispatch | blocked with no `pid`, as the list keeps a session a usage limit stopped: marked as `usage limit` marks it, so the first tick after its reset resumes it (`story:auto-resume`) | `usage-limit` (reason `blocked with no pid`), `resumed` |
 | `session gone` of the instance's conductor-dev | when the plan of the checkout it worked in (the watch keeps it) holds an `active` story, `conductor session start --role maintainer` there, whose first prompt sends it to its newest hand-over; else nothing (`story:loop-restarts-gone-conductor-dev`) | `controller-restarted` (the session, the checkout as `repo`) |
 | `disk low` | `gc` on a thread beside the ticks, one at a time (a `disk low` while one runs starts none); the first watch tick that finds it ended writes its line; `--once` waits for it (the reclaim the watch already runs under disk admit stays) | `cleanup` |
@@ -126,6 +126,25 @@ Reconcile: each cycle, before dispatch v1, every Running controller whose sessio
 list names neither live nor blocked, and that no usage limit marked, is recorded stopped with the
 reason; one whose repository has an open dispatch is started again, as after `session gone`
 (`story:controllers-reconciled-with-live-sessions`). An unread list stops none.
+
+Yield (issue #245, `story:blocked-repository-yields-place-to-waiting-unit`): every start through
+`Tick::try_start` (the restart after `session gone`, a hand-over restart, reconcile's restart, dispatch
+v1's start of an Active repository, a red `main`) of a repository whose every open dispatch is
+`Blocked` is checked inside the `STARTS` lock and before `make_room`. A waiting unit of work is a
+`Sent` dispatch with a reference whose repository has no `Running` or `Paused` controller and no
+controller stopped at a usage limit, and whose `waiting` reason dispatch v1 last recorded as
+`ControllerLimit`: a unit that starts once a place is free, not one refused for a lasting reason
+(`NoCheckout`, say) or left to the operator. A start yields only while places are short: the free
+places under `controllers.max_working`, counted after the restart's stop, do not exceed the
+repositories the waiting units are in. Then it is not made while a waiting unit was opened by this
+repository's need: its reference starts `need-` and its brief's first line is a `[NEED <repo> …]`
+naming it. Nor, when it is a respawn (the caller held no `Running` or `Paused` controller as the
+start began: `session gone` after a stop, dispatch v1, a red `main`), while any unit waits. A
+hand-over or reconcile restart of a held controller yields only to the first rule, so a routine
+hand-over keeps its place (decision class C). The refusal reads `max_working <n>: the place is kept
+for <dispatch> of <repo>`, the unit the first rule found, else the first waiting unit in store
+order; in the watch tick it is one journal line and no error, the controller stopped and its
+dispatch left `Blocked` for the unit's controller to start first.
 
 Dispatch v1: each cycle, for each Active repository with a charter and no Running controller,
 spawn one, until `controllers.max_working` run; a repository marked `merge: human` with

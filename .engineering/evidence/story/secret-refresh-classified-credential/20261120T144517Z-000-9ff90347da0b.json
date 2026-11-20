@@ -1,0 +1,13 @@
+{
+  "at": "2026-11-20T14:45:17Z",
+  "actor": "human:unknown",
+  "artifact": "story:secret-refresh-classified-credential",
+  "kind": "story",
+  "revision": 6,
+  "change": {
+    "change": "evidence",
+    "kind": "test_result",
+    "source": "cargo test -p conductor-cli --test decide_class (9 passed; 3 new tests failed first) and cargo clippy -p conductor-cli --all-targets -D warnings clean, at 208955e75",
+    "reference": "crates/conductor/tests/decide_class.rs"
+  }
+}

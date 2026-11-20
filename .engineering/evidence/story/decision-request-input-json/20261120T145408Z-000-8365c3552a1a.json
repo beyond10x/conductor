@@ -1,0 +1,13 @@
+{
+  "at": "2026-11-20T14:54:08Z",
+  "actor": "human:unknown",
+  "artifact": "story:decision-request-input-json",
+  "kind": "story",
+  "revision": 6,
+  "change": {
+    "change": "evidence",
+    "kind": "test_result",
+    "source": "cargo test -p conductor-cli --test decision: 32 passed, 0 failed (4 new tests failed first on main); cargo clippy -p conductor-cli --all-targets -D warnings clean",
+    "reference": "crates/conductor/tests/decision.rs@5cad853b3"
+  }
+}

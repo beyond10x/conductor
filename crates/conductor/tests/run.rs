@@ -1929,6 +1929,239 @@ fn a_gone_session_with_an_open_dispatch_is_respawned() {
     );
 }
 
+/// `story:blocked-repository-yields-place-to-waiting-unit` (issue #245), at
+/// `controllers.max_working` 1: alpha's controller runs with an open dispatch, which it reported
+/// `blocked handover`; beta holds a unit of work opened by the need `r1` of `need_of`, sent with
+/// that need's reference and whole message, which a cycle refused `ControllerLimit`. Answers alpha's
+/// dispatch and beta's.
+fn blocked_beside_a_waiting_unit(case: &Case, need_of: &str) -> (String, String) {
+    case.configure("{provider: none}", "{max_working: 1}");
+    case.spawn("alpha", FIRST);
+    let alpha = case.dispatch("alpha");
+    case.mail("0001", &format!("[REPORT alpha {alpha}] started\n"));
+    case.mail(
+        "0002",
+        &format!("[REPORT alpha {alpha}] blocked handover docs/handoff/2026-11-20-alpha.md\n"),
+    );
+    case.tick(&[]);
+    assert_eq!(case.dispatch_state(&alpha), "Blocked");
+    let beta = case
+        .ok(&[
+            "dispatch",
+            "send-dispatch",
+            "--repository",
+            "beta",
+            "--reference",
+            &format!("need-{need_of}-r1"),
+            "--brief",
+            &format!(
+                "[NEED {need_of} r1] beta export the store id\n\n{need_of} reads it on start.\n"
+            ),
+            "--sent-at",
+            "2026-11-20T08:00:00Z",
+            "--priority",
+            "1",
+        ])
+        .trim()
+        .to_owned();
+    let refused = cycle(case);
+    let said = cycle_said(case, &refused);
+    assert!(said.contains("beta waits: ControllerLimit"), "{said}");
+    assert_eq!(case.launched(), ["ex-alpha"]);
+    (alpha, beta)
+}
+
+/// Stops alpha's controller as the operator does, `controller stop-controller`.
+fn stop_alpha(case: &Case) {
+    let id = case
+        .view(&["controller", "all-controllers"])
+        .into_iter()
+        .find(|row| row["repository"] == "alpha" && row["state"] == "Running")
+        .and_then(|row| row["controller_id"].as_str().map(str::to_owned))
+        .expect("alpha's running controller");
+    case.ok(&[
+        "controller",
+        "stop-controller",
+        "--controller-id",
+        &id,
+        "--reason",
+        "the operator stops it",
+    ]);
+}
+
+/// Issue #245: a Blocked repository whose controller the operator stopped does not take the place
+/// its stop freed from the unit of work its own need opened: the watch tick's `session gone`
+/// launches nothing and says why in one journal line; the next cycle starts the unit.
+#[test]
+fn a_stopped_blocked_repository_yields_its_place_to_the_unit_its_need_opened() {
+    let case = Case::new("blocked-yields-to-its-need");
+    let (alpha, beta) = blocked_beside_a_waiting_unit(&case, "alpha");
+    stop_alpha(&case);
+    let (tick, said) = case.tick_said(&[&format!("session gone: ex-alpha {FIRST_SHORT}")]);
+    assert_eq!(actions(&tick), Vec::<String>::new(), "{tick}");
+    assert_eq!(case.launched(), ["ex-alpha"]);
+    let waits =
+        format!("conductor run: alpha waits: max_working 1: the place is kept for {beta} of beta");
+    assert!(said.contains(&waits), "{said:?}");
+    assert_eq!(case.dispatch_state(&alpha), "Blocked");
+
+    let next = cycle(&case);
+    let cycled = cycle_said(&case, &next);
+    assert!(cycled.contains("spawned beta"), "{cycled}");
+    assert_eq!(case.launched(), ["ex-alpha", "ex-beta"]);
+    assert_eq!(states_of(&case, "beta"), ["Running"]);
+}
+
+/// Issue #245: a stopped Blocked repository is not respawned while another unit of work waits for
+/// the only free place, though no need of its own opened that unit.
+#[test]
+fn a_stopped_blocked_repository_is_not_respawned_while_another_unit_waits() {
+    let case = Case::new("blocked-not-respawned");
+    let (_, beta) = blocked_beside_a_waiting_unit(&case, "gamma");
+    stop_alpha(&case);
+    let (tick, said) = case.tick_said(&[&format!("session gone: ex-alpha {FIRST_SHORT}")]);
+    assert_eq!(actions(&tick), Vec::<String>::new(), "{tick}");
+    assert_eq!(case.launched(), ["ex-alpha"]);
+    let waits =
+        format!("conductor run: alpha waits: max_working 1: the place is kept for {beta} of beta");
+    assert!(said.contains(&waits), "{said:?}");
+
+    let next = cycle(&case);
+    let cycled = cycle_said(&case, &next);
+    assert!(cycled.contains("spawned beta"), "{cycled}");
+    assert_eq!(case.launched(), ["ex-alpha", "ex-beta"]);
+}
+
+/// Asks alpha's controller for its hand-over, writes its hand-over file and lists its session
+/// idle; answers the watch tick that follows, and its journal.
+fn handed_over(case: &Case) -> (Value, Vec<String>) {
+    let asked = case.tick(&[&format!(
+        "context: alpha 230k tokens (session {FIRST_SHORT})"
+    )]);
+    assert_eq!(actions(&asked), ["handover-sent"], "{asked}");
+    write(
+        &case
+            .checkout("alpha")
+            .join(".git/handoff/2026-11-20-alpha.md"),
+        "# Hand-over\n\nNext: the export.\n",
+    );
+    case.idle("alpha", FIRST);
+    case.tick_said(&[])
+}
+
+/// Issue #245: a hand-over restart of a Blocked repository yields to the unit of work its own need
+/// opened: the controller is stopped, nothing is launched, its dispatch stays Blocked, no error is
+/// written, and the next cycle starts the unit.
+#[test]
+fn a_handover_restart_yields_to_the_unit_its_own_need_opened() {
+    let case = Case::new("handover-yields-to-its-need");
+    let (alpha, beta) = blocked_beside_a_waiting_unit(&case, "alpha");
+    let (tick, said) = handed_over(&case);
+    assert_eq!(actions(&tick), ["handover"], "{tick}");
+    assert_eq!(case.launched(), ["ex-alpha"]);
+    assert_eq!(states_of(&case, "alpha"), ["Stopped"]);
+    assert_eq!(case.dispatch_state(&alpha), "Blocked");
+    assert_eq!(
+        said,
+        [format!(
+            "conductor run: alpha waits: max_working 1: the place is kept for {beta} of beta"
+        )],
+        "one journal line, no error"
+    );
+
+    let next = cycle(&case);
+    let cycled = cycle_said(&case, &next);
+    assert!(cycled.contains("spawned beta"), "{cycled}");
+    assert_eq!(case.launched(), ["ex-alpha", "ex-beta"]);
+}
+
+/// A routine hand-over keeps its place while a unit of work no need of its repository opened
+/// waits: alpha is restarted (the planner's decision of issue #245).
+#[test]
+fn a_handover_restart_keeps_its_place_while_an_unrelated_unit_waits() {
+    let case = Case::new("handover-keeps-its-place");
+    blocked_beside_a_waiting_unit(&case, "gamma");
+    let (tick, _) = handed_over(&case);
+    assert_eq!(
+        actions(&tick),
+        ["handover", "sent", "controller-restarted"],
+        "{tick}"
+    );
+    assert_eq!(case.launched(), ["ex-alpha", "ex-alpha"]);
+}
+
+/// Issue #245, review: a hand-over restart with places free keeps running though the unit its own
+/// need opened waits: that unit takes another place, and alpha is not stranded.
+#[test]
+fn a_handover_restart_with_free_places_keeps_running_while_its_need_s_unit_waits() {
+    let case = Case::new("handover-free-places");
+    blocked_beside_a_waiting_unit(&case, "alpha");
+    case.configure("{provider: none}", "{max_working: 3}");
+    let (tick, _) = handed_over(&case);
+    assert_eq!(
+        actions(&tick),
+        ["handover", "sent", "controller-restarted"],
+        "{tick}"
+    );
+    assert_eq!(case.launched(), ["ex-alpha", "ex-alpha"]);
+}
+
+/// Issue #245, review: a unit of work refused for a lasting reason (`NoCheckout`) would not start
+/// in a free place, so it keeps no place: its Blocked requester restarts after `session gone`.
+#[test]
+fn a_unit_refused_no_checkout_does_not_keep_its_requester_from_restarting() {
+    let case = Case::new("unit-no-checkout");
+    let (_, beta) = blocked_beside_a_waiting_unit(&case, "alpha");
+    fs::remove_dir_all(case.checkout("beta")).expect("remove beta's checkout");
+    case.configure("{provider: none}", "{max_working: 2}");
+    cycle(&case);
+    let reason = waiting_shown(&case, &beta);
+    assert!(
+        reason
+            .as_str()
+            .is_some_and(|why| why.starts_with("NoCheckout")),
+        "{reason}"
+    );
+    case.configure("{provider: none}", "{max_working: 1}");
+    stop_alpha(&case);
+    let tick = case.tick(&[&format!("session gone: ex-alpha {FIRST_SHORT}")]);
+    assert_eq!(actions(&tick), ["sent", "controller-restarted"], "{tick}");
+    assert_eq!(case.launched(), ["ex-alpha", "ex-alpha"]);
+}
+
+/// The need that opened a unit names its repository as a whole field: a need of `alpha-two` is
+/// not `alpha`'s, so `alpha`'s hand-over restart keeps its place.
+#[test]
+fn a_need_of_a_longer_repository_name_is_not_the_shorter_one_s() {
+    let case = Case::new("need-name-prefix");
+    blocked_beside_a_waiting_unit(&case, "alpha-two");
+    let (tick, _) = handed_over(&case);
+    assert_eq!(
+        actions(&tick),
+        ["handover", "sent", "controller-restarted"],
+        "{tick}"
+    );
+    assert_eq!(case.launched(), ["ex-alpha", "ex-alpha"]);
+}
+
+/// With no unit of work waiting, a Blocked repository whose session is gone takes the free place
+/// again.
+#[test]
+fn a_blocked_repository_takes_a_free_place_when_no_unit_waits() {
+    let case = Case::new("blocked-takes-free-place");
+    case.configure("{provider: none}", "{max_working: 1}");
+    case.spawn("alpha", FIRST);
+    let alpha = case.dispatch("alpha");
+    case.mail("0001", &format!("[REPORT alpha {alpha}] started\n"));
+    case.mail("0002", &format!("[REPORT alpha {alpha}] blocked on beta\n"));
+    case.tick(&[]);
+    assert_eq!(case.dispatch_state(&alpha), "Blocked");
+    stop_alpha(&case);
+    let tick = case.tick(&[&format!("session gone: ex-alpha {FIRST_SHORT}")]);
+    assert_eq!(actions(&tick), ["sent", "controller-restarted"], "{tick}");
+    assert_eq!(case.launched(), ["ex-alpha", "ex-alpha"]);
+}
+
 /// Issue #215: a gone session whose repository has no charter any more cannot start again, so
 /// its open dispatch is recorded failed with why, rather than left `Started` for ever; nothing is
 /// launched.

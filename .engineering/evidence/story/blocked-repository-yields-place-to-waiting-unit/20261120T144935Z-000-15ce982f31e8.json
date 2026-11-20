@@ -1,0 +1,13 @@
+{
+  "at": "2026-11-20T14:49:35Z",
+  "actor": "human:unknown",
+  "artifact": "story:blocked-repository-yields-place-to-waiting-unit",
+  "kind": "story",
+  "revision": 11,
+  "change": {
+    "change": "evidence",
+    "kind": "test_result",
+    "source": "cargo clippy -p conductor-cli --all-targets -D warnings clean at 7b751589a; the five tests/run.rs tests compile and fail first here only at spawn (box refuses AF_UNIX, provider none becomes child, as for a_gone_session_with_an_open_dispatch_is_respawned): their pass is CI's task check",
+    "reference": "github:beyond10x/conductor#245"
+  }
+}

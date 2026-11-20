@@ -1891,3 +1891,324 @@ fn an_amendment_naming_an_unknown_letter_is_refused() {
         assert_eq!(row["kind"], "one-of", "nothing moved");
     }
 }
+
+// ---------------------------------------------------------------------------------------------
+// `--input-json -` of the two request commands (story:decision-request-input-json)
+// ---------------------------------------------------------------------------------------------
+
+impl Case {
+    /// Writes a config file beside the case that names its state directory and `~/records`, so a
+    /// command run with it appends to the records' logs, and answers its path.
+    fn configured(&self) -> PathBuf {
+        let config = self
+            .work
+            .parent()
+            .expect("the case's directory")
+            .join("conductor.yaml");
+        fs::write(
+            &config,
+            format!(
+                "version: conductor.config/1\n\
+                 instances:\n\
+                 \x20 - name: example-org\n\
+                 \x20   sources: [{{github: example-org}}]\n\
+                 \x20   checkouts: {{root: ~/checkouts, trees: ~/trees}}\n\
+                 \x20   records: ~/records\n\
+                 \x20   state: {:?}\n",
+                self.state
+            ),
+        )
+        .expect("write the config file");
+        config
+    }
+
+    /// Runs `conductor --state-dir <state> <args>` with `input` on standard input, and with the
+    /// config file `config` when one is given.
+    fn fed(&self, args: &[&str], input: &str, config: Option<&PathBuf>) -> Output {
+        use std::io::Write as _;
+        let mut command = self.command(args);
+        command
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+        if let Some(config) = config {
+            command.env(CONFIG_VARIABLE, config);
+        }
+        let mut child = command.spawn().expect("the conductor binary runs");
+        child
+            .stdin
+            .take()
+            .expect("standard input is piped")
+            .write_all(input.as_bytes())
+            .expect("write standard input");
+        child.wait_with_output().expect("the conductor binary ends")
+    }
+
+    /// Runs a command fed `input` that must succeed and print nothing.
+    fn fed_quiet(&self, args: &[&str], input: &str, config: Option<&PathBuf>) {
+        let output = self.fed(args, input, config);
+        assert!(
+            output.status.success() && output.stdout.is_empty(),
+            "`conductor {}` fed {input} should succeed quietly; exit {:?}, stdout {:?}, \
+             stderr {:?}",
+            args.join(" "),
+            output.status.code(),
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    /// Runs a command fed `input` that must fail with exit 1 and one line on standard error
+    /// naming its command, having created no store, and answers that line.
+    fn fed_refused(&self, args: &[&str], input: &str) -> String {
+        let output = self.fed(args, input, None);
+        let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
+        let command = format!("conductor: {} {}: ", args[0], args[1]);
+        assert!(
+            output.status.code() == Some(1)
+                && output.stdout.is_empty()
+                && stderr.starts_with(&command)
+                && stderr.lines().count() == 1,
+            "`conductor {}` fed {input} should fail: exit 1, one stderr line starting \
+             {command:?}; got exit {:?}, stderr {stderr:?}",
+            args.join(" "),
+            output.status.code(),
+        );
+        assert!(
+            !self.state.exists(),
+            "`conductor {}` fed {input} created the state directory",
+            args.join(" ")
+        );
+        stderr
+    }
+
+    /// The lines of the records' decision log under the configured `~/records`, without the
+    /// instant each was written at.
+    fn decision_log(&self) -> Vec<Value> {
+        let dir = self.work.with_file_name("home").join("records/decisions");
+        let mut lines = Vec::new();
+        for entry in fs::read_dir(&dir).expect("the decision log's directory") {
+            let text = fs::read_to_string(entry.expect("a log file").path()).expect("a log file");
+            for line in text.lines() {
+                let mut value: Value = serde_json::from_str(line).expect("a JSON line");
+                value.as_object_mut().expect("a JSON object").remove("at");
+                lines.push(value);
+            }
+        }
+        lines
+    }
+}
+
+/// The eight input fields of a request raised here from JSON and from flags, and its actor.
+fn raised_fields() -> Value {
+    json!({
+        "request_id": "json-1",
+        "repository": "alpha",
+        "question": "which way for json-1?",
+        "options": "A: one way; B: the other",
+        "recommendation": "A",
+        "raised_at": AT,
+        "blocker": "the migration waits on it",
+        "classification_rule": "architecture",
+        "actor": "human:example-operator",
+    })
+}
+
+/// `story:decision-request-input-json`: a request raised with `--input-json -` holding all eight
+/// fields and the actor shows in `decision requests` with the same fields as one raised from the same values as
+/// flags in a second store, and the decision log holds its `requested` line, the same line.
+#[test]
+fn raise_decision_request_reads_its_input_from_input_json() {
+    let from_json = Case::new("input-json-raise");
+    let config = from_json.configured();
+    from_json.fed_quiet(
+        &["decision", "raise-decision-request", "--input-json", "-"],
+        &raised_fields().to_string(),
+        Some(&config),
+    );
+    let from_flags = Case::new("input-json-raise-flags");
+    let flags_config = from_flags.configured();
+    let mut args = vec!["decision".to_owned(), "raise-decision-request".to_owned()];
+    for (key, value) in raised_fields().as_object().expect("an object") {
+        args.push(format!("--{}", key.replace('_', "-")));
+        args.push(value.as_str().expect("a string").to_owned());
+    }
+    let args: Vec<&str> = args.iter().map(String::as_str).collect();
+    let output = from_flags
+        .command(&args)
+        .env(CONFIG_VARIABLE, &flags_config)
+        .output()
+        .expect("the conductor binary runs");
+    assert!(
+        output.status.success(),
+        "the flags' request is raised: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let row = from_json.request("json-1");
+    assert_eq!(row, from_flags.request("json-1"), "the same row");
+    for (key, value) in raised_fields().as_object().expect("an object") {
+        assert_eq!(&row[key], value, "the row carries {key}");
+    }
+    let log = from_json.decision_log();
+    assert_eq!(log, from_flags.decision_log(), "the same log line");
+    assert_eq!(log.len(), 1, "one line: {log:?}");
+    assert_eq!(log[0]["event"], "requested");
+    assert_eq!(log[0]["id"], "json-1");
+}
+
+/// `story:decision-request-input-json`: a class-O escalation with three lettered options, its
+/// kind, letters and deadline, and an actor, all from JSON, shows them in `decision requests`.
+#[test]
+fn escalate_request_reads_lettered_options_from_input_json() {
+    let case = Case::new("input-json-escalate");
+    case.raise("o-json", "alpha");
+    let options = json!([
+        {"letter": "A", "label": "one way", "cost": "an hour"},
+        {"letter": "B", "label": "the other", "cost": "nothing now"},
+        {"letter": "C", "label": "a third", "cost": "a day"},
+    ]);
+    case.fed_quiet(
+        &["decision", "escalate-request", "--input-json", "-"],
+        &json!({
+            "request_id": "o-json",
+            "escalation_class": "O",
+            "reason": "the operator's call",
+            "kind": "one-of",
+            "lettered_options": options,
+            "recommended_letters": "A",
+            "default_letters": "C",
+            "deadline": DEADLINE,
+            "actor": "human:example-operator",
+        })
+        .to_string(),
+        None,
+    );
+    let row = case.request("o-json");
+    assert_eq!(row["state"], "Escalated");
+    assert_eq!(row["escalation_class"], "O");
+    assert_eq!(row["escalation_reason"], "the operator's call");
+    assert_eq!(row["kind"], "one-of");
+    assert_eq!(row["lettered_options"], options);
+    assert_eq!(row["recommended_letters"], "A");
+    assert_eq!(row["default_letters"], "C");
+    assert_eq!(row["deadline"], DEADLINE);
+}
+
+/// `story:decision-request-input-json`: a field flag beside `--input-json`, `--actor` included,
+/// is refused naming the flag, and a key that is no input field naming the key; no store is
+/// created.
+#[test]
+fn input_json_beside_a_field_flag_or_with_an_unknown_key_is_refused_naming_it() {
+    let case = Case::new("input-json-beside");
+    let fields = raised_fields().to_string();
+    for (flag, value) in [
+        ("--question", "which way?"),
+        ("--actor", "human:example-operator"),
+    ] {
+        let stderr = case.fed_refused(
+            &[
+                "decision",
+                "raise-decision-request",
+                "--input-json",
+                "-",
+                flag,
+                value,
+            ],
+            &fields,
+        );
+        assert!(stderr.contains(flag), "names {flag}: {stderr:?}");
+    }
+    let stderr = case.fed_refused(
+        &[
+            "decision",
+            "escalate-request",
+            "--input-json",
+            "-",
+            "--reason",
+            "why",
+        ],
+        &json!({"request_id": "r-1", "escalation_class": "H"}).to_string(),
+    );
+    assert!(stderr.contains("--reason"), "names --reason: {stderr:?}");
+
+    let mut unknown = raised_fields();
+    unknown["questions"] = json!("which way?");
+    let stderr = case.fed_refused(
+        &["decision", "raise-decision-request", "--input-json", "-"],
+        &unknown.to_string(),
+    );
+    assert!(stderr.contains("questions"), "names the key: {stderr:?}");
+}
+
+/// `story:decision-request-input-json`: standard input that is no JSON object, a value of the
+/// wrong JSON type, a value the flag's parser refuses, and a missing field are each refused naming
+/// what is wrong; no store is created.
+#[test]
+fn input_json_that_is_no_object_a_wrong_type_or_a_missing_key_is_refused_naming_it() {
+    let case = Case::new("input-json-shape");
+    let raise = ["decision", "raise-decision-request", "--input-json", "-"];
+    for input in ["[]", "not json", ""] {
+        let stderr = case.fed_refused(&raise, input);
+        assert!(stderr.contains("JSON object"), "{input:?}: {stderr:?}");
+    }
+
+    let mut wrong = raised_fields();
+    wrong["raised_at"] = json!(5);
+    let stderr = case.fed_refused(&raise, &wrong.to_string());
+    assert!(stderr.contains("raised_at"), "names raised_at: {stderr:?}");
+
+    let mut invalid = raised_fields();
+    invalid["raised_at"] = json!("yesterday");
+    let stderr = case.fed_refused(&raise, &invalid.to_string());
+    assert!(
+        stderr.contains("raised_at") && stderr.contains("RFC 3339"),
+        "names raised_at and the check: {stderr:?}"
+    );
+
+    let mut missing = raised_fields();
+    missing
+        .as_object_mut()
+        .expect("an object")
+        .remove("question");
+    let stderr = case.fed_refused(&raise, &missing.to_string());
+    assert!(stderr.contains("question"), "names question: {stderr:?}");
+
+    let escalate = ["decision", "escalate-request", "--input-json", "-"];
+    let stderr = case.fed_refused(
+        &escalate,
+        &json!({"request_id": "r-1", "escalation_class": "O", "reason": "why",
+                "lettered_options": "A, B"})
+        .to_string(),
+    );
+    assert!(
+        stderr.contains("lettered_options"),
+        "names lettered_options: {stderr:?}"
+    );
+    let stderr = case.fed_refused(
+        &escalate,
+        &json!({"request_id": "r-1", "escalation_class": "X", "reason": "why"}).to_string(),
+    );
+    assert!(
+        stderr.contains("escalation_class"),
+        "names escalation_class: {stderr:?}"
+    );
+}
+
+/// `story:decision-request-input-json`: every other command keeps answering `--input-json` not
+/// implemented, exit 2.
+#[test]
+fn another_command_s_input_json_still_answers_not_implemented() {
+    let case = Case::new("input-json-other");
+    let output = case.fed(
+        &["decision", "answer-request", "--input-json", "-"],
+        "{}",
+        None,
+    );
+    assert_eq!(
+        output.status.code(),
+        Some(2),
+        "not implemented: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}

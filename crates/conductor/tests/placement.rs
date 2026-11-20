@@ -5129,7 +5129,9 @@ fn every_process_the_runtime_starts_is_built_without_the_slot_variable() {
             }
             let text = fs::read_to_string(&path).expect("read a source file");
             for (number, line) in text.lines().enumerate() {
-                if line.contains("Command::new") && !line.trim_start().starts_with("//") {
+                // `clap::Command` builds an argument parser, not a process.
+                let started = line.replace("clap::Command::new", "");
+                if started.contains("Command::new") && !line.trim_start().starts_with("//") {
                     let site = format!("{rel}:{}: {}", number + 1, line.trim());
                     if rel == "instance.rs" {
                         helper.push(site);
