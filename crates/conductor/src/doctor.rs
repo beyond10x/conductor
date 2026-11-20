@@ -1686,7 +1686,9 @@ fn kind_lines(flag: Option<&Path>) -> Vec<(String, Option<String>)> {
 /// token does not reach the box and prints the `--secret-slot` flag that declares the slot;
 /// it is reported, not a failure, as a usage watcher not running is: the box starts and runs
 /// without it. Every box gets the row of [`memory_line`] when its written memory cap is below
-/// what its controllers need, and that of [`disk_path_line`] when its `thresholds.disk_path` is on
+/// what its controllers need, a row `box <instance> tools: ` for each directory of its
+/// `box.tools` that is not there ([`crate::placement::tools_missing`], reported, not a failure),
+/// and that of [`disk_path_line`] when its `thresholds.disk_path` is on
 /// its tmpfs. A box the local daemon would open gets the rows of [`forge_work_lines`] and
 /// [`bypass_line`]. It opens no box, starts nothing and writes nothing; only
 /// [`doctor_with`] calls it, never [`check_in`], which the dashboard's health thread repeats.
@@ -1803,6 +1805,21 @@ fn box_lines(
                 ),
             }];
             rows.extend(memory_line(name, instance));
+            // Reported, not a failure: the box starts without a declared tool directory that is
+            // not there (`story:box-tool-roots`).
+            rows.extend(
+                crate::placement::tools_missing(instance)
+                    .into_iter()
+                    .map(|dir| {
+                        (
+                            format!(
+                                "box {name} tools: {dir} is not there, so the box starts without \
+                                 it; make it, or leave it out of box.tools"
+                            ),
+                            None,
+                        )
+                    }),
+            );
             rows.extend(disk_path_line(name, instance, &request.writable_roots));
             // Reported, not a failure: the box starts without the slot.
             if let (None, Some(unsealed)) = (&refused, &answer.unsealed) {

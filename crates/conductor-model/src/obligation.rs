@@ -1,5 +1,5 @@
 // generated from conductor v1
-// contract digest 76ff8853154fd9fc652d256e9f2ea0288061fa7a3c87c5f5925297785077991a
+// contract digest d350cd82050d0055f444f8dd5113015e8308a7c611d42a1bf018a90db75feb08
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! The typed refusal of an unmet obligation, and the conversion seams owed between contexts.

@@ -1348,6 +1348,29 @@ pub const WRITABLE_ROOTS_BOUND: usize = 8;
 /// own refusal, before substrate is asked.
 pub const ROOT_SHARED: &str = "placement.writable-root-shared";
 
+/// A tool directory the instance declares for its box (`box.tools`, story:box-tool-roots) holds
+/// the config file or lies with conductord's own directory, which a box never reads whole.
+/// Conductor's own refusal, before substrate is asked.
+pub const TOOL_SHARED: &str = "placement.tool-directory-shared";
+
+/// The tool directories `instance` declares for its box (`box.tools`, story:box-tool-roots), as a
+/// mount takes them, that are not directories on this host: the start leaves them out, and
+/// `conductor doctor` names them. None for a box on a remote daemon, whose host is not read.
+#[must_use]
+pub fn tools_missing(instance: &Instance) -> Vec<String> {
+    if instance.remote.is_some() {
+        return Vec::new();
+    }
+    instance
+        .r#box
+        .tools
+        .iter()
+        .map(|tool| clean(Path::new(tool)))
+        .filter(|tool| !tool.is_dir())
+        .map(|tool| text(&tool))
+        .collect()
+}
+
 /// The box would name more directories or files than one start may ([`READ_ONLY_ROOTS_BOUND`],
 /// [`READ_ONLY_FILES_BOUND`], [`WRITABLE_ROOTS_BOUND`]). Conductor's own refusal, before
 /// substrate is asked.
@@ -1515,6 +1538,7 @@ fn shares(mount: &str, config: &[String], daemon: Option<&str>) -> Option<String
 /// | `store` | the directory of a sqlite store (the database and its journal) | writes, root [`STORE_ROOT`] |
 /// | `checkouts` | the checkouts root: the controllers' branches and commits | writes, root `checkouts-<instance>` |
 /// | `trees` | the managed trees root (`checkouts.trees`), when it is outside the checkouts root | writes, root `trees-<instance>` |
+/// | `tool` | each directory of `box.tools` that is there (`story:box-tool-roots`), read first so that one holding the binary's or the harness's directory takes its place | reads |
 /// | `binary` | the conductor binary's directory (it carries the role profiles) | reads |
 /// | `harness` | the harness's directory on `PATH` | reads |
 /// | `harness-versions` | the directory of the file the harness's name on `PATH` links to (its installer's versions), when it is a link | reads |
@@ -1630,8 +1654,30 @@ fn layout(
     }
     let roots: Vec<String> = kept.iter().map(|mount| mount.mount.clone()).collect();
 
-    // What they read: directories.
+    // What they read: directories. The instance's tool directories first, so that one holding
+    // the binary's or the harness's directory (`~/.cargo` over `~/.cargo/bin`) takes its place
+    // (`story:box-tool-roots`); one that is not there is left out ([`tools_missing`]), and one
+    // that holds the config file or lies with conductord's directory is refused.
     let mut read: Vec<(&'static str, PathBuf)> = Vec::new();
+    let missing = tools_missing(instance);
+    for tool in &instance.r#box.tools {
+        let tool = clean(Path::new(tool));
+        let at = text(&tool);
+        if missing.contains(&at) {
+            continue;
+        }
+        if let Some(held) = shares(&at, &config, daemon.as_deref()) {
+            refused.get_or_insert(Refused {
+                name: TOOL_SHARED.to_owned(),
+                detail: format!(
+                    "the tool directory {at} of instance {name} (box.tools) holds {held}, and a \
+                     box reads a whole directory: name a directory apart from both"
+                ),
+            });
+            continue;
+        }
+        read.push(("tool", tool));
+    }
     read.extend(binary.parent().map(|dir| ("binary", dir.to_owned())));
     read.extend(
         harness
@@ -1775,6 +1821,15 @@ pub fn request_on(
 ) -> BoxRequest {
     let (mounts, mut refused) = layout(instance, config_file, binary, host);
     let state = clean(Path::new(&instance.state));
+    // The instance's own variables (`box.env`, `story:box-tool-roots`), in place of the runtime's
+    // of the same name; never one conductor sets itself, which `config validate` refuses.
+    for (name, value) in &instance.r#box.env {
+        if crate::config::box_env_problem(name).is_some() {
+            continue;
+        }
+        env.retain(|(known, _)| known != name);
+        env.push((name.clone(), value.clone()));
+    }
     env.push((
         crate::instance::LOG_VARIABLE.to_owned(),
         sessions_dir(&state).join(RUNTIME_LOG).display().to_string(),
