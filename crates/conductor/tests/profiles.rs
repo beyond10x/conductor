@@ -271,6 +271,27 @@ fn a_controller_writes_its_hand_over_file_reports_it_and_stops() {
     }
 }
 
+/// `story:person-wait-and-pause-hold-restarts` (issue #258): a controller whose work is left only
+/// to persons reports `blocked person: …`, after `unblocked` when blocked for another reason, ends
+/// its turn and writes no hand-over, which is for `[HANDOVER]` and a wave's close with work left;
+/// the next input starts it again, and still waiting it reports again. The words `waits on` keep
+/// the supervisor watch's idle check from counting it idle.
+#[test]
+fn a_controller_waiting_only_on_persons_reports_blocked_person_and_writes_no_hand_over() {
+    let text = profile("controller.md");
+    for phrase in [
+        "at a wave's close with work left",
+        "Work left only to persons gets none: report `blocked person: waits on <who> for <what>` \
+         (`unblocked` first if blocked otherwise), end the turn; the next input starts you: still \
+         waiting, report again.",
+    ] {
+        assert!(
+            text.contains(phrase),
+            "controller.md: the person wait holds {phrase:?}"
+        );
+    }
+}
+
 #[test]
 fn a_controller_reads_the_sections_for_all_sessions_and_reports_pr_ci_and_merge() {
     let text = profile("controller.md");
