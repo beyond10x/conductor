@@ -1,0 +1,12 @@
+{
+  "at": "2026-11-20T01:25:51Z",
+  "actor": "human:unknown",
+  "artifact": "story:mailbox-rejection-once-dated",
+  "kind": "story",
+  "revision": 4,
+  "change": {
+    "change": "evidence",
+    "kind": "test_result",
+    "source": "cargo test -p conductor-cli --test run a_decision_request_with_no_lettered_option_is_refused_once_and_its_sender_told_once: fails on base (message stays Received), passes with the fix; --test run otherwise the same launch-dependent failures as the base in the implementor's box (need CI); --test mailbox 21 passed; clippy -p conductor-cli --all-targets -D warnings clean"
+  }
+}

@@ -22,8 +22,9 @@
 //! | `[RESOURCE <repo>] <kind> <amount>` | answered "use conductor build run" to the repository's running controller (`relayed`), else kept for its next start |
 //!
 //! Any other first line is handled with nothing done. A message the store recorded with this file
-//! as its `body_path`, still `Received`, is then marked handled (`message handle-message`), but for
-//! a `[NEED]`, which only `route-need` moves.
+//! as its `body_path`, still `Received`, is then marked handled (`message handle-message`), or,
+//! when the tick could not act on it, rejected with the reason the journal line names (`message
+//! reject-message`, issue #229), but for a `[NEED]`, which only `route-need` moves.
 
 use std::collections::BTreeSet;
 use std::fs;
@@ -42,8 +43,9 @@ use time::format_description::well_known::Rfc3339;
 use super::handlers::deliver_or_keep;
 use super::{Tick, one_line, write_file};
 use crate::cli::{
-    EscalateRequestArgs, HandleMessageArgs, RaiseDecisionRequestArgs, ReportBlockedArgs,
-    ReportDoneArgs, ReportFailedArgs, ReportStartedArgs, ReportUnblockedArgs, RouteNeedArgs,
+    EscalateRequestArgs, HandleMessageArgs, RaiseDecisionRequestArgs, RejectMessageArgs,
+    ReportBlockedArgs, ReportDoneArgs, ReportFailedArgs, ReportStartedArgs, ReportUnblockedArgs,
+    RouteNeedArgs,
 };
 use crate::dispatch::{Linking, Open, Reopening, Sent};
 
@@ -108,6 +110,9 @@ fn read_all(tick: &mut Tick<'_, '_>) -> Result<()> {
             Ok(false) => {}
             Err(error) => {
                 tick.note(&format!("mailbox {name}"), &error);
+                if let Err(error) = mark_rejected(tick, &file, &error) {
+                    tick.note(&format!("mailbox {name}: record it rejected"), &error);
+                }
                 if let Err(error) = answer_refused(tick, &file, &error) {
                     tick.note(&format!("mailbox {name}: answer the sender"), &error);
                 }
@@ -1050,33 +1055,71 @@ fn decision_request(
 }
 
 /// Marks handled the message the store recorded with `file` as its body, while it is
-/// `Received` and no `[NEED]`, with `dispatch`, the dispatch a `[REPORT]` was handled for. A
-/// body path is kept relative to the state directory (`conductor message send`) or whole; either
-/// names the file.
+/// `Received` and no `[NEED]` ([`received`]), with `dispatch`, the dispatch a `[REPORT]` was
+/// handled for.
 fn mark_handled(tick: &Tick<'_, '_>, file: &Path, dispatch: Option<String>) -> Result<()> {
-    let dir = crate::state::dir(tick.state)?;
-    let store = crate::state::open(tick.state)?;
-    let path = file.display().to_string();
-    let message = MessageStorage::list(&store).into_iter().find(|held| {
-        held.data
-            .body_path
-            .as_deref()
-            .is_some_and(|body| body == path || dir.join(body) == file)
-            && held.state == MessageState::Received
-            && held.data.kind != MessageKind::Need
-    });
-    drop(store);
-    if let Some(message) = message {
+    if let Some(message) = received(tick, file)? {
         let _ = crate::message::handle_message(
             tick.state,
             HandleMessageArgs {
                 actor: None,
-                message_id: Some(message.data.message_id.0.0),
+                message_id: Some(message),
                 dispatch_id: dispatch,
                 input_json: None,
             },
         )
-        .with_context(|| format!("mark the message of {} handled", one_line(&path)))?;
+        .with_context(|| {
+            format!(
+                "mark the message of {} handled",
+                one_line(&file.display().to_string())
+            )
+        })?;
     }
     Ok(())
+}
+
+/// Records rejected, with `error` as its reason (`message reject-message`), the message the store
+/// recorded with `file` as its body, while it is `Received` and no `[NEED]`: the loop refused it,
+/// and the store says so rather than keep it `Received` for ever (issue #229,
+/// `story:mailbox-rejection-once-dated`). A `[NEED]` the loop did not relay stays `Received`,
+/// in the mailbox, where the supervisor reads it.
+fn mark_rejected(tick: &Tick<'_, '_>, file: &Path, error: &anyhow::Error) -> Result<()> {
+    if let Some(message) = received(tick, file)? {
+        let _ = crate::message::reject_message(
+            tick.state,
+            RejectMessageArgs {
+                actor: None,
+                message_id: Some(message),
+                reason: Some(one_line(&format!("{error:#}"))),
+                input_json: None,
+            },
+        )
+        .with_context(|| {
+            format!(
+                "mark the message of {} rejected",
+                one_line(&file.display().to_string())
+            )
+        })?;
+    }
+    Ok(())
+}
+
+/// The id of the message the store recorded with `file` as its body, while it is `Received` and
+/// no `[NEED]`, which only `route-need` moves. A body path is kept relative to the state
+/// directory (`conductor message send`) or whole; either names the file.
+fn received(tick: &Tick<'_, '_>, file: &Path) -> Result<Option<String>> {
+    let dir = crate::state::dir(tick.state)?;
+    let store = crate::state::open(tick.state)?;
+    let path = file.display().to_string();
+    Ok(MessageStorage::list(&store)
+        .into_iter()
+        .find(|held| {
+            held.data
+                .body_path
+                .as_deref()
+                .is_some_and(|body| body == path || dir.join(body) == file)
+                && held.state == MessageState::Received
+                && held.data.kind != MessageKind::Need
+        })
+        .map(|held| held.data.message_id.0.0))
 }
