@@ -2,7 +2,7 @@
 format: aep.planning-md/3
 id: story:box-tool-roots
 kind: story
-status: active
+status: implemented
 title: An instance declares read-only tool directories and environment for its box
 summary: Toolchains, tool caches and pinned tools on the host reach a boxed runtime's sessions through declared read-only roots and environment, not through copies in the cache root
 tags:
@@ -42,10 +42,11 @@ scope:
   path: website/docs/guides/troubleshoot.md
 - confidence: cited
   path: website/docs/reference/config.md
-revision: 8
+revision: 9
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-20T06:10:46Z", actor: "human:unknown", revision: 5}
 - {from: "proposed", to: "active", at: "2026-11-20T06:10:46Z", actor: "human:unknown", revision: 6}
+- {from: "active", to: "implemented", at: "2026-11-20T10:33:02Z", actor: "human:unknown", revision: 9, decided_on: {"recorded":{"test_result":1}}}
 ---
 ## Why
 

@@ -528,3 +528,12 @@ No onboarding run is due: 1.19.2 changes nothing onboarding runs. `SETUP.md`, `c
 `conductor doctor`, the install path and the prerequisites are as in 1.19.1; the release keeps a
 `[NEED]` to its own repository for the supervisor and sends a host-side pause of a session in the
 box to the box's runtime.
+
+## v1.20.0
+
+No onboarding run is due: 1.20.0 changes nothing onboarding runs. `SETUP.md`, `conductor setup`,
+the install path and the prerequisites are as in 1.19.2. `conductor doctor` gains rows only for an
+instance whose placement opens a box (a `box.tools` directory that is missing, why no director runs
+in the box), which an onboarding run does not configure; its verdict and exit for an unboxed
+instance are unchanged. The release adds the config key `box` (`tools`, `env`, `egress` reserved)
+and a boxed runtime that starts and keeps its director from the profile the binary carries.
