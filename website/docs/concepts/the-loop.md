@@ -45,10 +45,11 @@ A controller whose work is left only to persons (a review, a retest) reports `bl
 waits on <who> for <what>` and ends its turn, with no hand-over. A repository whose every open
 dispatch is blocked that way, with nothing kept for it, is held for a person: the loop starts no
 controller for it, neither after `session gone`, a second `session silent` or a hand-over, nor in
-the cycle, and says `<repo> waits: <dispatch> waits on a person: …` once. The next input ends the
-wait: a decision answer, a `[NEED]` or another delivery kept for the repository, a watch line for
-it such as `PR checks done` or `CI red on main`, `dispatch report-unblocked`, or the dispatch
-blocked for another reason. The watch tick that finds the input starts the controller, its
+the cycle, nor resumes its session, and says `<repo> waits: <dispatch> waits on a person: …` once.
+The next input ends the wait: a decision answer, a `[NEED]` or another delivery kept for the
+repository, `dispatch report-unblocked`, a new dispatch, or the dispatch blocked for another reason.
+A watch line for it, such as `PR checks done` or `CI red on main`, does not: it is kept, the newest
+of each kind and subject, for the controller the next input starts. The watch tick that finds the input starts the controller, its
 `controller-restarted` line's reason `person wait ended: …`, and offers it what was kept. A
 controller that still waits only on persons reports `blocked person: …` again and ends its turn;
 once its idle session is read `session silent` twice it is stopped into the hold again. A
@@ -56,9 +57,9 @@ dispatch done, failed or cancelled ends the hold and starts nothing.
 
 A pause holds against every loop restart: no watch-tick handler starts, resumes or stops a session
 of a repository whose controller is `Paused` (`session gone`, a session that exited, a usage
-limit's reset, a hand-over), and the cycle starts none for it. Each is one journal line, `<repo> is
-paused: <session> not restarted` or `not resumed`. Only `controller resume-controller` ends a
-pause.
+limit's reset, a hand-over), and the cycle starts none for it. Each is said once in the journal,
+`<repo> is paused: <session> not restarted` or `not resumed`; a hand-over request or a usage-limit
+mark of the session is kept. Only `controller resume-controller` ends a pause.
 
 A unit of work's controller starts on conductor's default charter where the repository has none.
 `controllers.unit_merge` chooses its form: `human`, the default, ends `merge: human`, and the

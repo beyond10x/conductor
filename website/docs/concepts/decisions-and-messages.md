@@ -102,8 +102,9 @@ Each `REPORT` verb but `progress` moves the dispatch through its `dispatch repor
 
 A dispatch blocked for another reason is reported `unblocked` before `blocked person: …`: the loop
 reads the newest `blocked` reason of the dispatch, and a `blocked` on a dispatch already blocked
-records none. While a repository waits on a person, an answer, a `[NEED]` or a watch line for it is
-kept, starts its controller in the watch tick that finds it, and is delivered to it. A pause holds
+records none. While a repository waits on a person, an answer or a `[NEED]` for it is kept, starts
+its controller in the watch tick that finds it, and is delivered to it; a watch line for it is kept
+for that controller and starts none. A pause holds
 against every loop restart until `controller resume-controller`.
 
 A decision request also lands in the controller's own planning store as a decision blocker, where
