@@ -92,7 +92,8 @@ conductor controller stop-controller --controller-id <id> --reason <why>
 ```
 
 Pause and stop end the session through the instance's provider. Resume starts it again from its
-transcript.
+transcript. A pause holds against every restart of the loop: until `resume-controller`, the loop
+starts, resumes and stops no session of that repository.
 
 ## Sessions
 

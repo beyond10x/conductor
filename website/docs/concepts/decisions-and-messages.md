@@ -85,7 +85,7 @@ reads the mailbox every watch tick. It puts its own messages in front of a contr
 | first line | from → to | meaning |
 |---|---|---|
 | `[DISPATCH <repo> <dispatch-id>] <goal id> <what to do>` | conductor → controller | a brief |
-| `[REPORT <repo> <dispatch-id>] <started\|progress\|blocked\|unblocked\|done\|failed> <one line>` | controller → conductor | progress on a dispatch |
+| `[REPORT <repo> <dispatch-id>] <started\|progress\|blocked\|unblocked\|done\|failed> <one line>` | controller → conductor | progress on a dispatch; `blocked person: waits on <who> for <what>` is work left only to persons: the controller ends its turn with no hand-over, and the loop starts no controller for the repository until its next input ([the loop](./the-loop.md#three-ticks)) |
 | `[DECISION-REQUEST <repo> <request-id>] <question>` | controller → conductor | options A/B/C and a recommendation below |
 | `[DECISION <request-id>] <option> <one-line reason> (<decision-id>)` | conductor → controller | the answer |
 | `[NEED <repo> <request-id>] <other-repo> <what is needed>` | controller → conductor | a cross-repository request, delivered to the other repository's running controller or kept for its next start. When `<other-repo>` is no repository of the instance, the request is not relayed: it stays in conductor's mailbox for the supervisor, and its sender is told so in one line (`[REPORT <repo> -] not relayed: …`), but for a request for `conductor` itself, which gets no answer from the loop |
@@ -99,6 +99,12 @@ answered with the format, and not acted on.
 
 Each `REPORT` verb but `progress` moves the dispatch through its `dispatch report-*` command. A
 `progress` report is a message only.
+
+A dispatch blocked for another reason is reported `unblocked` before `blocked person: …`: the loop
+reads the newest `blocked` reason of the dispatch, and a `blocked` on a dispatch already blocked
+records none. While a repository waits on a person, an answer, a `[NEED]` or a watch line for it is
+kept, starts its controller in the watch tick that finds it, and is delivered to it. A pause holds
+against every loop restart until `controller resume-controller`.
 
 A decision request also lands in the controller's own planning store as a decision blocker, where
 the repository has one. The controller clears the blocker stating what was decided, with no
