@@ -520,6 +520,7 @@ fn handle(
     if let Err(error) = handlers::disk_recovered(&mut tick) {
         tick.note("free disk back at disk_clear", &error);
     }
+    handlers::lift(&mut tick);
     if gc == Gc::Waited
         && let Err(error) = handlers::cleaned(&mut tick, true)
     {
@@ -765,6 +766,18 @@ impl<'s, 'a> Tick<'s, 'a> {
             .map(str::to_owned))
     }
 
+    /// Whether `repo` has a `Paused` controller.
+    ///
+    /// # Errors
+    ///
+    /// The store does not open.
+    pub fn paused(&self, repo: &str) -> Result<bool> {
+        Ok(self
+            .controllers()?
+            .iter()
+            .any(|held| held.data.repository.0 == repo && held.state == ControllerState::Paused))
+    }
+
     /// Whether `repo` has a dispatch sent, started or blocked.
     ///
     /// # Errors
@@ -800,21 +813,23 @@ impl<'s, 'a> Tick<'s, 'a> {
     /// on (`dispatch_for`); counts the `sent` lines it writes. A repository whose charter is the
     /// default one, byte for byte ([`crate::spawn::is_default_charter`]), gets one only for its
     /// open dispatch, never a goal's sent now nor none: dispatch v1, a red `main` and a restart
-    /// pass it over without one. Answers why it did not, when it did not.
+    /// pass it over without one; a repository held for a person gets none
+    /// ([`handlers::person_wait`]). Answers why it did not, when it did not.
     ///
     /// # Errors
     ///
     /// The store does not open.
     pub fn spawn(&mut self, repo: &str) -> Result<Result<(), String>> {
         Ok(self.try_start(repo, false)?.map_err(|not| match not {
-            NotStarted::Yielded(why) | NotStarted::Refused(_, why) => why,
+            NotStarted::Yielded(why) | NotStarted::Held(why) | NotStarted::Refused(_, why) => why,
         }))
     }
 
-    /// [`Tick::spawn`], answering why it did not start: the place it yields to a unit of work
-    /// ([`Tick::kept_for_unit`]), else the `SpawnRefusal` of `conductor spawn`'s refusal, where
-    /// one refused it. `held` says whether the caller held a `Running` or `Paused` controller of
-    /// `repo` as the start began; a start with none held is a respawn.
+    /// [`Tick::spawn`], answering why it did not start: the repository is held for a person
+    /// ([`handlers::person_wait`], kept in `person.json` by [`handlers::hold`]); the place it
+    /// yields to a unit of work ([`Tick::kept_for_unit`]); else the `SpawnRefusal` of `conductor
+    /// spawn`'s refusal, where one refused it. `held` says whether the caller held a `Running` or
+    /// `Paused` controller of `repo` as the start began; a start with none held is a respawn.
     ///
     /// # Errors
     ///
@@ -823,6 +838,12 @@ impl<'s, 'a> Tick<'s, 'a> {
         let _one = STARTS
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
+        // Held for a person (story:person-wait-and-pause-hold-restarts): before `kept_for_unit`
+        // and `make_room`, so it holds no place and no idle controller is stopped for it.
+        if let Some((dispatches, why)) = handlers::person_wait(self, repo)? {
+            handlers::hold(self, repo, &dispatches, &why);
+            return Ok(Err(NotStarted::Held(why)));
+        }
         // A repository on the default charter works units of work only: its open dispatch, else
         // no controller (no goal's dispatch is sent for it).
         let default = crate::spawn::is_default_charter(&self.charter(repo));
@@ -993,6 +1014,7 @@ impl<'s, 'a> Tick<'s, 'a> {
         match self.try_start(repo, held)? {
             Ok(()) => Ok(Ok(Again::Started)),
             Err(NotStarted::Yielded(why)) => Ok(Ok(Again::Yielded(why))),
+            Err(NotStarted::Held(why)) => Ok(Ok(Again::Held(why))),
             Err(NotStarted::Refused(Some(SpawnRefusal::NoCharter), why)) => {
                 self.end_open(repo, &format!("conductor run: {why_gone}, and {why}"))?;
                 Ok(Ok(Again::Ended))
@@ -1252,6 +1274,12 @@ impl<'s, 'a> Tick<'s, 'a> {
     /// line that led to it, such as the `context:` line that names the context the session was at
     /// (`story:loop-restarts-controller-at-handover`).
     ///
+    /// A repository with a `Paused` controller is left as it is, before anything is stopped: one
+    /// journal line `<repo> is paused: <session> not restarted`, the session forgotten
+    /// (`story:person-wait-and-pause-hold-restarts`). A start refused because the repository is
+    /// held for a person, or because its place is kept for a waiting unit of work, is no error:
+    /// one journal line `<repo> waits: <why>`, the session forgotten.
+    ///
     /// # Errors
     ///
     /// What [`Tick::restart`] answers.
@@ -1263,13 +1291,13 @@ impl<'s, 'a> Tick<'s, 'a> {
         resume: Option<&Path>,
         cause: Option<&str>,
     ) -> Result<()> {
-        let held = self.controllers()?.into_iter().find(|held| {
-            held.data.repository.0 == repo
-                && matches!(
-                    held.state,
-                    ControllerState::Running | ControllerState::Paused
-                )
-        });
+        if handlers::held_paused(self, repo, session, "restarted")? {
+            return Ok(());
+        }
+        let held = self
+            .controllers()?
+            .into_iter()
+            .find(|held| held.data.repository.0 == repo && held.state == ControllerState::Running);
         let holding = held.is_some();
         if let Some(held) = held {
             let _ = crate::controller::stop_controller(
@@ -1299,6 +1327,11 @@ impl<'s, 'a> Tick<'s, 'a> {
                 let _ = writeln!(io::stderr().lock(), "conductor run: {repo} waits: {why}");
                 return Ok(());
             }
+            // Held for a person: no error, said once, kept in `person.json` for the next input.
+            Again::Held(why) => {
+                handlers::said_once(self, repo, &format!("{repo} waits: {why}"));
+                return Ok(());
+            }
         }
         let mut line = self.line(DispatchLogEvent::ControllerRestarted, repo)?;
         line.session = Some(session.to_owned());
@@ -1313,6 +1346,8 @@ impl<'s, 'a> Tick<'s, 'a> {
 enum NotStarted {
     /// The place is kept for a unit of work that waits for one ([`Tick::kept_for_unit`]): why.
     Yielded(String),
+    /// The repository is held for a person ([`handlers::person_wait`]): why.
+    Held(String),
     /// Refused: the `SpawnRefusal` of `conductor spawn`'s refusal, where one refused it, and why.
     Refused(Option<SpawnRefusal>, String),
 }
@@ -1326,6 +1361,9 @@ pub enum Again {
     Ended,
     /// The start yielded its place to a waiting unit of work, for the reason given.
     Yielded(String),
+    /// The repository is held for a person, for the reason given: `<dispatch> waits on a person:
+    /// <rest>`.
+    Held(String),
 }
 
 /// Whether the unit of work with `reference` and `brief` was opened by a need of `repo`: its
