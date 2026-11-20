@@ -350,7 +350,13 @@ or the SDK's `client.workspace()` builder):
   roots;
 - environment: the runtime's, with the variables the instance declares in `box.env` (none that
   conductor sets itself: `HOME`, `PATH`, `CLAUDE_CONFIG_DIR`, `XDG_STATE_HOME`, `CONDUCTOR_*`),
-  which every session of the box inherits;
+  which every session of the box inherits. The box's harness state is `<state>/claude`
+  (`CLAUDE_CONFIG_DIR`) and its XDG state `<state>/xdg-state` (`XDG_STATE_HOME`); beside them, the
+  bot route's config directory is `<cache>/xdg-config`, or the `XDG_CONFIG_HOME` that `box.env`
+  names: the records commit runs `b10x-gates` with it as `XDG_CONFIG_HOME`, and with the
+  instance's `gates_policy` as `B10X_GATES_POLICY`, and the box's start sets neither, so the
+  forge logins under `HOME` stay read (story:box-records-commit-config-home). The operator puts
+  the bot's `b10x/b10x-bot.json` and its key there; conductor neither copies nor reads them;
 - writable places: today's six (`confine/places.rs:84-101`: checkout, trees, build cache, scratch,
   harness state, records), as one substrate workspace with subdirectories;
 - limits: cpu, memory, pids, storage, from the role's `limits` and the instance's `limits`;

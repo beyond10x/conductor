@@ -53,8 +53,10 @@
 //!   (`pipelines?ref=<default branch>&per_page=1`), its status mapped by [`conclusion`], which the
 //!   watch reads `main` CI by too. A project without one records none.
 
+use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::{Mutex, PoisonError};
 use std::time::Duration;
 
 use anyhow::{Context as _, Result, anyhow, bail};
@@ -64,8 +66,8 @@ use conductor_model::observation::{
     RepositoryName, RunConclusion, SnapshotId, Visibility,
 };
 use conductor_model::primitives::Timestamp;
-use serde::Deserialize;
 use serde::de::DeserializeOwned;
+use serde::{Deserialize, Serialize};
 use time::format_description::well_known::Rfc3339;
 use time::{OffsetDateTime, UtcOffset};
 
@@ -1003,6 +1005,127 @@ struct ApiIssue {
     created_at: String,
 }
 
+/// The file under an instance's cache directory that keeps the paths of each GitLab commit the
+/// repositories collector read ([`Diffs`]).
+pub const DIFFS_FILE: &str = "forge-diffs.json";
+
+/// The format [`DIFFS_FILE`] is written in.
+const DIFFS_FORMAT: &str = "conductor.forge-diffs/1";
+
+/// Paths of commits, by forge host, project id and commit sha.
+type Kept = BTreeMap<String, BTreeMap<u64, BTreeMap<String, Vec<String>>>>;
+
+/// [`DIFFS_FILE`] as it is written.
+#[derive(Serialize, Deserialize)]
+struct DiffsFile {
+    format: String,
+    diffs: Kept,
+}
+
+/// The paths of the GitLab commits a snapshot read (`story:forge-rate-limit-retried`): a commit's
+/// paths never change, so `repository/commits/<sha>/diff` is asked once per commit, not once per
+/// snapshot. They are kept in [`DIFFS_FILE`] under the instance's cache, by forge host, project
+/// id and sha; only a diff read whole is kept. When the file is written ([`Diffs::write`]), a
+/// project whose commits this snapshot listed keeps only the commits of this window it read, so
+/// commits that left the 7-day window are dropped; a project it did not list keeps what it had.
+/// A file that does not read is ignored and written anew; of two writers the last one wins, and
+/// a lost entry is read again next time.
+#[derive(Debug, Default)]
+pub struct Diffs {
+    /// Where they are kept; `None` keeps nothing.
+    file: Option<PathBuf>,
+    /// What the file held when the snapshot started.
+    kept: Kept,
+    /// What this snapshot read, or took from [`Diffs::kept`], for each project it listed.
+    read: Mutex<Kept>,
+}
+
+impl Diffs {
+    /// Paths kept nowhere: every commit's diff is asked of the forge.
+    #[must_use]
+    pub fn none() -> Self {
+        Self::default()
+    }
+
+    /// The paths kept in `file`; none when it does not exist or does not read.
+    #[must_use]
+    pub fn at(file: PathBuf) -> Self {
+        let kept = fs::read_to_string(&file)
+            .ok()
+            .and_then(|text| serde_json::from_str::<DiffsFile>(&text).ok())
+            .filter(|read| read.format == DIFFS_FORMAT)
+            .map(|read| read.diffs)
+            .unwrap_or_default();
+        Self {
+            file: Some(file),
+            kept,
+            read: Mutex::default(),
+        }
+    }
+
+    /// The commits of the project `id` on `host` were listed by this snapshot.
+    fn listed(&self, host: &str, id: u64) {
+        self.lock()
+            .entry(host.to_owned())
+            .or_default()
+            .entry(id)
+            .or_default();
+    }
+
+    /// The paths kept for the commit `sha` of the project `id` on `host`, which this snapshot
+    /// keeps again.
+    fn kept(&self, host: &str, id: u64, sha: &str) -> Option<Vec<String>> {
+        let files = self.kept.get(host)?.get(&id)?.get(sha)?.clone();
+        self.keep(host, id, sha, &files);
+        Some(files)
+    }
+
+    /// The commit `sha` of the project `id` on `host` touched `files`.
+    fn keep(&self, host: &str, id: u64, sha: &str, files: &[String]) {
+        self.lock()
+            .entry(host.to_owned())
+            .or_default()
+            .entry(id)
+            .or_default()
+            .insert(sha.to_owned(), files.to_vec());
+    }
+
+    fn lock(&self) -> std::sync::MutexGuard<'_, Kept> {
+        self.read.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// Writes what is kept to the file, through a temporary file renamed into place. A write
+    /// that fails keeps nothing and stops nothing: the next snapshot reads those diffs again.
+    pub fn write(&self) {
+        let Some(file) = &self.file else {
+            return;
+        };
+        let mut diffs = self.kept.clone();
+        for (host, projects) in self.lock().iter() {
+            let kept = diffs.entry(host.clone()).or_default();
+            for (id, commits) in projects {
+                kept.insert(*id, commits.clone());
+            }
+        }
+        let written = DiffsFile {
+            format: DIFFS_FORMAT.to_owned(),
+            diffs,
+        };
+        let Ok(text) = serde_json::to_string(&written) else {
+            return;
+        };
+        let temporary = file.with_extension(format!("json.{}.tmp", std::process::id()));
+        if file
+            .parent()
+            .is_some_and(|dir| fs::create_dir_all(dir).is_err())
+            || fs::write(&temporary, text).is_err()
+            || fs::rename(&temporary, file).is_err()
+        {
+            let _ = fs::remove_file(&temporary);
+        }
+    }
+}
+
 /// One project's repository row, read from the forge, `since` being the 7-day window's start
 /// (RFC 3339, UTC); what only a checkout shows is read from `mapped`'s checkout when it has one
 /// ([`repositories::checkout_state`]), with no fetch.
@@ -1010,7 +1133,7 @@ struct ApiIssue {
 /// | fields | source |
 /// |---|---|
 /// | `main_head`, `main_committed_at` | `repository/commits/<default branch>` |
-/// | `main_commits_7d`, `real_commits_7d` | `repository/commits?ref_name=<default branch>&since=<since>`, and `repository/commits/<sha>/diff` of each commit real activity needs the paths of |
+/// | `main_commits_7d`, `real_commits_7d` | `repository/commits?ref_name=<default branch>&since=<since>`, and `repository/commits/<sha>/diff` of each commit real activity needs the paths of that `diffs` does not keep |
 /// | `latest_release`, `latest_release_at` | the newest of `releases` that is not upcoming, and its `released_at` |
 /// | `unreleased_commits` | the commits of `repository/compare?from=<tag>&to=<default branch>` |
 /// | `open_issues` | the project list's `open_issues_count` |
@@ -1020,7 +1143,7 @@ struct ApiIssue {
 ///
 /// A command failed twice or printed what this collector cannot read, or a git command in the
 /// checkout failed.
-pub(super) fn read(mapped: &Mapped, what: &str, since: &str) -> Result<Read> {
+pub(super) fn read(mapped: &Mapped, what: &str, since: &str, diffs: &Diffs) -> Result<Read> {
     let forge = &mapped.forge;
     let project = &mapped.project;
     let id = project.id;
@@ -1041,6 +1164,7 @@ pub(super) fn read(mapped: &Mapped, what: &str, since: &str) -> Result<Read> {
         ),
     )?;
     let main_commits_7d = count(listed.len());
+    diffs.listed(&forge.host, id);
     let mut seen = std::collections::HashSet::new();
     let mut commits = Vec::new();
     for commit in &listed {
@@ -1050,6 +1174,8 @@ pub(super) fn read(mapped: &Mapped, what: &str, since: &str) -> Result<Read> {
         let subject = commit.subject();
         let files = if maintenance(&subject) {
             Vec::new()
+        } else if let Some(files) = diffs.kept(&forge.host, id, &commit.id) {
+            files
         } else {
             let diff: Vec<ApiDiff> = forge.pages(
                 what,
@@ -1058,7 +1184,9 @@ pub(super) fn read(mapped: &Mapped, what: &str, since: &str) -> Result<Read> {
                     encoded(&commit.id)
                 ),
             )?;
-            diff.into_iter().map(|file| file.new_path).collect()
+            let files: Vec<String> = diff.into_iter().map(|file| file.new_path).collect();
+            diffs.keep(&forge.host, id, &commit.id, &files);
+            files
         };
         commits.push(Commit { subject, files });
     }

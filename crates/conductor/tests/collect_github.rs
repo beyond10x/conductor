@@ -922,6 +922,69 @@ fn a_source_that_fails_once_is_asked_again() {
     assert_eq!(issues, [("alpha", 4), ("omega", 4)]);
 }
 
+/// The waits the collectors took in this process, each recorded instead of slept
+/// ([`conductor_cli::collect::replace_sleep`]).
+static WAITS: std::sync::Mutex<Vec<Duration>> = std::sync::Mutex::new(Vec::new());
+
+fn record_wait(wait: Duration) {
+    WAITS
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .push(wait);
+}
+
+/// A `gh` read answered `HTTP 429` once is waited out (5 s, recorded instead of slept) and asked
+/// again: the snapshot completes with what the second answer holds.
+#[test]
+fn a_gh_read_answered_429_once_is_retried() {
+    conductor_cli::collect::replace_sleep(record_wait);
+    let world = World::new("gh-rate-limited");
+    world.omega(&["alpha"]);
+    world.repository("alpha");
+    let bin = world.root.join("bin");
+    let marks = world.root.join("marks");
+    fs::create_dir_all(&bin).expect("create the programs");
+    fs::create_dir_all(&marks).expect("create the marks");
+    let gh = bin.join("gh");
+    fs::write(
+        &gh,
+        "#!/bin/sh\nif [ -e \"$1\" ]; then exec cat \"$2\"; fi\n: > \"$1\"\n\
+         echo 'gh: API rate limit exceeded (HTTP 429)' >&2\nexit 1\n",
+    )
+    .expect("write the fake gh");
+    fs::set_permissions(
+        &gh,
+        <fs::Permissions as std::os::unix::fs::PermissionsExt>::from_mode(0o755),
+    )
+    .expect("make the fake gh runnable");
+    let mut sources = repository_sources(&world, "pair");
+    sources.open_issues = vec![
+        text(&gh).to_owned(),
+        format!("{}/{{repository}}", text(&marks)),
+        fixture("issues/alpha.json"),
+    ];
+
+    let taken = take_repositories(&world, sources);
+    complete(&taken);
+    let issues: Vec<(String, i64)> = repository_rows(&world, &taken)
+        .iter()
+        .map(|row| (row.repository.0.clone(), row.open_issues))
+        .collect();
+    assert_eq!(
+        issues,
+        [("alpha".to_owned(), 4), ("omega".to_owned(), 4)],
+        "the second answer is recorded"
+    );
+    let waits = WAITS
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .clone();
+    assert!(
+        waits.contains(&Duration::from_secs(5)),
+        "the first wait is 5 s: {waits:?}"
+    );
+}
+
 /// A checkout whose origin is gone: `git fetch` fails twice, and the snapshot fails naming the
 /// repository and the command.
 #[test]

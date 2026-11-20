@@ -103,7 +103,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Mutex, PoisonError};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use anyhow::{Context as _, Result, anyhow, bail};
 use conductor_model::config::{Catalog, CatalogNames, ForgeAccess, Instance};
@@ -132,6 +132,23 @@ const WINDOW: time::Duration = time::Duration::days(7);
 
 /// The repositories a normalised subject must appear in, in the window, to be an org-wide sweep.
 const SWEEP_REPOSITORIES: usize = 3;
+
+/// The waits before each retry of a forge read the forge answered `HTTP 429`, `502` or `503`
+/// (`story:forge-rate-limit-retried`): three retries, after 5 s, 15 s and 45 s.
+const FORGE_WAITS: [Duration; 3] = [
+    Duration::from_secs(5),
+    Duration::from_secs(15),
+    Duration::from_secs(45),
+];
+
+/// The longest one of [`FORGE_WAITS`] may be.
+const FORGE_WAIT_CAP: Duration = Duration::from_secs(60);
+
+/// The longest the waits of one forge read may be in all.
+const FORGE_WAIT_TOTAL: Duration = Duration::from_secs(65);
+
+/// The programs whose reads are forge reads, retried after a wait when the forge is busy.
+const FORGE_PROGRAMS: [&str; 2] = ["glab", "gh"];
 
 /// The suffix of a catalog entry's file name; its stem spells a cataloged repository's name.
 const CATALOG_ENTRY: &str = ".json";
@@ -337,6 +354,7 @@ pub fn collect(record: &mut Recorder<'_>) -> Result<()> {
         &Forge::all(instance),
         checkouts::clones(instance).then_some(instance),
         instance.forge_access == Some(ForgeAccess::Anonymous),
+        &gitlab::Diffs::at(Path::new(&instance.cache).join(gitlab::DIFFS_FILE)),
         record,
     )
 }
@@ -391,14 +409,26 @@ pub fn collect_with_gitlab(
     forges: &[Forge],
     record: &mut Recorder<'_>,
 ) -> Result<()> {
-    pass(sources, origins, exclude, forges, None, false, record)
+    pass(
+        sources,
+        origins,
+        exclude,
+        forges,
+        None,
+        false,
+        &gitlab::Diffs::none(),
+        record,
+    )
 }
 
 /// [`collect_with_gitlab`], and, for the instance `pod` of a runtime alone in a pod or in a box
 /// ([`checkouts::clones`], `story:pod-source-checkouts`, `story:box-source-checkouts`), each
 /// repository a source includes brought to its checkout first ([`bring_checkouts`]); and, for
 /// an instance with `forge_access: anonymous` (`anonymous`, story:forge-access-anonymous),
-/// nothing asked of the forge, as the module documentation says.
+/// nothing asked of the forge, as the module documentation says. The paths of each GitLab commit
+/// are read from `diffs` when it keeps them, and what was read is kept there
+/// (`story:forge-rate-limit-retried`).
+#[allow(clippy::too_many_arguments)]
 fn pass(
     sources: &Sources,
     origins: &Origins,
@@ -406,6 +436,7 @@ fn pass(
     forges: &[Forge],
     pod: Option<&Instance>,
     anonymous: bool,
+    diffs: &gitlab::Diffs,
     record: &mut Recorder<'_>,
 ) -> Result<()> {
     let since = instant((sources.now - WINDOW).replace_nanosecond(0)?)?;
@@ -420,8 +451,11 @@ fn pass(
         listed.retain(|item| item.checkout(sources).join(".git").exists());
     }
     let read = each(&listed, sources.width, |listed| {
-        read(sources, listed, &since)
-    })?;
+        read(sources, listed, &since, diffs)
+    });
+    // What was read is kept even when a read failed: the next snapshot asks only for the rest.
+    diffs.write();
+    let read = read?;
     let cataloged = cataloged(sources, &listed, anonymous)?;
     let gates_version = gates::version(&sources.gates, sources.bound)?;
     let waves = each(&listed, sources.width, |listed| wave(sources, listed))?;
@@ -928,7 +962,7 @@ pub(super) struct Release {
 
 /// One repository's sources: an owner's from its checkout, fetched, when it has one and from
 /// GitHub when not; a local source's from its checkout as it is.
-fn read(sources: &Sources, listed: &Listed, since: &str) -> Result<Read> {
+fn read(sources: &Sources, listed: &Listed, since: &str, diffs: &gitlab::Diffs) -> Result<Read> {
     let what = format!("repository {}", listed.name);
     let dir = listed.checkout(sources);
     let checkout = Checkout {
@@ -943,7 +977,7 @@ fn read(sources: &Sources, listed: &Listed, since: &str) -> Result<Read> {
         Origin::Owner(owner) => remote(sources, listed, owner, &what, since)?,
         Origin::Local(_) => local(sources, listed, &checkout, since, Reading::AsIs)?,
         // A project's open issues come with its group's project list.
-        Origin::GitLab(mapped) => return gitlab::read(mapped, &what, since),
+        Origin::GitLab(mapped) => return gitlab::read(mapped, &what, since, diffs),
     };
     (read.open_issues, read.oldest_open_issue_at) = issues(sources, listed, &what)?;
     Ok(read)
@@ -1834,7 +1868,12 @@ pub(crate) fn checked(what: &str, name: String) -> Result<String> {
 /// What `command` printed, run in `dir` when one is given, through [`collect::run`] under
 /// `bound`. A run that exits non-zero is run once more; failing again, the answer is an error
 /// naming `what` (the repository or the organization), the command and what it printed on
-/// standard error. Git takes no optional locks, so reading a checkout never rewrites its index,
+/// standard error. A forge read (`glab`, `gh`) whose standard error names `HTTP 429`, `502` or
+/// `503` is retried after each of [`FORGE_WAITS`] instead, each wait within [`FORGE_WAIT_CAP`],
+/// all within [`FORGE_WAIT_TOTAL`] and none ending past the collector's deadline: a wait that
+/// would is not taken, and the read fails at once. Each wait holds every forge read of the
+/// collector until it ends ([`collect::hold_forge`]); a read still refused names the status
+/// (`rate limited (HTTP 429)`, `story:forge-rate-limit-retried`). Git takes no optional locks, so reading a checkout never rewrites its index,
 /// and never prompts, neither for a login nor through ssh ([`collect::git_environment`],
 /// `story:fetch-without-prompts`); `glab` sends no usage data ([`gitlab::TELEMETRY_VARIABLE`]).
 pub(crate) fn answer(
@@ -1861,8 +1900,45 @@ pub(crate) fn answer(
         }
         collect::run(&mut command, bound).with_context(|| format!("{what}: `{shown}`"))
     };
+    let forge = Path::new(program)
+        .file_name()
+        .and_then(OsStr::to_str)
+        .is_some_and(|name| FORGE_PROGRAMS.contains(&name));
+    if forge {
+        collect::forge_turn();
+    }
     let mut output = attempt()?;
-    if !output.status.success() {
+    let mut retried = false;
+    let mut waits = FORGE_WAITS.iter();
+    let mut waited = Duration::ZERO;
+    let mut busy = None;
+    let mut no_room = false;
+    while !output.status.success() {
+        busy = if forge {
+            busy_status(&output.stderr)
+        } else {
+            None
+        };
+        if busy.is_some() {
+            let Some(wait) = waits.next() else {
+                break;
+            };
+            let wait = (*wait)
+                .min(FORGE_WAIT_CAP)
+                .min(FORGE_WAIT_TOTAL.saturating_sub(waited));
+            let left = collect::deadline().map(|at| at.saturating_duration_since(Instant::now()));
+            if wait.is_zero() || left.is_some_and(|left| left <= wait) {
+                no_room = !wait.is_zero();
+                break;
+            }
+            waited += wait;
+            collect::hold_forge(Instant::now() + wait);
+            collect::sleep(wait);
+        } else if retried {
+            break;
+        } else {
+            retried = true;
+        }
         output = attempt()?;
     }
     if !output.status.success() {
@@ -1870,6 +1946,22 @@ pub(crate) fn answer(
             || "was stopped by a signal".to_owned(),
             |code| format!("exited {code}"),
         );
+        let status = match busy {
+            Some(code) => {
+                let why = if code == 429 {
+                    "rate limited"
+                } else {
+                    "unavailable"
+                };
+                let after = if no_room {
+                    "; the collector's budget leaves no room to wait"
+                } else {
+                    ""
+                };
+                format!("{why} (HTTP {code}){after}, {status}")
+            }
+            None => status,
+        };
         let stderr = excerpt(&String::from_utf8_lossy(&output.stderr));
         if stderr.is_empty() {
             bail!("{what}: `{shown}` {status}");
@@ -1878,6 +1970,15 @@ pub(crate) fn answer(
     }
     String::from_utf8(output.stdout)
         .with_context(|| format!("{what}: `{shown}` printed text that is not UTF-8"))
+}
+
+/// The status a forge program's standard error names that is worth waiting out: `HTTP 429`,
+/// `HTTP 502` or `HTTP 503`.
+fn busy_status(stderr: &[u8]) -> Option<u16> {
+    let text = String::from_utf8_lossy(stderr);
+    [429, 502, 503]
+        .into_iter()
+        .find(|code| text.contains(&format!("HTTP {code}")))
 }
 
 /// What `command` printed, read as JSON.

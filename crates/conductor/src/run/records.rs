@@ -29,7 +29,7 @@ use std::process::Output;
 use std::time::Duration;
 
 use anyhow::Result;
-use conductor_model::config::{ForgeAccess, ForgeRoute};
+use conductor_model::config::{ForgeAccess, ForgeRoute, Instance};
 use conductor_model::dispatch::{DispatchLogEvent, DispatchLogLine};
 use serde_json::Value;
 use time::OffsetDateTime;
@@ -70,6 +70,14 @@ pub struct Route {
     /// Whether the instance names `forge_access: anonymous` (story:forge-access-anonymous): then
     /// the records are committed and never pushed, the push refused before git runs it.
     pub anonymous: bool,
+    /// The instance's `gates_policy`, which the bot route runs with as `B10X_GATES_POLICY`; when
+    /// none, the variable the runtime inherited is left as it is
+    /// (`story:box-records-commit-config-home`).
+    pub policy: Option<PathBuf>,
+    /// The `XDG_CONFIG_HOME` the bot route runs with, where `b10x-gates` reads its bot's config
+    /// and key: [`crate::placement::bot_config_home`], none on the host, where the environment
+    /// is left unchanged (`story:box-records-commit-config-home`).
+    pub config_home: Option<PathBuf>,
 }
 
 impl Route {
@@ -91,7 +99,26 @@ impl Route {
             config: config.map(Path::to_owned),
             state: state.map(Path::to_owned),
             anonymous: false,
+            policy: None,
+            config_home: None,
         }
+    }
+
+    /// The route of `instance`, its `forge.route` and `forge_access`, the `gates_policy` and the
+    /// box config directory its bot route runs with (`story:box-records-commit-config-home`),
+    /// checking with `program` and the global flags given.
+    #[must_use]
+    pub fn of(
+        instance: &Instance,
+        program: &Path,
+        config: Option<&Path>,
+        state: Option<&Path>,
+    ) -> Self {
+        let mut route = Self::new(instance.forge.route, program, config, state)
+            .with_forge_access(instance.forge_access);
+        route.policy = instance.gates_policy.as_ref().map(PathBuf::from);
+        route.config_home = crate::placement::bot_config_home(instance);
+        route
     }
 
     /// The route of an instance whose `forge_access` is `access`: under `anonymous`, it pushes
@@ -422,6 +449,12 @@ fn bot(records: &Path, route: &Route, words: &[String]) -> std::result::Result<O
     };
     let mut command = crate::instance::command(gates);
     command.args(["bot", "--"]).args(words).current_dir(records);
+    if let Some(policy) = &route.policy {
+        command.env(crate::broker::POLICY_VARIABLE, policy);
+    }
+    if let Some(home) = &route.config_home {
+        command.env(crate::placement::XDG_CONFIG_VARIABLE, home);
+    }
     succeeded(
         crate::collect::run(&mut command, BOUND),
         &gates.display().to_string(),

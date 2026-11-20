@@ -1,0 +1,13 @@
+{
+  "at": "2026-11-20T09:21:52Z",
+  "actor": "human:unknown",
+  "artifact": "story:forge-rate-limit-retried",
+  "kind": "story",
+  "revision": 10,
+  "change": {
+    "change": "evidence",
+    "kind": "test_result",
+    "source": "cargo test -p conductor-cli --test collect_github: a_gh_read_answered_429_once_is_retried passed at 362c2828",
+    "reference": "crates/conductor/tests/collect_github.rs"
+  }
+}

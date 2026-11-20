@@ -1330,6 +1330,38 @@ pub const CLAUDE_CONFIG_VARIABLE: &str = "CLAUDE_CONFIG_DIR";
 /// The variable naming the XDG state directory ([`BOX_XDG_STATE_DIR`] in a box).
 pub const XDG_STATE_VARIABLE: &str = "XDG_STATE_HOME";
 
+/// The directory under the cache directory the bot route of a box reads its config from
+/// (`XDG_CONFIG_HOME`) when `box.env` names none (`story:box-records-commit-config-home`): the
+/// operator puts `b10x/b10x-bot.json` and its key there.
+pub const BOX_XDG_CONFIG_DIR: &str = "xdg-config";
+
+/// The variable naming the XDG config directory, which `b10x-gates` reads its bot route's
+/// config under.
+pub const XDG_CONFIG_VARIABLE: &str = "XDG_CONFIG_HOME";
+
+/// The `XDG_CONFIG_HOME` the bot route of `instance` runs `b10x-gates` with
+/// (`story:box-records-commit-config-home`): `box.env`'s when it names one, else
+/// [`BOX_XDG_CONFIG_DIR`] under the instance's cache directory, for a [`boxed`] instance; none
+/// for one on the host, whose `b10x-gates` runs with the environment unchanged. Only the bot
+/// route takes it: the box's start sets none, so the forge logins under `HOME` stay read.
+#[must_use]
+pub fn bot_config_home(instance: &Instance) -> Option<PathBuf> {
+    if !boxed(instance) {
+        return None;
+    }
+    Some(
+        instance
+            .r#box
+            .env
+            .get(XDG_CONFIG_VARIABLE)
+            .filter(|named| !named.is_empty())
+            .map_or_else(
+                || clean(Path::new(&instance.cache)).join(BOX_XDG_CONFIG_DIR),
+                PathBuf::from,
+            ),
+    )
+}
+
 /// The harness's state directory of a box whose state directory is `state` ([`BOX_CLAUDE_DIR`]).
 #[must_use]
 pub fn box_claude_dir(state: &Path) -> PathBuf {

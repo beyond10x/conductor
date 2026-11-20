@@ -564,13 +564,7 @@ pub fn daily_tick(
 /// The path of this binary cannot be read, or the line not appended.
 fn commit_alone(config_flag: Option<&Path>, state: Option<&Path>) -> Result<ExitCode> {
     let program = std::env::current_exe().context("run: read the path of the conductor binary")?;
-    let route = Route::new(
-        config::active().instance.forge.route,
-        &program,
-        config_flag,
-        state,
-    )
-    .with_forge_access(config::active().instance.forge_access);
+    let route = Route::of(&config::active().instance, &program, config_flag, state);
     let records = PathBuf::from(&config::active().instance.records);
     let committed = commit_records(&records, &route, &today(OffsetDateTime::now_utc()));
     if let Some(line) = committed.line()? {

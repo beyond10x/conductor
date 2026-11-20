@@ -115,6 +115,15 @@ with which a controller writes its pull requests with the forge login inside the
 `gates_policy` for the bot route
 ([configure an instance](./configure-an-instance.md#1-write-the-file)).
 
+On the bot route, the box's records commit runs `b10x-gates` with `XDG_CONFIG_HOME` set to the
+bot route's config directory of the box: `<cache>/xdg-config` under the instance's `cache`, or
+the directory `box.env` names as `XDG_CONFIG_HOME`; and with `B10X_GATES_POLICY` set to the
+instance's `gates_policy`, which must lie under a directory the box reads, such as the `cache`.
+Put the bot's config and key there yourself, `b10x/b10x-bot.json` and
+`b10x/b10x-bot.private-key.pem` under that directory: conductor neither copies nor reads them.
+Doctor names each one that is missing, with its path (`box <instance> bot route:`), and does not
+fail on it.
+
 Then provoke one denial inside the box, as the [hardening checklist](../security/hardening.md)
 shows.
 

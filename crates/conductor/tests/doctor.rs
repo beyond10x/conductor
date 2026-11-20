@@ -2252,6 +2252,175 @@ fn doctor_names_a_missing_box_tool_directory() {
     );
 }
 
+/// The rows `box alpha bot route: ` of `conductor doctor` on a config file with the instance
+/// `alpha` under `placement` on the default `forge.route: gates`, with `extra` added to its mapping;
+/// the instance's root, and the rows.
+fn bot_route_rows(case: &Case, placement: &str, extra: &str) -> (PathBuf, Vec<String>) {
+    case.programs_but(&[]);
+    let root = case.dir.join("alpha");
+    for sub in ["checkouts", "state", "records", "cache"] {
+        fs::create_dir_all(root.join(sub)).expect("an instance directory");
+    }
+    let text = format!(
+        "version: conductor.config/2\ndaemon: {{port: 7300, store: {store:?}}}\ninstances:\n  \
+         - name: alpha\n    placement: {placement}\n    session_prefix: alpha\n    \
+         sources: [{{github: example-org}}]\n    \
+         checkouts: {{root: {checkouts:?}, trees: {trees:?}}}\n    \
+         records: {records:?}\n    state: {state:?}\n    cache: {cache:?}\n{extra}",
+        store = format!("sqlite:{}", case.dir.join("store/shared.sqlite").display()),
+        checkouts = root.join("checkouts"),
+        trees = root.join("trees"),
+        records = root.join("records"),
+        state = root.join("state"),
+        cache = root.join("cache"),
+    );
+    let file = case.dir.join("conductor.yaml");
+    fs::write(&file, text).expect("write the config file");
+    let output = common::conductor(case.home())
+        .arg("doctor")
+        .current_dir(case.work())
+        .env_clear()
+        .env("HOME", case.home())
+        .env("PATH", case.bin())
+        .env("CONDUCTOR_CONFIG", &file)
+        .env(
+            conductor_cli::placement::SOCKET_VARIABLE,
+            case.dir.join("no.sock"),
+        )
+        .stdin(Stdio::null())
+        .output()
+        .expect("conductor runs");
+    let lines = stdout(&output);
+    let verdict = lines.last().cloned().unwrap_or_default();
+    assert!(
+        !verdict.contains("bot route"),
+        "not a failure: {}",
+        shown(&output)
+    );
+    let rows = lines
+        .into_iter()
+        .filter(|line| line.starts_with("box alpha bot route"))
+        .collect();
+    (root, rows)
+}
+
+/// The bot route's config and key, by their index in `doctor::BOT_ROUTE_FILES`.
+const CONFIG: usize = 0;
+const KEY: usize = 1;
+
+/// Writes the bot route's `file` under the config directory `dir`; doctor reads only the path.
+fn put(dir: &Path, file: usize) {
+    let path = dir.join(conductor_cli::doctor::BOT_ROUTE_FILES[file].0);
+    fs::create_dir_all(path.parent().expect("a parent")).expect("the box config directory");
+    fs::write(path, "x\n").expect("the bot route's file");
+}
+
+/// The row naming the bot route's `file` missing under the config directory `dir`.
+fn bot_route_row(dir: &Path, file: usize) -> String {
+    let (path, what) = conductor_cli::doctor::BOT_ROUTE_FILES[file];
+    format!(
+        "box alpha bot route: {} is not there; put the bot route's {} there (the records \
+         commit in the box runs b10x-gates with XDG_CONFIG_HOME {}: box.env's, else \
+         <cache>/xdg-config)",
+        dir.join(path).display(),
+        what,
+        dir.display()
+    )
+}
+
+/// `story:box-records-commit-config-home`: a boxed instance on `forge.route: gates` whose box
+/// config directory (`<cache>/xdg-config` when `box.env` names no `XDG_CONFIG_HOME`) holds no
+/// bot config, or no key beside it, gets a row `box <instance> bot route:` naming the
+/// path to put it at; reported, not a failure.
+#[test]
+fn doctor_names_a_boxed_gates_instance_without_a_bot_key_in_its_config_dir() {
+    let case = Case::new("box-bot-route-missing");
+    let (root, rows) = bot_route_rows(&case, "systemd", "");
+    let dir = root.join("cache/xdg-config");
+    assert_eq!(
+        rows,
+        [bot_route_row(&dir, CONFIG), bot_route_row(&dir, KEY)]
+    );
+
+    // The config there, the key it uses not: the key's row alone.
+    let case = Case::new("box-bot-route-no-key");
+    let dir = case.dir.join("alpha/cache/xdg-config");
+    put(&dir, CONFIG);
+    let (_, rows) = bot_route_rows(&case, "systemd", "");
+    assert_eq!(rows, [bot_route_row(&dir, KEY)]);
+}
+
+/// `story:box-records-commit-config-home`: `box.env`'s `XDG_CONFIG_HOME` is the box's config
+/// directory doctor looks in: with the bot's config and key there, no row; with them only under
+/// `<cache>/xdg-config`, the row names `box.env`'s directory.
+#[test]
+fn doctor_reads_the_bot_key_under_box_env_xdg_config_home() {
+    let case = Case::new("box-bot-route-env");
+    let named = case.dir.join("bot-config");
+    put(&named, CONFIG);
+    put(&named, KEY);
+    let extra = format!("    box: {{env: {{XDG_CONFIG_HOME: {named:?}}}}}\n");
+    let (_, rows) = bot_route_rows(&case, "systemd", &extra);
+    assert!(rows.is_empty(), "{rows:?}");
+
+    let case = Case::new("box-bot-route-env-elsewhere");
+    let cache = case.dir.join("alpha/cache/xdg-config");
+    put(&cache, CONFIG);
+    put(&cache, KEY);
+    let named = case.dir.join("bot-config");
+    let extra = format!("    box: {{env: {{XDG_CONFIG_HOME: {named:?}}}}}\n");
+    let (_, rows) = bot_route_rows(&case, "systemd", &extra);
+    assert_eq!(
+        rows,
+        [bot_route_row(&named, CONFIG), bot_route_row(&named, KEY)]
+    );
+}
+
+/// `story:box-records-commit-config-home`: a boxed instance's `gates_policy` lying under no
+/// directory the box binds gets a row `box <instance> bot route:`; one under its cache, none.
+#[test]
+fn doctor_names_a_box_gates_policy_under_no_directory_the_box_binds() {
+    let case = Case::new("box-bot-route-policy");
+    let outside = case.dir.join("policy/gates.toml");
+    fs::create_dir_all(outside.parent().expect("a parent")).expect("the policy's directory");
+    fs::write(&outside, "# policy\n").expect("the policy");
+    let extra = format!("    gates_policy: {outside:?}\n");
+    let (root, rows) = bot_route_rows(&case, "systemd", &extra);
+    let policy: Vec<&String> = rows
+        .iter()
+        .filter(|row| row.contains("gates_policy"))
+        .collect();
+    assert_eq!(
+        policy,
+        [&format!(
+            "box alpha bot route: gates_policy {} lies under no directory the box binds, so \
+             the records commit in the box cannot read it; put it under one, such as {}",
+            outside.display(),
+            root.join("cache").display()
+        )]
+    );
+
+    let case = Case::new("box-bot-route-policy-bound");
+    let inside = case.dir.join("alpha/cache/gates.toml");
+    fs::create_dir_all(inside.parent().expect("a parent")).expect("the policy's directory");
+    fs::write(&inside, "# policy\n").expect("the policy");
+    let extra = format!("    gates_policy: {inside:?}\n");
+    let (_, rows) = bot_route_rows(&case, "systemd", &extra);
+    assert!(
+        rows.iter().all(|row| !row.contains("gates_policy")),
+        "{rows:?}"
+    );
+}
+
+/// `story:box-records-commit-config-home`: an instance on the host (`placement: local`) runs `b10x-gates` with its
+/// own environment; doctor names no bot route row for it.
+#[test]
+fn doctor_names_no_bot_route_row_for_an_unboxed_instance() {
+    let case = Case::new("host-bot-route");
+    let (_, rows) = bot_route_rows(&case, "local", "");
+    assert!(rows.is_empty(), "{rows:?}");
+}
+
 /// `story:box-disk-path-default`: a box whose `thresholds.disk_path` lies under none of the
 /// directories the box writes reads its disk thresholds on the box's tmpfs root; doctor names it,
 /// with the checkouts root to write instead, and does not fail. A box that writes no `disk_path`
