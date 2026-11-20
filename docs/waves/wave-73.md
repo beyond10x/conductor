@@ -28,5 +28,12 @@ The supervisor profile's cap example says a cap decision is carried out through 
 owner when the host's own file names one; `tests/profiles.rs` holds the row and the profile's
 line cap as written.
 
+An adversary review of the locator found no wrong value edit (the read-back caught each) but
+three places where a comment was dropped silently: after a tab, a block scalar's last line that
+starts with `#`, and the comments under a removed first key on a dash line; each is fixed, and a
+put whose tree the file already holds now keeps the file byte for byte whatever its quoting.
+Named follow-ups in the story: an emptied `instances: []`, CRLF files, the daemon API and the
+tuner telling a no-op apart, and `.nan`.
+
 In the box: the locator's unit tests, `config_globals`, the profile, roles and no-organization
 suites, and clippy; the instance-route cases that bind a Unix socket need CI.
