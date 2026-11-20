@@ -1,5 +1,5 @@
 // generated from conductor v1
-// contract digest f211df78f7e86952af7f2c6b1430dbdc1ff3c13ace783e6872ec932be9a0f32b
+// contract digest 5e3a2e3e3f11ff3c49e7cf6aff0495c16f2a70e77b27a0f70420b82c61e9bb36
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! What the specification fully determines, generated: the behaviour of every command the plan
@@ -4032,7 +4032,8 @@ where
             crate::observation::AnySnapshot::Collecting(instance) => crate::observation::AnySnapshot::Complete(instance.complete()),
             _ => return Ok(crate::observation::CompleteSnapshotOutcome::WrongState { error: crate::observation::SnapshotNotCollecting { snapshot_id: input.snapshot_id.clone() } }),
         };
-        let next = moved.snapshot();
+        let mut next = moved.snapshot();
+        next.data.failed_collectors = input.failed_collectors.clone();
         if let Some(broken) = next.data.broken_invariant() {
             let capability = "entity invariant";
             return Err(UnmetObligation { capability, source: broken });
@@ -4210,6 +4211,7 @@ where
             outcome: input.outcome.clone(),
             read_bytes: input.read_bytes.clone(),
             written_bytes: input.written_bytes.clone(),
+            reason: input.reason.clone(),
         };
         if let Some(broken) = data.broken_invariant() {
             let capability = "entity invariant";
@@ -4818,6 +4820,7 @@ where
             started_at: input.started_at.clone(),
             disk_free_bytes: input.disk_free_bytes.clone(),
             failure_reason: None,
+            failed_collectors: Vec::new(),
         };
         if let Some(broken) = data.broken_invariant() {
             let capability = "entity invariant";
@@ -6002,6 +6005,7 @@ where
                 outcome: held.data.outcome,
                 read_bytes: held.data.read_bytes,
                 written_bytes: held.data.written_bytes,
+                reason: held.data.reason,
                 actor: held.data.actor,
             })
             .collect())
@@ -6215,6 +6219,7 @@ where
                 started_at: held.data.started_at,
                 disk_free_bytes: held.data.disk_free_bytes,
                 failure_reason: held.data.failure_reason,
+                failed_collectors: held.data.failed_collectors,
                 actor: held.data.actor,
             })
             .collect())
