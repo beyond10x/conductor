@@ -6722,8 +6722,26 @@ fn shown_instance(instance: &Instance, legacy: &Legacy) -> Yaml {
                 ),
             ]),
         ),
-        (
-            "box",
+    ]);
+    // A `conductor.config/2` file removed the instance's `dashboard_port` and `confinement`; a
+    // `conductor.config/1` file has no `placement` and no `limits` of its own, so the shown file
+    // reads back under its version.
+    if let Yaml::Mapping(map) = &mut shown {
+        if legacy.shown {
+            for key in ["placement", "limits"] {
+                map.remove(key);
+            }
+        } else {
+            for (key, _) in REMOVED_KEYS {
+                map.remove(key);
+            }
+        }
+    }
+    // Last and after the removals above, so an instance that declares nothing for its box
+    // (story:box-tool-roots) can be written without it and its other keys stand where they stood.
+    if let Yaml::Mapping(map) = &mut shown {
+        map.insert(
+            text("box"),
             mapping([
                 (
                     "tools",
@@ -6752,21 +6770,7 @@ fn shown_instance(instance: &Instance, legacy: &Legacy) -> Yaml {
                     ),
                 ),
             ]),
-        ),
-    ]);
-    // A `conductor.config/2` file removed the instance's `dashboard_port` and `confinement`; a
-    // `conductor.config/1` file has no `placement` and no `limits` of its own, so the shown file
-    // reads back under its version.
-    if let Yaml::Mapping(map) = &mut shown {
-        if legacy.shown {
-            for key in ["placement", "limits"] {
-                map.remove(key);
-            }
-        } else {
-            for (key, _) in REMOVED_KEYS {
-                map.remove(key);
-            }
-        }
+        );
     }
     shown
 }
