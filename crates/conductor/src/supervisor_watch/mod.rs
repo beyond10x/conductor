@@ -23,11 +23,10 @@
 //! | `INBOX` | the files `globals.supervisor.inbox` and `globals.supervisor.outbox` | the inbox holds a request id the outbox does not, once per new id; off unless both are set |
 //! | `DISK` | free bytes on the instance's `thresholds.disk_path` | under `thresholds.disk_low` (once per fall), or 5 GiB under the baseline, which moves only when a DISK line fires or once an hour |
 //! | `UNPUSHED` | `git` in each checkout under `checkouts.root`, each managed tree, each `--checkout`, and each worktree's detached HEAD | a local branch or detached HEAD whose commits no remote branch holds, the oldest over 30 min old, once per head |
+//! | `GREEN` | the forge of each `github` and `gitlab` source of the instance, with the host's `gh` and `glab`, at most every [`forge::FORGE_EVERY`] ([`forge`]) | an open request, no draft and no auto-merge, whose checks or head pipeline ended green over 15 min ago, once per head sha, unless a `--hold` names it |
 //! | `IDLE` | the instance's store (a `Running` controller with an open dispatch), the transcripts of its checkout and its own trees and its newest report | no transcript write for 15 min (without a transcript, 15 min since the dispatch was sent), unless the newest report waits on a person (a `blocked ci` report never does); at most once per 30 min per controller |
+//! | `CIEND` | the newest report of each repository a `Running` controller works on, and the forge as `GREEN` reads it | the report is `blocked ci <ref>` and that open request's checks ended after it; once per ref and report |
 //! | `TIMEOUT` | the clock | `--timeout` passed with no other trigger |
-//!
-//! `GREEN` and `CIEND` are `story:supervisor-watch-forge-triggers`: [`Watch::holds`] keeps the
-//! `--hold` refs for them.
 //!
 //! **State.** The cursors and baselines are small files under `supervisor-watch/<instance>/` of
 //! the host directory (`supervisor-watch/-/` for what belongs to no instance), each written to a
@@ -44,6 +43,7 @@
 //! stores that exist, read only (AGENTS.md rule 7), writes nothing but `supervisor-watch/`, and
 //! touches neither the guard nor `conductor.lease` (rule 6).
 
+pub mod forge;
 pub mod local;
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -113,6 +113,12 @@ pub struct Sources {
     /// runtime runs in, `{unit}` filled in, with `--show-cursor` (its last line `-- cursor: <c>`);
     /// the watch adds `--after-cursor <c>`, or `-n 1` on a first run ([`JOURNAL`]).
     pub journal: Vec<String>,
+    /// The program, and any words before its own, that `GREEN` and `CIEND` read GitHub with:
+    /// `gh` ([`forge`]).
+    pub gh: Vec<String>,
+    /// The program, and any words before its own, that `GREEN` and `CIEND` read GitLab with:
+    /// `glab` ([`forge`]).
+    pub glab: Vec<String>,
 }
 
 /// The journal of an unboxed instance's runtime unit, as [`Sources::journal`] reads it.
@@ -130,7 +136,8 @@ pub const JOURNAL: [&str; 9] = [
 
 impl Sources {
     /// The real sources: the host directory `host`, `~/.claude/projects` under `home`, the
-    /// written `daemon_store`, the system clock, `statvfs`, [`READ_EVERY`] and `git`.
+    /// written `daemon_store`, the system clock, `statvfs`, [`READ_EVERY`], `git`, `gh` and
+    /// `glab`.
     #[must_use]
     pub fn new(host: PathBuf, home: &Path, daemon_store: Option<String>) -> Self {
         Self {
@@ -142,6 +149,8 @@ impl Sources {
             interval: READ_EVERY,
             git: PathBuf::from("git"),
             journal: JOURNAL.iter().map(|word| (*word).to_owned()).collect(),
+            gh: vec!["gh".to_owned()],
+            glab: vec!["glab".to_owned()],
         }
     }
 }
@@ -450,7 +459,7 @@ impl Watch {
         })
     }
 
-    /// The `--hold` refs, which `GREEN` passes over (story:supervisor-watch-forge-triggers).
+    /// The `--hold` refs, which `GREEN` passes over ([`forge`]).
     #[must_use]
     pub fn holds(&self) -> &[String] {
         &self.holds
@@ -542,6 +551,7 @@ impl Watch {
         local::unpushed(self, &instances, &mut pass, now, &at, notes);
         for instance in &instances {
             local::idle(self, instance, &mut pass, now, &at, notes);
+            forge::forge(self, instance, &mut pass, now, &at, notes)?;
         }
         Ok(pass)
     }

@@ -130,7 +130,17 @@ fn sources(dir: &Path, clock: fn() -> OffsetDateTime) -> Sources {
         interval: Duration::from_millis(5),
         git: PathBuf::from("git"),
         journal: fake_journal(dir),
+        gh: quiet_forge(),
+        glab: quiet_forge(),
     }
+}
+
+/// A forge program that answers every read with an empty list: these cases read no forge
+/// (story:supervisor-watch-forge-triggers has its own, `tests/supervisor_watch_forge.rs`).
+fn quiet_forge() -> Vec<String> {
+    ["sh", "-c", "echo '[]'", "forge"]
+        .map(str::to_owned)
+        .to_vec()
 }
 
 /// A journal of the case: the unit `<unit>`'s entries are the lines of `<dir>/journal/<unit>`,
@@ -963,7 +973,8 @@ fn config_file(dir: &Path) -> PathBuf {
 /// The binary over the config file `file`, with a fake `journalctl` first on its `PATH`, so the
 /// unboxed instance `beta` reads no journal of the host (AGENTS.md rule 5). The fake, written by
 /// the case into `<dir>/bin`, appends its arguments to `<dir>/bin/journal-read` and answers one
-/// cursor.
+/// cursor. Fake `gh` and `glab` beside it answer every read with an empty list, so no forge is
+/// read.
 fn binary(dir: &Path, file: &Path) -> Command {
     use std::os::unix::fs::PermissionsExt as _;
     let home = dir.join("home");
@@ -980,6 +991,11 @@ fn binary(dir: &Path, file: &Path) -> Command {
     )
     .expect("write the fake journalctl");
     fs::set_permissions(&fake, fs::Permissions::from_mode(0o755)).expect("make it runnable");
+    for forge in ["gh", "glab"] {
+        let fake = bin.join(forge);
+        fs::write(&fake, "#!/bin/sh\necho '[]'\n").expect("write a fake forge program");
+        fs::set_permissions(&fake, fs::Permissions::from_mode(0o755)).expect("make it runnable");
+    }
     let path = std::env::var_os("PATH").unwrap_or_default();
     let mut paths = vec![bin];
     paths.extend(std::env::split_paths(&path));

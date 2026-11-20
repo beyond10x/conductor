@@ -2895,15 +2895,21 @@ struct Pull {
 }
 
 /// One entry of a pull request's check rollup: a check run (`status`, `conclusion`) or a status
-/// context (`state`).
+/// context (`state`). `conductor supervisor watch` reads when each ended too
+/// (story:supervisor-watch-forge-triggers): a check run's `completedAt`, a status context's
+/// `startedAt`.
 #[derive(Deserialize)]
-struct Check {
+pub(crate) struct Check {
     #[serde(default)]
     status: Option<String>,
     #[serde(default)]
     conclusion: Option<String>,
     #[serde(default)]
     state: Option<String>,
+    #[serde(default, rename = "completedAt")]
+    completed_at: Option<String>,
+    #[serde(default, rename = "startedAt")]
+    started_at: Option<String>,
 }
 
 impl Check {
@@ -2922,11 +2928,20 @@ impl Check {
         }
         Some(PASSED.contains(&self.conclusion.as_deref().unwrap_or_default()))
     }
+
+    /// When it ended, as the forge wrote it: a check run's `completedAt`, else a status
+    /// context's `startedAt`, the one time it carries.
+    pub(crate) fn ended_at(&self) -> Option<&str> {
+        self.completed_at
+            .as_deref()
+            .or(self.started_at.as_deref())
+            .filter(|at| !at.is_empty())
+    }
 }
 
 /// Whether `checks` have all concluded, green or red; `None` while one runs, or when there is
 /// none, so a pull request whose checks have not started is not reported.
-fn concluded(checks: &[Check]) -> Option<bool> {
+pub(crate) fn concluded(checks: &[Check]) -> Option<bool> {
     let mut green = true;
     for check in checks {
         green &= check.passed()?;

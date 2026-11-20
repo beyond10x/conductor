@@ -116,8 +116,8 @@ The instances' `run` units are the loop and need no model; this session never po
 model turn. But the loop sends you no event, so between events nobody reads the mailboxes. So the
 routine runs on an event: one background Bash,
 `conductor supervisor watch --checkout <product checkout>`, which exits on the first trigger of
-any instance (MAIL, LOG, DAEMON, INBOX, DISK, UNPUSHED, IDLE) or after 20 min with `TIMEOUT`, one
-line each: `<TRIGGER> <instance> <subject> <detail>`; handle every line.
+any instance (MAIL, LOG, DAEMON, INBOX, DISK, UNPUSHED, GREEN, IDLE, CIEND) or after 20 min
+with `TIMEOUT`, one line each: `<TRIGGER> <instance> <subject> <detail>`; handle every line.
 Re-arm it in the turn it exits, before any step that runs over a minute; its cursors persist, so a
 restart skips nothing. Write no watch of your own.
 

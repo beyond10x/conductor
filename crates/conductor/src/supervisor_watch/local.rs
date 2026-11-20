@@ -109,7 +109,7 @@ fn mail_files(dir: &Path) -> io::Result<Vec<String>> {
 }
 
 /// The first line of `text`.
-fn first_line(text: &str) -> &str {
+pub(super) fn first_line(text: &str) -> &str {
     text.lines().next().unwrap_or_default().trim_end()
 }
 
@@ -120,7 +120,7 @@ fn waits_on_a_person(text: &str) -> bool {
 }
 
 /// The words after the brackets of a `[REPORT …]` first line, if it is one.
-fn report_words(line: &str) -> Option<Vec<&str>> {
+pub(super) fn report_words(line: &str) -> Option<Vec<&str>> {
     let rest = line.trim().strip_prefix("[REPORT ")?;
     let (_, after) = rest.split_once(']')?;
     Some(after.split_whitespace().collect())
@@ -139,7 +139,7 @@ fn quiet(words: &[&str]) -> bool {
 pub const MAIL_WINDOW_MS: u64 = 5_000;
 
 /// The milliseconds since the epoch of a name that starts with a ULID.
-fn ulid_ms(name: &str) -> Option<u64> {
+pub(super) fn ulid_ms(name: &str) -> Option<u64> {
     const ALPHABET: &[u8] = b"0123456789ABCDEFGHJKMNPQRSTVWXYZ";
     let mut ms: u64 = 0;
     for byte in name.get(..10)?.bytes() {
@@ -480,7 +480,7 @@ fn journal(
 }
 
 /// `text` as an instant, if it reads as one.
-fn instant(text: &str) -> Option<OffsetDateTime> {
+pub(super) fn instant(text: &str) -> Option<OffsetDateTime> {
     OffsetDateTime::parse(text, &Rfc3339).ok()
 }
 
@@ -1005,9 +1005,12 @@ fn last_written(projects: &Path, instance: &Instance, repository: &str) -> Optio
     newest
 }
 
-/// The text of the newest report of each of `repositories` in the instance's mailbox: read
-/// newest first, stopping once each has one.
-fn newest_reports(instance: &Instance, repositories: &BTreeSet<&str>) -> BTreeMap<String, String> {
+/// The file name and text of the newest report of each of `repositories` in the instance's
+/// mailbox: read newest first, stopping once each has one.
+pub(super) fn newest_reports(
+    instance: &Instance,
+    repositories: &BTreeSet<&str>,
+) -> BTreeMap<String, (String, String)> {
     let mut found = BTreeMap::new();
     if repositories.is_empty() {
         return found;
@@ -1028,7 +1031,7 @@ fn newest_reports(instance: &Instance, repositories: &BTreeSet<&str>) -> BTreeMa
             && repositories.contains(repository.as_str())
             && !found.contains_key(&repository)
         {
-            found.insert(repository, text);
+            found.insert(repository, (name.clone(), text));
             if found.len() == repositories.len() {
                 break;
             }
@@ -1138,7 +1141,7 @@ pub(super) fn idle(
     let reports = newest_reports(instance, &repositories);
     let mut fired = false;
     for (repository, session, dispatch, silence) in silent {
-        if let Some(report) = reports.get(repository) {
+        if let Some((_, report)) = reports.get(repository) {
             let blocked_ci = report_words(first_line(report))
                 .is_some_and(|words| words.starts_with(&["blocked", "ci"]));
             if !blocked_ci && waits_on_a_person(report) {

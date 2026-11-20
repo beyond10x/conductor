@@ -190,8 +190,9 @@ types:
   # when there is none; `detail` is the rest of the line, newlines written as spaces. `timeout` is
   # `<n>s`, `<n>m` or `<n>h`, at most 24h, `20m` when absent; past it with no other trigger the one line is
   # `TIMEOUT`. Each `checkout` is a path outside every instance (the product checkout) whose local
-  # commits `UNPUSHED` reads, its instance `-`. Each `hold` is a ref `GREEN` passes over
-  # (story:supervisor-watch-forge-triggers), accepted and read by nothing until then.
+  # commits `UNPUSHED` reads, its instance `-`. Each `hold` is a request `GREEN` passes over
+  # (story:supervisor-watch-forge-triggers): `<repo>#<n>`, `<repo>!<n>`, `#<n>`, `!<n>`, `<n>` or
+  # the request's URL.
   #
   # Its cursors and baselines are files under `supervisor-watch/<instance>/` of the host directory,
   # one small file each, written to a temporary file and renamed into place, and kept across runs;
@@ -225,8 +226,16 @@ types:
   # free bytes on `thresholds.disk_path` under `thresholds.disk_low`, or 5 GiB under the baseline,
   # which moves only when a `Disk` line fires or once an hour. `Unpushed`: a local commit no remote branch holds, over 30 min old, in a
   # checkout under `checkouts.root`, a managed tree, or a `--checkout`, or of a worktree's detached
-  # HEAD. `Green` and `CiEnd`: the
-  # forge's pull requests and CI runs (story:supervisor-watch-forge-triggers). `Idle`: a `Running`
+  # HEAD. `Green` (story:supervisor-watch-forge-triggers): an open request that is no draft and
+  # has no auto-merge, whose checks or head pipeline all ended green over 15 min ago, once per
+  # head sha, unless a `hold` names it; subject `<repo>#<n>` (GitHub) or `<repo>!<iid>` (GitLab).
+  # `CiEnd`: the newest report of a `Running` controller's repository is `blocked ci <ref>`, and
+  # the checks or head pipeline of that open request ended after the report was written; once per
+  # ref and report. Both read the forge of the instance's `github` and `gitlab` sources with the
+  # host's `gh` and `glab`, at most every 2 min per instance and only for the repositories with an
+  # open request or such a report; a read that fails is one note, and doubles that instance's
+  # interval up to 16 min until a read succeeds; an instance with `forge_access: anonymous` is
+  # not read, one note per run. `Idle`: a `Running`
   # controller with an open dispatch whose transcripts (its checkout's and its own trees') have not
   # been written for 15 min, or with none, whose dispatch was sent 15 min ago; at most once per 30
   # min, unless its newest report waits on a person. `Timeout`: `timeout` passed with no
