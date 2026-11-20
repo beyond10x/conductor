@@ -1,0 +1,13 @@
+{
+  "at": "2026-11-20T06:51:29Z",
+  "actor": "human:unknown",
+  "artifact": "story:box-tool-roots",
+  "kind": "story",
+  "revision": 8,
+  "change": {
+    "change": "evidence",
+    "kind": "test_result",
+    "source": "conductor build run: cargo test -p conductor-cli --test config (81 passed), --test doctor (45 passed), --test box_session (14 passed), --test placement (90 passed, 24 failed: all bind a Unix socket, refused in this box, needs CI; the 4 box-tool-roots tests pass); cargo test -p conductor-docs (24 passed); clippy -p conductor-cli -p conductor-docs --all-targets -D warnings clean; ess specify validate, http validate, conform run 733/733, conductor-model identical to a fresh regeneration",
+    "reference": "w65/u1-box-tool-roots@9aa79c66"
+  }
+}

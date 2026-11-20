@@ -29,6 +29,26 @@ environment, where you declare that slot on `substrate-daemon`; without it the b
 its runtime refuses each proxied write. The sessions the runtime starts run in its box, children
 of the runtime: they write what the box writes and reach what it reaches.
 
+A toolchain or a tool cache of the host reaches the box through the instance's `box` key: each
+directory of `box.tools` is read by the box at its own path, and `box.env` is set in the box's
+start, which every session of the box inherits:
+
+```yaml
+box:
+  tools: [~/.cargo, ~/.rustup]
+  env: {CARGO_HOME: ~/.cargo, RUSTUP_HOME: ~/.rustup}
+```
+
+A declared directory that holds the directory of `conductor` or of the harness (`~/.cargo` over
+`~/.cargo/bin`) takes its place. One box reads at most four directories: with the directories of
+`conductor` and the harness, two declared directories usually fit, and more are refused
+(`placement.mounts-exceeded`), which `conductor config validate` names. The box reads everything
+under a declared directory, `~/.cargo/credentials.toml` included. A declared directory that is not
+there is left out, and `conductor doctor` names it (`box <instance> tools:`); one that holds the
+config file or `~/.b10x/conductor/daemon` is refused (`placement.tool-directory-shared`).
+`box.env` names no variable conductor sets itself: `HOME`, `PATH`, `CLAUDE_CONFIG_DIR`,
+`XDG_STATE_HOME` or a `CONDUCTOR_*` variable.
+
 A session is narrowed by [the guard](../security/the-guard.md) only, which narrows writes and not
 reads, the shell or the network ([known limits](../security/limits.md)). What the account can
 reach, a session can reach.

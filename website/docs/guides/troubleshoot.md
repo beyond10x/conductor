@@ -75,6 +75,8 @@ detail of a `Refused` result. For a `placement` that opens a box, the detail is 
 | `placement.store-not-absolute` | `daemon.store` names a sqlite file without an absolute path, such as `sqlite:conductor.sqlite`, and the instance runs in a box. Write an absolute path or one under `~/`, as the detail prints it. `conductor config validate` notes it |
 | `placement.writable-root-shared` for the checkouts | the checkouts root holds the config file: a box writes the checkouts root (its controllers commit there), so keep the config file outside it |
 | `placement.mounts-exceeded` | a directory the box reads, such as that of `conductor` or `claude`, holds one it writes, and its other entries are more directories or files than one box reads (four directories, sixteen files): move the directory it writes out of it |
+| `placement.mounts-exceeded` with `box.tools` | the directories `box.tools` declares and those of `conductor` and the harness are more than the four one box reads: declare fewer, or one that holds the directory of `conductor` (`~/.cargo` over `~/.cargo/bin`) |
+| `placement.tool-directory-shared` | a directory of `box.tools` holds the config file or lies with `~/.b10x/conductor/daemon`: declare a directory apart from both |
 | `placement.apertures-exceeded` | the box would name more than four egress apertures: one for the model host, one for conductord's dial-in while `daemon.dial_port` is set, and one per forge host of the sources (two for GitHub). Split the sources over instances |
 | `confinement.family-unserved`, `confinement.fact-unserved` | the local `substrate-daemon` does not serve the adapter. `systemd` needs it in a delegated systemd scope |
 | `placement.substrate-unreachable` | the remote substrate daemon did not answer within 10 s |
