@@ -5,10 +5,15 @@ kind: story
 status: active
 title: 'Guard: a repository slug ending in /conductor is no conductor run'
 summary: conductor_run reads an argument word whose basename is conductor as the program, so the bot route's run rerun of this repository is denied as conductor run
+scope:
+- confidence: cited
+  path: crates/conductor/src/guard/rules.rs
+- confidence: cited
+  path: crates/conductor/tests/guard_rules.rs
 revision: 4
 transitions:
-- {from: "draft", to: "proposed", at: "2026-11-20T01:21:17Z", actor: "human:unknown", revision: 3}
-- {from: "proposed", to: "active", at: "2026-11-20T01:21:19Z", actor: "human:unknown", revision: 4}
+- {from: "draft", to: "proposed", at: "2026-11-20T01:22:55Z", actor: "human:unknown", revision: 2}
+- {from: "proposed", to: "active", at: "2026-11-20T01:22:57Z", actor: "human:unknown", revision: 3}
 ---
 ## Problem
 

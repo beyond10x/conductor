@@ -1,0 +1,12 @@
+{
+  "at": "2026-11-20T01:45:54Z",
+  "actor": "human:unknown",
+  "artifact": "story:guard-repo-slug-not-program",
+  "kind": "story",
+  "revision": 4,
+  "change": {
+    "change": "evidence",
+    "kind": "test_result",
+    "source": "cargo test -p conductor-cli --test guard_rules (181 passed; a_repository_named_conductor_is_no_conductor_run failed first on main, 7 of 8 lines denied as conductor run), --test adv_guard --test guard_hook --test adv_w51_doctor_guard --test adv_goal_id_unguarded --test no_organization green; clippy -p conductor-cli --all-targets -D warnings clean"
+  }
+}
