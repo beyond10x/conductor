@@ -4,12 +4,15 @@
 //! [`take_in`] is the driver (design § 4). It starts a snapshot (`StartSnapshot`) at the current
 //! time, with the bytes free on the file system holding `/`; runs each collector it is given, in
 //! order, each recording through a [`Recorder`], which also gives it the state directory
-//! ([`Recorder::state`]); and ends the snapshot with `CompleteSnapshot` when
-//! every collector answered, or with `FailSnapshot` naming the first that did not, which stops the
-//! run. A collector that panics did not answer: the panic is its failed answer. A failed snapshot
-//! is kept with its reason, `<collector>: <error>`, which `snapshot snapshots` shows as
-//! `failure_reason`; a command a collector ran past its bound ([`collect::run`]) is named there
-//! with the bound. `snapshot start-snapshot` is the driver over
+//! ([`Recorder::state`]); and ends the snapshot with `CompleteSnapshot` once every collector ran.
+//! A collector that does not answer fails only its own rows
+//! (`story:collector-failure-stays-its-own`): its run is recorded `Failed` with its error as its
+//! reason, which `snapshot collector-runs` shows as `reason`, the driver goes on
+//! with the next collector, and the completed snapshot names it in `failed_collectors`
+//! (`snapshot snapshots`, `status`). A collector that panics did not answer: the panic is its
+//! failed answer; a command a collector ran past its bound ([`collect::run`]) is named in the
+//! reason with the bound. `FailSnapshot` ends a snapshot whose process is gone, or one ended by
+//! hand. `snapshot start-snapshot` is the driver over
 //! [`collect::registered`](crate::collect::registered) (design § 4).
 //!
 //! The driver records each collector's run as it ends (`RecordCollectorRun`,
@@ -133,17 +136,21 @@ pub struct Taken {
     pub snapshot_id: SnapshotId,
     /// `Complete` or `Failed`.
     pub state: SnapshotState,
-    /// Why it failed: the first collector that did not answer, and its error. `None` when it
-    /// completed.
+    /// Why it failed; `None` when it completed. The driver completes a snapshot whatever its
+    /// collectors answered (`story:collector-failure-stays-its-own`).
     pub reason: Option<String>,
+    /// Each collector that did not answer, in the order run, as `<collector>: <error>`: its run
+    /// is recorded `Failed` with the error as its reason, and the snapshot names it in
+    /// `failed_collectors`; what it recorded before it failed is kept, as a failed snapshot kept it.
+    pub failed: Vec<String>,
 }
 
 /// The driver over the store under the state directory `state`, which it opens, creating it when
 /// it is not there: starts a snapshot now, with the bytes free on the file system holding the
 /// instance's `thresholds.disk_path`,
 /// runs `collectors` in order, each given `state` through [`Recorder::state`], and ends the
-/// snapshot `Complete` when every one answered, or `Failed` naming the first that did not, a
-/// collector that panicked included.
+/// snapshot `Complete` once every one ran; one that did not answer, a collector that panicked
+/// included, is recorded `Failed` with its reason and named in [`Taken::failed`].
 ///
 /// # Errors
 ///
@@ -162,7 +169,7 @@ pub fn take_in(state: &Path, collectors: &[Collector]) -> Result<Taken> {
 }
 
 /// [`take_in`] over a store opened elsewhere, whose state directory the driver does not know: a
-/// collector that asks for it ([`Recorder::state`]) fails the snapshot.
+/// collector that asks for it ([`Recorder::state`]) fails.
 ///
 /// # Errors
 ///
@@ -235,7 +242,7 @@ fn drive(
 
     // Each collector's observations are committed together when it ends (`Store::hold_observations`).
     generated.ports.store.hold_observations();
-    let mut reason = None;
+    let mut failed: Vec<(String, String)> = Vec::new();
     for collector in collectors {
         let started_at = Timestamp(now()?);
         let io = process_io();
@@ -270,6 +277,12 @@ fn drive(
             Ok(()) => CollectorRunOutcome::Completed,
             Err(_) => CollectorRunOutcome::Failed,
         };
+        // A collector that did not answer fails only its own rows: its reason goes on its run,
+        // and the driver goes on with the next (`story:collector-failure-stays-its-own`).
+        let reason = match (outcome, &answered) {
+            (CollectorRunOutcome::Failed, Err(error)) => Some(format!("{error:#}")),
+            _ => None,
+        };
         record_run(
             &mut generated,
             RecordCollectorRun {
@@ -281,11 +294,14 @@ fn drive(
                 outcome,
                 read_bytes,
                 written_bytes,
+                reason: reason.clone(),
             },
         )?;
-        if let (CollectorRunOutcome::Failed, Err(error)) = (outcome, answered) {
-            reason = Some(format!("{}: {error:#}", collector.name()));
-            break;
+        if let Some(reason) = reason {
+            failed.push((
+                collector.name().to_owned(),
+                format!("{}: {reason}", collector.name()),
+            ));
         }
     }
     generated
@@ -299,29 +315,25 @@ fn drive(
             )
         })?;
 
-    let state = match &reason {
-        None => {
-            complete(&mut generated, snapshot_id.clone())?;
-            SnapshotState::Complete
+    let mut names: Vec<String> = Vec::new();
+    for (name, _) in &failed {
+        if !names.contains(name) {
+            names.push(name.clone());
         }
-        Some(reason) => {
-            fail(&mut generated, snapshot_id.clone(), reason.clone())?;
-            SnapshotState::Failed
-        }
-    };
+    }
+    complete(&mut generated, snapshot_id.clone(), names)?;
     generated
         .ports
         .store
         .check()
         .context("keep the snapshot's end")?;
-    if state == SnapshotState::Complete {
-        roll_up(&mut generated.ports.store, &snapshot_id);
-        retain(&generated.ports.store, &snapshot_id)?;
-    }
+    roll_up(&mut generated.ports.store, &snapshot_id);
+    retain(&generated.ports.store, &snapshot_id)?;
     Ok(Taken {
         snapshot_id,
-        state,
-        reason,
+        state: SnapshotState::Complete,
+        reason: None,
+        failed: failed.into_iter().map(|(_, reason)| reason).collect(),
     })
 }
 
@@ -571,11 +583,13 @@ fn panic_message(payload: &(dyn Any + Send)) -> &str {
 fn complete(
     generated: &mut Generated<impl SnapshotStorage>,
     snapshot_id: SnapshotId,
+    failed_collectors: Vec<String>,
 ) -> Result<()> {
     match generated
         .complete_snapshot(CompleteSnapshot {
             actor: crate::actor::daemon(),
             snapshot_id,
+            failed_collectors,
         })
         .map_err(|unmet| anyhow!("{unmet}"))?
     {
@@ -1018,6 +1032,15 @@ pub fn start_snapshot(state: Option<&Path>, args: StartSnapshotArgs) -> Result<E
         line(&taken.snapshot_id.0.0)?;
         Ok(taken)
     })?;
+    // A collector that did not answer failed only its own rows; the snapshot completed, and each
+    // is said on standard error, one line each (`story:collector-failure-stays-its-own`).
+    for reason in &taken.failed {
+        eprintln!(
+            "conductor: {COMMAND}: snapshot {}: collector {}",
+            taken.snapshot_id.0.0,
+            one_line(reason)
+        );
+    }
     match taken.reason {
         None => Ok(ExitCode::SUCCESS),
         Some(reason) => {
@@ -1421,6 +1444,7 @@ pub fn record_collector_run(
             outcome: given_named(args.outcome, "outcome", collector_run_outcome_named)?,
             read_bytes: args.read_bytes,
             written_bytes: args.written_bytes,
+            reason: args.reason,
         };
         let dir = absolute(&crate::state::dir(state)?)?;
         let mut generated = Generated::new(Ports {
@@ -1506,8 +1530,9 @@ pub fn complete_snapshot(state: Option<&Path>, args: CompleteSnapshotArgs) -> Re
     no_input_json(args.input_json, "snapshot complete-snapshot --input-json")?;
     run("snapshot complete-snapshot", || {
         let snapshot = snapshot_id(args.snapshot_id)?;
+        let failed = names(args.failed_collectors, "failed-collectors")?;
         let mut generated = Generated::new(crate::state::open(state)?);
-        complete(&mut generated, snapshot.clone())?;
+        complete(&mut generated, snapshot.clone(), failed)?;
         generated
             .ports
             .check()
@@ -1545,12 +1570,13 @@ pub fn fail_snapshot(state: Option<&Path>, args: FailSnapshotArgs) -> Result<Exi
 /// There is no store, a read of it fails for a reason other than a record this build cannot read,
 /// or the rows cannot be written to standard output.
 pub fn snapshots(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> {
-    const COLUMNS: [&str; 6] = [
+    const COLUMNS: [&str; 7] = [
         "snapshot_id",
         "state",
         "started_at",
         "disk_free_bytes",
         "failure_reason",
+        "failed_collectors",
         "actor",
     ];
     let generated = Generated::new(crate::state::open_reader(state)?);
@@ -1566,6 +1592,7 @@ pub fn snapshots(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> {
                 Value::from(row.started_at.0),
                 Value::from(row.disk_free_bytes),
                 Value::from(row.failure_reason),
+                Value::from(row.failed_collectors),
                 Value::from(crate::actor::written(&row.actor)),
             ]
         })
@@ -1916,14 +1943,15 @@ pub fn member_failures(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode>
 
 /// `conductor snapshot collector-runs`: the view `conductor.observation.CollectorRuns`, each
 /// collector's run of every kept snapshot, with its start, its duration in milliseconds, how it
-/// ended and the bytes read and written while it ran; a row's `snapshot_id` names its snapshot.
+/// ended, the bytes read and written while it ran, and the reason a `Failed` run answered; a
+/// row's `snapshot_id` names its snapshot.
 ///
 /// # Errors
 ///
 /// There is no store, a read of it fails for a reason other than a record this build cannot read,
 /// or the rows cannot be written to standard output.
 pub fn collector_runs(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> {
-    const COLUMNS: [&str; 9] = [
+    const COLUMNS: [&str; 10] = [
         "observation_id",
         "snapshot_id",
         "collector",
@@ -1932,6 +1960,7 @@ pub fn collector_runs(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> 
         "outcome",
         "read_bytes",
         "written_bytes",
+        "reason",
         "actor",
     ];
     let generated = Generated::new(crate::state::open_reader(state)?);
@@ -1950,6 +1979,7 @@ pub fn collector_runs(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> 
                 Value::from(collector_run_outcome_name(row.outcome)),
                 Value::from(row.read_bytes),
                 Value::from(row.written_bytes),
+                Value::from(row.reason),
                 Value::from(crate::actor::written(&row.actor)),
             ]
         })

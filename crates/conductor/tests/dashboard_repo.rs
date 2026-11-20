@@ -9,6 +9,7 @@
 //! directory; nothing is read from the environment.
 
 mod active;
+mod failed;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::OsString;
@@ -479,12 +480,6 @@ fn plan() -> Collector {
     })
 }
 
-fn fails() -> Collector {
-    Collector::new("fails", |_: &mut Recorder<'_>| {
-        anyhow::bail!("the source did not answer")
-    })
-}
-
 fn take(state: &Path, started_at: &str, collector: Collector) -> SnapshotState {
     let store = store::open(state).expect("open the store");
     let start = StartSnapshot {
@@ -512,9 +507,11 @@ fn the_plan_is_the_newest_complete_snapshot_s_blockers_and_specifications() {
         take(&state, "2026-10-13T08:00:00Z", plan()),
         SnapshotState::Complete
     );
-    assert_eq!(
-        take(&state, "2026-10-13T09:00:00Z", fails()),
-        SnapshotState::Failed
+    failed::snapshot(
+        &state,
+        "2026-10-13T09:00:00Z",
+        "the source did not answer",
+        |_, _| {},
     );
     let held = store::open_existing(&state).expect("the store opens");
 

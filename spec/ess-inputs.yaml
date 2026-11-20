@@ -123,3 +123,4 @@ scenarios:
   - scenarios/config-remove-instance.yaml
   - scenarios/instance-row-starting.yaml
   - scenarios/instance-row-sources-detail.yaml
+  - scenarios/observation-record-collector-run-failed.yaml

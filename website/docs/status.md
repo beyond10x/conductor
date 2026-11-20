@@ -23,7 +23,7 @@ custom_edit_url: null
 | Specifications | ● shipped | Each repository's specification is read on origin/main, one per repository, archived ones left out. |
 | Releases and merged pull requests | ● shipped | A snapshot records the releases and merged pull requests of its window. |
 | [Catalog membership](./reference/config.md) | ● shipped | When the instance names a catalog, each recorded repository says whether the catalog lists it. |
-| A silent source fails the snapshot | ● shipped | A source that does not answer fails the snapshot and keeps what was already recorded. |
+| A silent source fails only its own rows | ● shipped | A source that does not answer fails its collector's run, with its reason; the snapshot completes with every other collector's rows and names the failed collector. |
 | Codex thread goals | ○ planned | A snapshot reads the operator's Codex thread goals, read-only. |
 | Dependency map | ○ planned | Which repository depends on which, read from their manifests rather than declared. |
 

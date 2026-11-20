@@ -8,6 +8,7 @@
 
 mod active;
 mod common;
+mod failed;
 
 use std::collections::BTreeMap;
 use std::fs;
@@ -244,23 +245,27 @@ fn fails() -> Collector {
     })
 }
 
-/// Acceptance 1: with one collector recording a repository and one failing, the snapshot ends
-/// `Failed`, naming the failing collector, and the view lists the first collector's observation.
+/// Acceptance 1, as `story:collector-failure-stays-its-own` rewrites it: with one collector
+/// recording a repository and one failing, the snapshot ends `Complete`, naming the failing
+/// collector, and the view lists the first collector's observation.
 #[test]
-fn a_source_that_does_not_answer_fails_the_snapshot_and_keeps_what_was_recorded() {
+fn a_source_that_does_not_answer_fails_only_its_own_rows_and_keeps_what_was_recorded() {
     let root = case_dir("failed");
     let taken = take(&root, &[records("alpha"), fails()]);
-    assert_eq!(taken.state, SnapshotState::Failed, "{taken:?}");
+    assert_eq!(taken.state, SnapshotState::Complete, "{taken:?}");
+    assert_eq!(taken.reason, None, "{taken:?}");
     assert_eq!(
-        taken.reason.as_deref(),
-        Some("fails: the source did not answer"),
-        "the reason names the first collector that did not answer"
+        taken.failed,
+        ["fails: the source did not answer"],
+        "the driver names the collector that did not answer"
     );
 
     let snapshots = rows(&root, "snapshots");
     assert_eq!(snapshots.len(), 1, "{snapshots:?}");
     assert_eq!(snapshots[0]["snapshot_id"], id(&taken.snapshot_id));
-    assert_eq!(snapshots[0]["state"], "Failed");
+    assert_eq!(snapshots[0]["state"], "Complete");
+    assert_eq!(snapshots[0]["failure_reason"], Value::Null);
+    assert_eq!(snapshots[0]["failed_collectors"], json!(["fails"]));
 
     let repositories: Vec<Value> = rows(&root, "repositories")
         .into_iter()
@@ -272,14 +277,114 @@ fn a_source_that_does_not_answer_fails_the_snapshot_and_keeps_what_was_recorded(
     );
 }
 
-/// Acceptance 2: a `RecordRepository` against the failed snapshot is refused with
+/// `story:collector-failure-stays-its-own`: the snapshot holds every other collector's rows when
+/// one collector fails. With `records("alpha")`, `fails()`, `records("beta")` it ends `Complete`,
+/// `repositories` lists alpha and beta, and `collector-runs` holds `fails` `Failed` with its
+/// reason, the two others `Completed` with none.
+#[test]
+fn a_failing_collector_leaves_the_later_collectors_rows_recorded() {
+    let root = case_dir("failed-in-between");
+    let taken = take(&root, &[records("alpha"), fails(), records("beta")]);
+    assert_eq!(taken.state, SnapshotState::Complete, "{taken:?}");
+    assert_eq!(rows(&root, "snapshots")[0]["state"], "Complete");
+
+    let repositories: Vec<Value> = rows(&root, "repositories")
+        .into_iter()
+        .map(assigned)
+        .collect();
+    assert_eq!(
+        repositories,
+        vec![
+            repository_row(&taken.snapshot_id, "alpha"),
+            repository_row(&taken.snapshot_id, "beta"),
+        ]
+    );
+
+    let runs: Vec<(String, String, Value)> = rows(&root, "collector-runs")
+        .into_iter()
+        .map(|row| {
+            (
+                row["collector"].as_str().unwrap_or_default().to_owned(),
+                row["outcome"].as_str().unwrap_or_default().to_owned(),
+                row["reason"].clone(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        runs,
+        [
+            ("records".to_owned(), "Completed".to_owned(), Value::Null),
+            (
+                "fails".to_owned(),
+                "Failed".to_owned(),
+                Value::from("the source did not answer")
+            ),
+            ("records".to_owned(), "Completed".to_owned(), Value::Null),
+        ]
+    );
+}
+
+/// `story:collector-failure-stays-its-own`: the views read the other collectors' rows of a
+/// snapshot one collector failed. `repository activity` reads that snapshot's repositories, and
+/// `status` names the collector that failed, in its attention lines, in full and as JSON.
+#[test]
+fn the_views_read_the_other_collectors_rows_of_a_snapshot_one_collector_failed() {
+    let root = case_dir("failed-views");
+    let taken = take(&root, &[records("alpha"), fails(), records("beta")]);
+    assert_eq!(taken.state, SnapshotState::Complete, "{taken:?}");
+
+    let activity = conductor(&root, &["repository", "activity", "--format", "json"]);
+    assert!(activity.status.success(), "{}", describe(&activity));
+    let activity: Value = serde_json::from_slice(&activity.stdout).expect("activity is JSON");
+    let named: Vec<&str> = activity
+        .as_array()
+        .expect("activity is an array")
+        .iter()
+        .filter_map(|row| row["repository"].as_str())
+        .collect();
+    assert_eq!(named, ["alpha", "beta"], "{activity}");
+
+    let brief = conductor(&root, &["status"]);
+    assert!(brief.status.success(), "{}", describe(&brief));
+    let brief = String::from_utf8_lossy(&brief.stdout).into_owned();
+    assert!(
+        brief.contains(&format!("snapshot {}", id(&taken.snapshot_id))),
+        "status reads the snapshot one collector failed: {brief}"
+    );
+    assert!(
+        brief
+            .lines()
+            .any(|line| line.starts_with("failed collectors: fails;")),
+        "status names the failed collector: {brief}"
+    );
+
+    let full = conductor(&root, &["status", "--full"]);
+    assert!(full.status.success(), "{}", describe(&full));
+    let full = String::from_utf8_lossy(&full.stdout).into_owned();
+    assert!(full.contains("Failed collectors: fails;"), "{full}");
+
+    let json_out = conductor(&root, &["status", "--format", "json"]);
+    assert!(json_out.status.success(), "{}", describe(&json_out));
+    let report: Value = serde_json::from_slice(&json_out.stdout).expect("status is JSON");
+    assert_eq!(report["snapshot_id"], id(&taken.snapshot_id), "{report}");
+    assert_eq!(report["failed_collectors"], json!(["fails"]), "{report}");
+}
+
+/// Acceptance 2: a `RecordRepository` against a failed snapshot is refused with
 /// `SnapshotNotCollecting`, and nothing is recorded. Completing or failing it again is refused the
-/// same way, and an id no snapshot carries with `SnapshotNotFound`.
+/// same way, and an id no snapshot carries with `SnapshotNotFound`. The failed snapshot is stored
+/// by hand ([`failed::snapshot`]), as the driver no longer fails one
+/// (`story:collector-failure-stays-its-own`).
 #[test]
 fn a_failed_snapshot_takes_no_more_observations() {
     let root = case_dir("closed");
-    let taken = take(&root, &[records("alpha"), fails()]);
-    let snapshot = id(&taken.snapshot_id).to_owned();
+    let snapshot_id = failed::snapshot(
+        &root.join("state"),
+        "2026-10-07T00:00:00Z",
+        "the run was killed",
+        |store, snapshot| failed::repository(store, snapshot, repository(snapshot, "alpha")),
+    );
+    let snapshot = id(&snapshot_id).to_owned();
 
     let record = |snapshot: &str| {
         conductor(
@@ -372,7 +477,7 @@ fn a_failed_snapshot_takes_no_more_observations() {
         .collect();
     assert_eq!(
         repositories,
-        vec![repository_row(&taken.snapshot_id, "alpha")],
+        vec![repository_row(&snapshot_id, "alpha")],
         "nothing was recorded by the refused commands"
     );
     assert_eq!(rows(&root, "snapshots")[0]["state"], "Failed");
@@ -386,6 +491,7 @@ fn every_source_answering_completes_the_snapshot_with_the_free_disk_measured() {
     let taken = take(&root, &[records("alpha"), records("beta")]);
     assert_eq!(taken.state, SnapshotState::Complete, "{taken:?}");
     assert_eq!(taken.reason, None);
+    assert_eq!(taken.failed, Vec::<String>::new());
 
     let snapshots = rows(&root, "snapshots");
     assert_eq!(snapshots.len(), 1, "{snapshots:?}");
@@ -417,10 +523,11 @@ fn every_source_answering_completes_the_snapshot_with_the_free_disk_measured() {
     );
 }
 
-/// A refused observation is the collector's error: the snapshot fails naming the refusal, and the
-/// collector after it does not run.
+/// A refused observation is the collector's error: its run is recorded `Failed` with the
+/// refusal, the collector after it runs, and the snapshot completes
+/// (`story:collector-failure-stays-its-own`).
 #[test]
-fn a_refused_observation_fails_the_snapshot_with_the_refusal() {
+fn a_refused_observation_fails_its_collector_with_the_refusal() {
     let root = case_dir("refused");
     let zero = Collector::new("pulls", |record: &mut Recorder<'_>| {
         let input = RecordPullRequest {
@@ -440,15 +547,36 @@ fn a_refused_observation_fails_the_snapshot_with_the_refusal() {
         record.pull_request(input)?;
         Ok(())
     });
-    let taken = take(&root, &[zero, records("never")]);
-    assert_eq!(taken.state, SnapshotState::Failed, "{taken:?}");
-    let reason = taken.reason.unwrap_or_default();
+    let taken = take(&root, &[zero, records("after")]);
+    assert_eq!(taken.state, SnapshotState::Complete, "{taken:?}");
+    assert_eq!(taken.failed.len(), 1, "{taken:?}");
     assert!(
-        reason.starts_with("pulls: ") && reason.contains("InvalidPullRequestNumber"),
-        "{reason:?}"
+        taken.failed[0].starts_with("pulls: ")
+            && taken.failed[0].contains("InvalidPullRequestNumber"),
+        "{taken:?}"
+    );
+    let runs = rows(&root, "collector-runs");
+    let pulls = runs
+        .iter()
+        .find(|row| row["collector"] == "pulls")
+        .unwrap_or_else(|| panic!("no run of pulls: {runs:?}"));
+    assert_eq!(pulls["outcome"], "Failed", "{runs:?}");
+    assert!(
+        pulls["reason"]
+            .as_str()
+            .is_some_and(|reason| reason.contains("InvalidPullRequestNumber")),
+        "{runs:?}"
     );
     assert_eq!(rows(&root, "pull-requests"), Vec::<Value>::new());
-    assert_eq!(rows(&root, "repositories"), Vec::<Value>::new());
+    let repositories: Vec<Value> = rows(&root, "repositories")
+        .into_iter()
+        .map(assigned)
+        .collect();
+    assert_eq!(
+        repositories,
+        vec![repository_row(&taken.snapshot_id, "after")],
+        "the collector after the refused one ran"
+    );
 }
 
 /// Every observation kind a collector records reads back, field for field, through its view.
@@ -744,8 +872,9 @@ fn a_session_s_measured_envelope_reads_back_through_the_sessions_view() {
 }
 
 /// `snapshot start-snapshot` is the driver over the registered collectors. It prints the
-/// snapshot's id, which the view lists with the free disk measured; it exits 0 when the snapshot
-/// completed and 1, with one stderr line naming the collector, when it failed.
+/// snapshot's id, which the view lists with the free disk measured; it completes whatever its
+/// collectors answer (`story:collector-failure-stays-its-own`) and exits 0, with one stderr line
+/// naming the snapshot for each collector that did not answer, each of them a `Failed` run.
 #[test]
 fn start_snapshot_runs_the_registered_collectors() {
     let root = case_dir("start");
@@ -764,16 +893,28 @@ fn start_snapshot_runs_the_registered_collectors() {
             .is_some_and(|bytes| bytes > 0),
         "{snapshots:?}"
     );
-    match snapshots[0]["state"].as_str() {
-        Some("Complete") => assert!(output.status.success(), "{}", describe(&output)),
-        Some("Failed") => {
-            assert_eq!(output.status.code(), Some(1), "{}", describe(&output));
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            assert_eq!(stderr.lines().count(), 1, "{}", describe(&output));
-            assert!(stderr.contains(&printed), "{}", describe(&output));
-        }
-        other => panic!("the snapshot ended {other:?}; {}", describe(&output)),
-    }
+    assert_eq!(snapshots[0]["state"], "Complete", "{}", describe(&output));
+    assert!(output.status.success(), "{}", describe(&output));
+    let failed: Vec<Value> = rows(&root, "collector-runs")
+        .into_iter()
+        .filter(|row| row["outcome"] == "Failed")
+        .collect();
+    assert_eq!(
+        snapshots[0]["failed_collectors"],
+        Value::from(
+            failed
+                .iter()
+                .map(|row| row["collector"].clone())
+                .collect::<Vec<_>>()
+        ),
+        "{snapshots:?}"
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let said: Vec<&str> = stderr
+        .lines()
+        .filter(|line| line.contains(&format!("snapshot {printed}: collector ")))
+        .collect();
+    assert_eq!(said.len(), failed.len(), "{}", describe(&output));
 }
 
 /// A negative free-disk count is refused with `InvalidCount`, and no snapshot is started.
@@ -842,7 +983,7 @@ fn collector_runs(root: &Path, snapshot: &SnapshotId) -> BTreeMap<String, (Strin
 fn each_collectors_run_is_recorded_with_its_duration() {
     let root = case_dir("collector-runs");
     let taken = take(&root, &[waits("quick", 0), waits("slow", 400), fails()]);
-    assert_eq!(taken.state, SnapshotState::Failed, "{taken:?}");
+    assert_eq!(taken.state, SnapshotState::Complete, "{taken:?}");
 
     let runs = collector_runs(&root, &taken.snapshot_id);
     assert_eq!(

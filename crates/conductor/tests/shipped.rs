@@ -10,13 +10,13 @@
 
 mod active;
 mod common;
+mod failed;
 
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Output, Stdio};
 use std::time::Duration;
 
-use anyhow::bail;
 use conductor_cli::collect::{Collector, github};
 use conductor_cli::snapshot::{self, Recorder, Taken};
 use conductor_cli::store;
@@ -270,7 +270,7 @@ fn header() -> Vec<String> {
 /// The collector records, per non-archived repository, the releases published in the 14 days
 /// before its clock (drafts and prereleases aside), each with its link, and the pull requests
 /// merged in them, each with GitHub's link; every instant in UTC. `gamma` is archived, so no
-/// command names it (it has no fixture, and `cat` of one would fail the snapshot).
+/// command names it (it has no fixture, and `cat` of one would fail its collector).
 #[test]
 fn the_collector_records_the_windows_releases_and_merged_pull_requests() {
     let root = case_dir("collector");
@@ -473,7 +473,7 @@ fn alpha_only(root: &Path) -> github::Sources {
 
 /// The live shipments, at the clock [`NOW`], each `gh` command line replaced by `cat` of
 /// `lists/<repository>.releases.<limit>.json` and `lists/<repository>.merged.<limit>.json` in the
-/// case's directory: a list the collector asks for at a limit with no file fails the snapshot.
+/// case's directory: a list the collector asks for at a limit with no file fails its collector.
 /// No tag is listed.
 fn limited(root: &Path) -> github::Shipments {
     let dir = lists(root);
@@ -598,8 +598,7 @@ fn a_larger_release_list_that_fills_too_fails_naming_the_repository_list_and_lim
     write_merged(&root, 200, &instants(3, 60));
 
     let taken = take_at(&root, NOW, &[github(alpha_only(&root), limited(&root))]);
-    assert_eq!(taken.state, SnapshotState::Failed, "{taken:?}");
-    let reason = taken.reason.clone().unwrap_or_default();
+    let reason = collector_failed(&taken);
     assert!(
         reason.starts_with("github: repository alpha: ")
             && reason.contains("releases")
@@ -627,8 +626,7 @@ fn a_full_merged_list_is_asked_for_again_larger_and_fails_when_that_fills_too() 
     write_merged(&root, 200, &instants(200, 1));
     write_merged(&root, 1000, &instants(1000, 1));
     let taken = take_at(&root, NOW, &[github(alpha_only(&root), limited(&root))]);
-    assert_eq!(taken.state, SnapshotState::Failed, "{taken:?}");
-    let reason = taken.reason.clone().unwrap_or_default();
+    let reason = collector_failed(&taken);
     assert!(
         reason.starts_with("github: repository alpha: ")
             && reason.contains("merged pull requests")
@@ -638,7 +636,7 @@ fn a_full_merged_list_is_asked_for_again_larger_and_fails_when_that_fills_too() 
     assert_eq!(recorded(&root, &taken), (0, 0));
 }
 
-/// A releases source that does not answer fails the snapshot naming the repository and the
+/// A releases source that does not answer fails its collector naming the repository and the
 /// command, and nothing of that repository's GitHub state is recorded.
 #[test]
 fn a_releases_source_that_fails_fails_the_snapshot_naming_it() {
@@ -646,8 +644,7 @@ fn a_releases_source_that_fails_fails_the_snapshot_naming_it() {
     let mut shipments = shipments();
     shipments.releases = vec!["false".to_owned()];
     let taken = take_at(&root, NOW, &[github(sources(), shipments)]);
-    assert_eq!(taken.state, SnapshotState::Failed, "{taken:?}");
-    let reason = taken.reason.unwrap_or_default();
+    let reason = collector_failed(&taken);
     assert!(
         reason.starts_with("github: repository ") && reason.contains("`false` exited 1"),
         "{reason:?}"
@@ -815,7 +812,6 @@ fn records(
     tag: &'static str,
     at: &'static str,
     number: i64,
-    fail: Option<&'static str>,
 ) -> Collector {
     Collector::new("records", move |record: &mut Recorder<'_>| {
         let snapshot = record.snapshot().clone();
@@ -836,11 +832,46 @@ fn records(
             merged_at: Timestamp(at.to_owned()),
             url: format!("https://github.com/example-org/{repository}/pull/{number}"),
         })?;
-        match fail {
-            Some(reason) => bail!("{reason}"),
-            None => Ok(()),
-        }
+        Ok(())
     })
+}
+
+/// A failed snapshot started at `started_at` that recorded what [`records`] records of
+/// `(repository, tag, at, number)` ([`failed::snapshot`]).
+fn failed_records(root: &Path, started_at: &str, release: (&str, &str, &str, i64)) {
+    let (repository, tag, at, number) = release;
+    failed::snapshot(
+        &root.join("state"),
+        started_at,
+        "the source did not answer",
+        |store, snapshot| {
+            failed::release(
+                store,
+                snapshot,
+                RecordRelease {
+                    actor: conductor_cli::actor::daemon(),
+                    snapshot_id: snapshot.clone(),
+                    repository: RepositoryName(repository.to_owned()),
+                    tag: tag.to_owned(),
+                    published_at: Timestamp(at.to_owned()),
+                    url: format!("https://github.com/example-org/{repository}/releases/tag/{tag}"),
+                },
+            );
+            failed::merged_pull_request(
+                store,
+                snapshot,
+                RecordMergedPullRequest {
+                    actor: conductor_cli::actor::daemon(),
+                    snapshot_id: snapshot.clone(),
+                    repository: RepositoryName(repository.to_owned()),
+                    number,
+                    title: format!("Pull request {number}"),
+                    merged_at: Timestamp(at.to_owned()),
+                    url: format!("https://github.com/example-org/{repository}/pull/{number}"),
+                },
+            );
+        },
+    );
 }
 
 /// The digest reads the complete snapshot that started last, whatever order the snapshots were
@@ -852,21 +883,14 @@ fn shipped_reads_only_the_newest_complete_snapshot() {
     let older = take_at(
         &root,
         "2026-10-06T12:00:00Z",
-        &[records("alpha", "v0.1.9", "2026-10-06T09:00:00Z", 77, None)],
+        &[records("alpha", "v0.1.9", "2026-10-06T09:00:00Z", 77)],
     );
     assert_eq!(older.state, SnapshotState::Complete, "{older:?}");
-    let newer = take_at(
+    failed_records(
         &root,
         "2026-10-07T13:00:00Z",
-        &[records(
-            "alpha",
-            "v9.9.9",
-            "2026-10-07T12:30:00Z",
-            99,
-            Some("the source did not answer"),
-        )],
+        ("alpha", "v9.9.9", "2026-10-07T12:30:00Z", 99),
     );
-    assert_eq!(newer.state, SnapshotState::Failed, "{newer:?}");
 
     let output = shipped(&root, "2026-10-01T00:00:00Z", Some("json"));
     assert_eq!(
@@ -917,11 +941,7 @@ fn shipped_refuses_what_it_cannot_answer() {
         "a read created the state directory"
     );
 
-    take_at(
-        &root,
-        NOW,
-        &[records("alpha", "v1.0.0", NOW, 1, Some("down"))],
-    );
+    failed_records(&root, NOW, ("alpha", "v1.0.0", NOW, 1));
     refused(
         &shipped(&root, "2026-10-01T00:00:00Z", None),
         "no complete snapshot",
@@ -991,7 +1011,7 @@ fn the_record_commands_and_views_answer_through_the_binary() {
         NOW,
         &[
             started,
-            records("alpha", "v0.4.0", "2026-10-06T09:00:00Z", 21, None),
+            records("alpha", "v0.4.0", "2026-10-06T09:00:00Z", 21),
         ],
     );
     assert_eq!(taken.state, SnapshotState::Complete, "{taken:?}");
@@ -1099,4 +1119,16 @@ fn the_record_commands_and_views_answer_through_the_binary() {
 
     assert_eq!(view_rows(&root, "releases"), releases);
     assert_eq!(view_rows(&root, "merged-pull-requests"), merged);
+}
+
+/// The one collector of `taken` that did not answer, as `<collector>: <error>`: the snapshot
+/// completes, and only that collector's run failed (`story:collector-failure-stays-its-own`).
+fn collector_failed(taken: &conductor_cli::snapshot::Taken) -> String {
+    assert_eq!(
+        taken.state,
+        conductor_model::observation::SnapshotState::Complete,
+        "{taken:?}"
+    );
+    assert_eq!(taken.failed.len(), 1, "one collector failed: {taken:?}");
+    taken.failed[0].clone()
 }

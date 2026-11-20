@@ -16,6 +16,7 @@
 
 mod active;
 mod common;
+mod failed;
 
 use std::ffi::OsString;
 use std::fs;
@@ -1741,18 +1742,38 @@ fn observation(name: &str, real_commits_7d: i64, archived: bool) -> RecordReposi
 
 /// Takes a snapshot into the store under the state directory `state`, through the library, over
 /// a fake collector that records each `(repository, real_commits_7d, archived)` of `observed`;
-/// `answers: false` makes the collector fail, and the snapshot with it.
+/// `answers: false` leaves a failed snapshot that recorded them instead ([`failed::snapshot`]).
 fn take_snapshot(state: &Path, observed: &[(&str, i64, bool)], answers: bool) -> SnapshotState {
     let inputs: Vec<RecordRepository> = observed
         .iter()
         .map(|&(name, real, archived)| observation(name, real, archived))
         .collect();
+    if !answers {
+        let now = OffsetDateTime::now_utc()
+            .format(&Rfc3339)
+            .expect("now in RFC 3339");
+        failed::snapshot(
+            state,
+            &now,
+            "the fixture source does not answer",
+            |store, snapshot| {
+                for input in inputs {
+                    failed::repository(
+                        store,
+                        snapshot,
+                        RecordRepository {
+                            snapshot_id: snapshot.clone(),
+                            ..input
+                        },
+                    );
+                }
+            },
+        );
+        return SnapshotState::Failed;
+    }
     let collector = Collector::new("repositories", move |recorder| {
         for input in &inputs {
             recorder.repository(input.clone())?;
-        }
-        if !answers {
-            anyhow::bail!("the fixture source does not answer");
         }
         Ok(())
     });

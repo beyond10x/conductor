@@ -142,7 +142,7 @@ forge login. Checks, snapshots and views do run there, and write only the store,
 | `conductor doctor` | nothing | ends `not ready: gh (not logged in to github.com)`, `not ready: config (unreadable)`, or lists the program missing or too old. Exits 1 |
 | `conductor setup` (no `--apply`) | nothing | prints the same rows and `not ready: config (unreadable), instance (none), records (missing), trust (not trusted)`. Exits 1 |
 | `conductor config validate` | nothing | `conductor: config validate: read the config file <path>: No such file or directory (os error 2)`. Exits 1 |
-| `conductor snapshot start-snapshot` | the store | refuses up front, naming a program not on `PATH`. With `gh` not logged in it fails the snapshot, naming the collector and `gh`'s own message. Exits 1 |
+| `conductor snapshot start-snapshot` | the store | refuses up front, naming a program not on `PATH`. With `gh` not logged in the `github` collector fails, its run naming `gh`'s own message, and the snapshot completes with the other collectors' rows; standard error names the collector. Exits 0 |
 | `conductor snapshot <view>`, `repository activity` | nothing | `conductor: no store at <path of the store file>` before the first snapshot. Exits 1 |
 
 `conductor init` and `conductor trust` write the records and `~/.claude.json`.

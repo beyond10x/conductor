@@ -307,6 +307,19 @@ fn complete(taken: &Taken) {
         "the snapshot failed: {:?}",
         taken.reason
     );
+    assert_eq!(
+        taken.failed,
+        Vec::<String>::new(),
+        "a collector did not answer"
+    );
+}
+
+/// The one collector of `taken` that did not answer, as `<collector>: <error>`: the snapshot
+/// completes, and only that collector's run failed (`story:collector-failure-stays-its-own`).
+fn collector_failed(taken: &Taken) -> String {
+    assert_eq!(taken.state, SnapshotState::Complete, "{taken:?}");
+    assert_eq!(taken.failed.len(), 1, "one collector failed: {taken:?}");
+    taken.failed[0].clone()
 }
 
 fn generated(world: &World) -> Generated<store::Store> {
@@ -589,7 +602,7 @@ fn a_repository_without_a_checkout_is_read_from_github_with_local_fields_at_zero
 
 /// The story's open-issue acceptance: against a fixture of 4 open issues, the oldest 4 days old,
 /// the observation reads 4 and that creation time. A repository with issues turned off has none,
-/// and its issues are not asked for (it has no fixture, so asking would fail the snapshot).
+/// and its issues are not asked for (it has no fixture, so asking would fail its collector).
 #[test]
 fn open_issues_are_counted_with_the_oldest_creation_time() {
     let world = World::new("issues");
@@ -861,11 +874,11 @@ fn counted_cat(calls: &Path, name: &str) -> Vec<String> {
     ]
 }
 
-/// A source that exits non-zero is asked once more; failing again, the collector fails the
-/// snapshot naming the repository and the command, and records nothing: no repository is
-/// recorded with 0 open issues for an issue list that did not answer.
+/// A source that exits non-zero is asked once more; failing again, the collector fails naming the
+/// repository and the command, and records nothing: no repository is recorded with 0 open issues
+/// for an issue list that did not answer.
 #[test]
-fn a_source_that_fails_twice_fails_the_snapshot_naming_the_repository_and_command() {
+fn a_source_that_fails_twice_fails_its_collector_naming_the_repository_and_command() {
     let world = World::new("failing");
     world.omega(&["alpha"]);
     world.repository("alpha");
@@ -876,8 +889,7 @@ fn a_source_that_fails_twice_fails_the_snapshot_naming_the_repository_and_comman
     sources.open_issues = counted_cat(&calls, "failing/{repository}.issues.json");
 
     let taken = take_repositories(&world, sources);
-    assert_eq!(taken.state, SnapshotState::Failed, "{taken:?}");
-    let reason = taken.reason.clone().unwrap_or_default();
+    let reason = collector_failed(&taken);
     assert!(
         reason.starts_with("repositories: repository beta: `sh -c "),
         "the reason names the collector, the repository and the command: {reason}"
@@ -985,10 +997,10 @@ fn a_gh_read_answered_429_once_is_retried() {
     );
 }
 
-/// A checkout whose origin is gone: `git fetch` fails twice, and the snapshot fails naming the
+/// A checkout whose origin is gone: `git fetch` fails twice, and the collector fails naming the
 /// repository and the command.
 #[test]
-fn a_fetch_that_fails_fails_the_snapshot_naming_the_repository() {
+fn a_fetch_that_fails_fails_its_collector_naming_the_repository() {
     let world = World::new("no-origin");
     world.omega(&["alpha"]);
     world.repository("alpha");
@@ -996,8 +1008,7 @@ fn a_fetch_that_fails_fails_the_snapshot_naming_the_repository() {
         .expect("move alpha's origin away");
 
     let taken = take_repositories(&world, repository_sources(&world, "pair"));
-    assert_eq!(taken.state, SnapshotState::Failed, "{taken:?}");
-    let reason = taken.reason.clone().unwrap_or_default();
+    let reason = collector_failed(&taken);
     assert!(
         reason.starts_with("repositories: repository alpha: `git fetch --quiet origin` exited "),
         "{reason}"
@@ -1207,17 +1218,16 @@ fn a_pull_request_records_every_failing_check_by_name() {
     );
 }
 
-/// A run list that does not answer fails the snapshot naming the collector, the repository and
+/// A run list that does not answer fails the `github` collector, naming it, the repository and
 /// the command.
 #[test]
-fn a_github_source_that_fails_fails_the_snapshot_naming_it() {
+fn a_github_source_that_fails_fails_its_collector_naming_it() {
     let world = World::new("pulls-failing");
     let mut sources = github_sources("pulls");
     sources.workflow_runs = cat("failing/{repository}.runs.json");
 
     let taken = take_github(&world, sources);
-    assert_eq!(taken.state, SnapshotState::Failed, "{taken:?}");
-    let reason = taken.reason.clone().unwrap_or_default();
+    let reason = collector_failed(&taken);
     assert!(
         reason.starts_with("github: repository beta: `cat ")
             && reason.contains("failing/beta.runs.json` exited 1"),
@@ -1492,10 +1502,11 @@ fn a_run_list_behind_the_newest_complete_snapshot_is_asked_again_until_it_catche
     assert_eq!(asked(&calls, "alpha"), 3, "caught up in the third answer");
 }
 
-/// Only a complete snapshot is compared with: a failed one that holds a later `Gate` run than
-/// GitHub answers does not fail the next snapshot, whose run list is asked twice only.
+/// `story:collector-failure-stays-its-own`: only a snapshot whose forge collectors answered is
+/// compared with. One whose `github` run failed after recording a later `Gate` run than GitHub
+/// answers completes, and does not fail the next snapshot, whose run list is asked twice only.
 #[test]
-fn a_failed_snapshot_is_not_compared_with() {
+fn the_reuse_base_skips_a_snapshot_whose_github_run_failed() {
     let world = World::new("behind-failed");
     seed(&world);
     let later = Collector::new("github", |record| {
@@ -1511,7 +1522,10 @@ fn a_failed_snapshot_is_not_compared_with() {
         anyhow::bail!("fail after recording a later run")
     });
     let failed = snapshot::take_in(&world.state(), &[later]).expect("the driver ends the snapshot");
-    assert_eq!(failed.state, SnapshotState::Failed, "{failed:?}");
+    assert!(
+        collector_failed(&failed).starts_with("github: fail after recording a later run"),
+        "{failed:?}"
+    );
 
     let calls = call_log(&world);
     let mut sources = behind_sources();
