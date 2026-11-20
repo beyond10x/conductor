@@ -14,8 +14,19 @@ planned after this wave. Rust builds run one at a time (one lock, one build per 
 
 | unit | stories | issues | stage |
 |---|---|---|---|
-| U1 | box-tool-roots | #197 | building |
+| U1 | box-tool-roots | #197 | merged |
 
 ## Outcome
 
-Written when the wave merges.
+U1: an instance names host directories in `box.tools`; the box mounts each read-only and reads
+it before the binary's and the harness's, so a directory holding them takes their place. A
+missing one is left out and doctor names it on the `box <name> tools:` row; one that holds the
+config file or conductord's directory is refused (`placement.tool-directory-shared`). `box.env`
+goes into the box's start, and `config validate` refuses `HOME`, `PATH`, `CLAUDE_CONFIG_DIR`,
+`XDG_STATE_HOME` and `CONDUCTOR_*` at `instances[i].box.env.<name>`. `box.egress` is reserved
+for `box-registry-egress` (#198), which stays held upstream.
+
+In the box: the specification, the HTTP binding, a fresh generation, `cargo fmt --check`,
+workspace clippy, the docs check and the touched suites; the placement tests that bind a Unix
+socket are proven by CI. Since the box restart, sccache cannot start in the box, so these builds
+ran without it.
