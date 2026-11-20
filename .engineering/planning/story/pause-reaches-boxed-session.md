@@ -5,7 +5,16 @@ kind: story
 status: active
 title: pause-controller on the host reaches a session in the box through its runtime
 summary: Run on the host for a session in the box, pause-controller finds no live session, stops nothing and records Paused while the session runs on; stop-controller already goes through the runtime
-revision: 5
+scope:
+- confidence: cited
+  path: crates/conductor/src/controller.rs
+- confidence: cited
+  path: crates/conductor/src/daemon/api.rs
+- confidence: cited
+  path: crates/conductor/src/dashboard/operator.rs
+- confidence: cited
+  path: crates/conductor/tests/box_session.rs
+revision: 6
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-20T04:41:03Z", actor: "human:unknown", revision: 4}
 - {from: "proposed", to: "active", at: "2026-11-20T04:41:04Z", actor: "human:unknown", revision: 5}

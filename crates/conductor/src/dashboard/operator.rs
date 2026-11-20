@@ -7,7 +7,10 @@
 //! - `POST controllers/{id}/stop`, body `{"reason": "..."}`: `conductor controller
 //!   stop-controller` in the runtime ([`crate::controller::stop_here`]), answering
 //!   `{"stopped": "<session name> (<id>)"}`, or `null` for a controller whose session it touched
-//!   none of.
+//!   none of;
+//! - `POST controllers/{id}/pause`, body `{}`: `conductor controller pause-controller` in the
+//!   runtime ([`crate::controller::pause_here`]), answering as `stop` does
+//!   (`story:pause-reaches-boxed-session`).
 //!
 //! A child session in a box lives in the box's pid namespace and reads its input from a FIFO the
 //! box's registry names: only a process in the box, the runtime, can signal or feed it. The host
@@ -46,6 +49,11 @@ struct Stop {
     reason: String,
 }
 
+/// The body of `controllers/{id}/pause`: an empty object.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Pause {}
+
 /// The routes this module answers: `path` is one of them when it is `<prefix><name>/<verb>`.
 #[must_use]
 pub(super) fn serves(path: &str) -> bool {
@@ -53,14 +61,18 @@ pub(super) fn serves(path: &str) -> bool {
 }
 
 /// `path` read as one of the routes: its prefix, the name or id, and the verb.
-fn route(path: &str) -> Option<(&'static str, &str)> {
-    for (prefix, verb) in [(SESSIONS, "/deliver"), (CONTROLLERS, "/stop")] {
+fn route(path: &str) -> Option<(&'static str, &str, &'static str)> {
+    for (prefix, verb) in [
+        (SESSIONS, "/deliver"),
+        (CONTROLLERS, "/stop"),
+        (CONTROLLERS, "/pause"),
+    ] {
         if let Some(name) = path
             .strip_prefix(prefix)
             .and_then(|rest| rest.strip_suffix(verb))
             .filter(|name| !name.is_empty() && !name.contains('/'))
         {
-            return Some((prefix, name));
+            return Some((prefix, name, verb));
         }
     }
     None
@@ -74,7 +86,7 @@ pub(super) fn answer<'a>(
     server: &Server,
     body: &mut dyn FnMut(usize) -> io::Result<Vec<u8>>,
 ) -> Vec<u8> {
-    let Some((prefix, name)) = route(path) else {
+    let Some((prefix, name, verb)) = route(path) else {
         return json_answer(
             404,
             "Not Found",
@@ -117,9 +129,18 @@ pub(super) fn answer<'a>(
         crate::session::deliver_here(state, name, &delivery.text, None, actor)
             .map(|id| json!({"session": name, "delivery_id": id}))
     } else {
-        let stop = match serde_json::from_slice::<Stop>(&bytes) {
-            Ok(stop) => stop,
-            Err(error) => return not_read(&format!("{error}; write {{\"reason\": \"...\"}}")),
+        let reason = if verb == "/pause" {
+            if let Err(error) = serde_json::from_slice::<Pause>(&bytes) {
+                return not_read(&format!("{error}; write {{}}"));
+            }
+            None
+        } else {
+            match serde_json::from_slice::<Stop>(&bytes) {
+                Ok(stop) => Some(stop.reason),
+                Err(error) => {
+                    return not_read(&format!("{error}; write {{\"reason\": \"...\"}}"));
+                }
+            }
         };
         if !uuid(name) {
             return json_answer(
@@ -131,8 +152,12 @@ pub(super) fn answer<'a>(
         let id = conductor_model::dispatch::ControllerId(conductor_model::primitives::Uuid(
             name.to_owned(),
         ));
-        let stopped =
-            crate::controller::stop_here(state, id, stop.reason, actor, &server.providers);
+        let stopped = match reason {
+            Some(reason) => {
+                crate::controller::stop_here(state, id, reason, actor, &server.providers)
+            }
+            None => crate::controller::pause_here(state, id, actor, &server.providers),
+        };
         server.roster.clear();
         stopped.map(|stopped| json!({"controller_id": name, "stopped": stopped}))
     };

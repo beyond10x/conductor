@@ -29,9 +29,10 @@
 //!   ([`crate::secret::view`]);
 //! - an instance's `agents/{name}/deliver` and `restart` are proxied as writes, `attach` bare;
 //!   so are its `sessions/{name}/deliver` (the `AnswerDecisions` grant) and
-//!   `controllers/{id}/stop`, which the host's `session deliver` and `controller
-//!   stop-controller` send for a session in the runtime's box
-//!   (`story:host-commands-reach-boxed-session`).
+//!   `controllers/{id}/stop` and `controllers/{id}/pause`, which the host's `session deliver`,
+//!   `controller stop-controller` and `controller pause-controller` send for a session in the
+//!   runtime's box (`story:host-commands-reach-boxed-session`,
+//!   `story:pause-reaches-boxed-session`).
 //! - the work call of a consumer control plane (`story:control-plane-work-handler`,
 //!   [`crate::dashboard::work`]): `POST /v1/instances/{name}/work` is proxied as a write with a
 //!   body of up to 1 MiB, `GET /v1/instances/{name}/work/{reference}` as a read; a reference that
@@ -2620,8 +2621,9 @@ const WORK_PREFIX: &str = "work/";
 
 /// Whether `method` on the instance route `route` writes: one of [`WRITES`], `POST` on an
 /// agent's `deliver` or `restart` (`agents/{name}/deliver`, `story:agent-kinds`), or `POST` on a
-/// session's `deliver` or a controller's `stop` (`sessions/{name}/deliver`,
-/// `controllers/{id}/stop`, `story:host-commands-reach-boxed-session`).
+/// session's `deliver` or a controller's `stop` or `pause` (`sessions/{name}/deliver`,
+/// `controllers/{id}/stop`, `story:host-commands-reach-boxed-session`; `controllers/{id}/pause`,
+/// `story:pause-reaches-boxed-session`).
 fn writes(route: &str, method: &str) -> bool {
     if WRITES.contains(&(route, method)) {
         return true;
@@ -2635,7 +2637,7 @@ fn writes(route: &str, method: &str) -> bool {
     method == "POST"
         && (named("agents/", &["deliver", "restart"])
             || named("sessions/", &["deliver"])
-            || named("controllers/", &["stop"]))
+            || named("controllers/", &["stop", "pause"]))
 }
 
 /// The headers a proxied request keeps.

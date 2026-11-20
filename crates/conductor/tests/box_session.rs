@@ -1104,6 +1104,89 @@ fn host_commands_refuse_and_change_nothing_without_the_runtime() {
     assert_eq!(case.inbox().len(), 1, "nothing was delivered");
 }
 
+/// `story:pause-reaches-boxed-session`: from the host, `pause-controller` for a controller whose
+/// session runs in the box goes to the box's runtime as `stop-controller` does: the runtime ends
+/// the session's process, then the record is `Paused`.
+#[test]
+fn host_pause_reaches_a_child_session_in_the_box_through_the_runtime() {
+    let _one = CONDUCTORD
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    active::isolate();
+    let case = Case::new("host-pauses-box");
+    let (port, dial) = conductord();
+    case.make_boxed(port);
+    let _runtime = case.serve_in_box(dial);
+
+    let output = case.run_at(Side::Box, &["spawn", "--repository", "alpha"], "");
+    let id = String::from_utf8(succeeded(&output, "spawn in the box")).expect("UTF-8");
+    let id = id.trim();
+    let pid = child::live_named(&case.box_registry(), "ex-alpha")
+        .and_then(|entry| entry.pid)
+        .expect("a live child session in the box");
+    assert!(case.live().is_none(), "the host's own registry holds none");
+    assert_eq!(case.wait_for_inbox(1).len(), 1);
+
+    let controller = case.controller_id();
+    let output = case.run_at(
+        Side::Host,
+        &[
+            "controller",
+            "pause-controller",
+            "--controller-id",
+            &controller,
+        ],
+        "",
+    );
+    let printed =
+        String::from_utf8(succeeded(&output, "pause-controller from the host")).expect("UTF-8");
+    assert_eq!(printed.trim(), format!("stopped ex-alpha ({id})"));
+    assert!(gone(pid), "the paused session's process {pid} ended");
+    assert!(child::live_named(&case.box_registry(), "ex-alpha").is_none());
+    assert_eq!(case.controller()["state"], "Paused");
+}
+
+/// With the box's runtime not reached, the host's `pause-controller` for a session in the box
+/// refuses: the session runs on and the controller stays `Running`.
+#[test]
+fn host_pause_refuses_and_changes_nothing_without_the_runtime() {
+    let _one = CONDUCTORD
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    active::isolate();
+    let case = Case::new("host-pause-without-runtime");
+    let (port, _dial) = conductord();
+    case.make_boxed(port);
+
+    let output = case.run_at(Side::Box, &["spawn", "--repository", "alpha"], "");
+    succeeded(&output, "spawn in the box");
+    let pid = child::live_named(&case.box_registry(), "ex-alpha")
+        .and_then(|entry| entry.pid)
+        .expect("a live child session in the box");
+    assert_eq!(case.wait_for_inbox(1).len(), 1);
+
+    let controller = case.controller_id();
+    let output = case.run_at(
+        Side::Host,
+        &[
+            "controller",
+            "pause-controller",
+            "--controller-id",
+            &controller,
+        ],
+        "",
+    );
+    assert_eq!(output.status.code(), Some(1), "{}", describe(&output));
+    let said = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        said.contains("runtime was not reached") && said.contains("not recorded paused"),
+        "{}",
+        describe(&output)
+    );
+    assert_eq!(case.controller()["state"], "Running");
+    assert!(child::alive(pid, ""), "the session's process {pid} runs on");
+}
+
 /// Issue #215: `session deliver-message`, a placed leaf that is not written, is not in the help
 /// of `conductor session`; `session deliver` is.
 #[test]
