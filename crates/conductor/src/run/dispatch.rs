@@ -9,7 +9,9 @@
 //! slot: each `Running` controller whose session the list (the `child` provider's sessions with
 //! it) names neither live (a `pid`) nor `blocked` is recorded stopped with the reason, and the
 //! `cycle` line names it; one whose repository has an open dispatch is then started again, its
-//! `controller-restarted` line's reason `gone`, as after a `session gone` line. One whose session
+//! `controller-restarted` line's reason `gone`, as after a `session gone` line, unless the
+//! repository is held for a person (`story:person-wait-and-pause-hold-restarts`): then it waits,
+//! kept in `person.json` for the watch tick's person pass. One whose session
 //! a usage limit marked is recorded stopped with the reason `usage limit` and stays marked
 //! (`story:limit-resume-at-reset`): it is not started again, dispatch v1 starts none for its
 //! repository, which waits, and the watch tick past its reset resumes it from its transcript and
@@ -279,7 +281,9 @@ fn reconcile(tick: &mut Tick<'_, '_>) -> Result<Option<String>> {
             Ok(super::Again::Ended) => parts.push(format!(
                 "{repo} has no charter to start again from: its open dispatches ended"
             )),
-            Ok(super::Again::Yielded(why)) | Err(why) => parts.push(format!("{repo} waits: {why}")),
+            Ok(super::Again::Yielded(why) | super::Again::Held(why)) | Err(why) => {
+                parts.push(format!("{repo} waits: {why}"));
+            }
         }
     }
     Ok((!parts.is_empty()).then(|| parts.join("; ")))

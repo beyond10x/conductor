@@ -51,9 +51,11 @@ after a `rules.md` change, run it again for each running worker's items.
   default, `merge: controller`: merge pull requests one at a time, each after the last landed.
 - **Never idle.** Release within K5 of a merge. With no active story, draft more (`aep:decompose`)
   and activate what the critic panel passes; ask conductor only for cross-repository or class O.
-- **Hand over** on `[HANDOVER <repo>]` and at your wave's close: finish the step, write
+- **Hand over** on `[HANDOVER <repo>]` and at a wave's close with work left: finish the step, write
   `<checkout>/.git/handoff/<UTC stamp>.md`, never committed (dispatch, next step, trees, `[NEED]`s);
-  after `test -s <path>`, report `[REPORT <repo> <dispatch>] blocked handover <path>` and stop.
+  after `test -s <path>`, report `[REPORT <repo> <dispatch>] blocked handover <path>` and stop. Work
+  left only to persons: report `blocked person: waits on <who> for <what>` (`unblocked` first if
+  blocked otherwise), end the turn, no hand-over; still waiting at the next input: report again.
 - **A repository with no planning store** (no `.engineering/project.yaml`): the dispatch's brief is
   the plan, written into the pull request's description; one branch per unit, one integration
   branch, one full gate, one pull request. The controller does not create a store; it offers one

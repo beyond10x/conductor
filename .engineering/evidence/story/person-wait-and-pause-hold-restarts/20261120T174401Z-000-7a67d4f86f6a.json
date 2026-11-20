@@ -1,0 +1,13 @@
+{
+  "at": "2026-11-20T17:44:01Z",
+  "actor": "human:unknown",
+  "artifact": "story:person-wait-and-pause-hold-restarts",
+  "kind": "story",
+  "revision": 10,
+  "change": {
+    "change": "evidence",
+    "kind": "test_result",
+    "source": "review fixes at 210a0e3d5: unit tests run:: 19 pass (a_person_reason_is_read_by_its_first_word now rejects person-x, person_x, person's); tests/profiles.rs 36 pass (controller.md cap 122); roles, docs_start_conductor, docs_forge, message_read, no_organization pass; cargo clippy -p conductor-cli --all-targets -D warnings clean; tests/run.rs builds, its 29 cases of the story need CI (box refuses AF_UNIX)",
+    "reference": "github:beyond10x/conductor#258"
+  }
+}
