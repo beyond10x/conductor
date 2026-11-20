@@ -5074,7 +5074,7 @@ fn the_boxed_runtime_keeps_the_daemons_token_after_it_closed_the_slot() {
 
 /// The files of the runtime's crate that start processes with `Command::new` of their own, each
 /// with why none of them runs inside a boxed runtime; a directory ends in `/`.
-const NEVER_IN_A_BOX: [(&str, &str); 6] = [
+const NEVER_IN_A_BOX: [(&str, &str); 7] = [
     (
         "build.rs",
         "`conductor build run` and `broker serve`, which a person or a session starts; nothing in \
@@ -5090,6 +5090,10 @@ const NEVER_IN_A_BOX: [(&str, &str); 6] = [
         "`conductor init` and `conductor setup`, commands a person types",
     ),
     ("tui/", "the terminal view a person runs"),
+    (
+        "supervisor_watch/",
+        "`conductor supervisor watch`, the host supervisor's watch, never in a box",
+    ),
     (
         "daemon/",
         "conductord, which runs on the host, never in a box",
