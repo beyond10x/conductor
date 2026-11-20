@@ -6,14 +6,17 @@ integration branch fork from `main` after wave 61 landed. The wave before is
 
 Width: two units, every ready one (`controllers.max_subagents` is 2). The two touch disjoint
 files: the records check, and the run loop's mailbox and its log line. Rust builds run one at a
-time (one lock, one build per box).
+time (one lock, one build per box). U3 started when U1 merged: the guard denied the bot
+route's `run rerun` of this repository, reading the slug `…/conductor` as a `conductor run`.
+It went to active without a critic panel, as a one-function defect.
 
 ## Units
 
 | unit | stories | issues | stage |
 |---|---|---|---|
-| U1 | records-check-quoted-message | #232 | building |
+| U1 | records-check-quoted-message | #232 | merged into the wave branch |
 | U2 | mailbox-rejection-once-dated | #229 | building |
+| U3 | guard-repo-slug-not-program | none | building |
 
 ## Outcome
 
