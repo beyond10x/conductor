@@ -2,7 +2,7 @@
 format: aep.planning-md/3
 id: story:box-runtime-starts-director
 kind: story
-status: active
+status: implemented
 title: A boxed instance's runtime starts its director in the box from its profile and keeps it running
 summary: 'Option B: the runtime keeps one director per boxed instance, backing off as the loop does; doctor and the dashboard name a missing one and why'
 refs:
@@ -83,10 +83,11 @@ scope:
   path: website/docs/reference
 - confidence: inferred
   path: website/docs/status.md
-revision: 11
+revision: 12
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-20T06:58:46Z", actor: "human:unknown", revision: 9}
 - {from: "proposed", to: "active", at: "2026-11-20T06:58:47Z", actor: "human:unknown", revision: 10}
+- {from: "active", to: "implemented", at: "2026-11-20T10:33:03Z", actor: "human:unknown", revision: 12, decided_on: {"recorded":{"test_result":1}}}
 ---
 ## Why
 
