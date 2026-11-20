@@ -6,6 +6,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs::{self, File};
 use std::io::{self, Read as _, Seek as _, SeekFrom, Write};
+#[cfg(target_os = "linux")]
 use std::os::fd::AsFd as _;
 use std::os::unix::fs::MetadataExt as _;
 use std::path::{Path, PathBuf};
@@ -19,7 +20,9 @@ use conductor_model::dispatch::{ControllerState, DispatchState};
 use conductor_model::host::SupervisorTriggerKind as Kind;
 use conductor_model::instance::{ReconcileAction, ReconcileReason};
 use conductor_model::primitives::Timestamp;
+#[cfg(target_os = "linux")]
 use nix::poll::{PollFd, PollFlags, PollTimeout, poll};
+#[cfg(target_os = "linux")]
 use nix::sys::inotify::{AddWatchFlags, InitFlags, Inotify};
 use time::OffsetDateTime;
 use time::format_description::well_known::Rfc3339;
@@ -1171,11 +1174,34 @@ pub(super) fn idle(
 }
 
 /// The changes the mail and log triggers wake on: inotify on each instance's mailbox and
-/// sessions directory that exists. Without inotify, a wait only sleeps.
+/// sessions directory that exists. Without inotify (a host other than Linux, or one whose inotify
+/// cannot start), a wait only sleeps.
+#[cfg(target_os = "linux")]
 pub(super) struct Changes {
     inotify: Option<Inotify>,
 }
 
+/// On a host without inotify the changes are none: a wait only sleeps, and the reads run once a
+/// pass.
+#[cfg(not(target_os = "linux"))]
+pub(super) struct Changes;
+
+#[cfg(not(target_os = "linux"))]
+impl Changes {
+    /// Watches nothing: the host has no inotify.
+    pub(super) fn new(_instances: &[Instance]) -> Self {
+        Self
+    }
+
+    /// Sleeps `wait`; answers that no change came.
+    #[allow(clippy::unused_self)]
+    pub(super) fn wait(&mut self, wait: Duration) -> bool {
+        std::thread::sleep(wait);
+        false
+    }
+}
+
+#[cfg(target_os = "linux")]
 impl Changes {
     /// Watches the mailbox and sessions directories of `instances`.
     pub(super) fn new(instances: &[Instance]) -> Self {

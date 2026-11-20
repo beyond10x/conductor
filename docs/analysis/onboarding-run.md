@@ -564,3 +564,9 @@ No onboarding run is due: 1.22.0 changes nothing onboarding runs. `SETUP.md`, `c
 `globals.supervisor`, which an onboarding run does not configure; a waiting unit of work gets a
 place a blocked repository held; a secret refresh is a credential request; and two decision
 commands read `--input-json`.
+
+## v1.22.1
+
+No onboarding run is due: 1.22.1 changes nothing onboarding runs. It builds on macOS again: the
+supervisor watch waits on inotify only on Linux and sleeps between its reads elsewhere. 1.22.0
+has no release archives, since its macOS builds failed.
