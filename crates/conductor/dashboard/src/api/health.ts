@@ -26,6 +26,8 @@ export interface SnapshotHealth {
   started_at: string;
   disk_free_bytes: number;
   failure_reason: string | null;
+  /** The collectors whose run failed in a `Complete` snapshot; their rows are the last good ones. */
+  failed_collectors: string[];
 }
 
 /** One collector's run in that snapshot. */
@@ -38,6 +40,8 @@ export interface CollectorRun {
   /** The bytes the snapshot read and wrote while it ran; `null` where they were not recorded. */
   read_bytes: number | null;
   written_bytes: number | null;
+  /** The error a `Failed` run answered; `null` on any other. */
+  reason: string | null;
 }
 
 /** The class of a member failure's first line, as `/api/health` names it. */

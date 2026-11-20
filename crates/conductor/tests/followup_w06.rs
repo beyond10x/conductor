@@ -595,7 +595,7 @@ fn snapshot_specifications_creates_no_store() {
 
 /// A snapshot taken in a state directory (`snapshot::take_in`) keeps its store there and gives
 /// that directory to every collector through `Recorder::state`. A snapshot taken over a store
-/// opened elsewhere has no directory to give: a collector that asks for it fails the snapshot,
+/// opened elsewhere has no directory to give: a collector that asks for it fails,
 /// naming what is missing.
 #[test]
 fn a_collector_reads_the_state_directory_through_its_recorder() {
@@ -628,10 +628,21 @@ fn a_collector_reads_the_state_directory_through_its_recorder() {
         &[asks],
     )
     .expect("the driver ends the snapshot");
-    assert_eq!(taken.state, SnapshotState::Failed);
-    let reason = taken.reason.expect("a failed snapshot has a reason");
+    let reason = collector_failed(&taken);
     assert!(
         reason.starts_with("asks: ") && reason.contains("state directory"),
         "{reason}"
     );
+}
+
+/// The one collector of `taken` that did not answer, as `<collector>: <error>`: the snapshot
+/// completes, and only that collector's run failed (`story:collector-failure-stays-its-own`).
+fn collector_failed(taken: &conductor_cli::snapshot::Taken) -> String {
+    assert_eq!(
+        taken.state,
+        conductor_model::observation::SnapshotState::Complete,
+        "{taken:?}"
+    );
+    assert_eq!(taken.failed.len(), 1, "one collector failed: {taken:?}");
+    taken.failed[0].clone()
 }

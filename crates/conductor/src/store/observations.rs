@@ -9,22 +9,29 @@
 //! [`Store::retain`] runs when a snapshot completes. It keeps the observations of the newest
 //! `keep` complete snapshots: newest by the instant they started, and of equal starts the one
 //! stored later, as `repository activity` picks the newest. It drops the tenants of every other
-//! complete snapshot, and of every failed snapshot that started before the oldest one kept. A
-//! snapshot still collecting keeps its observations. A tenant is dropped with eventlog's own
+//! complete snapshot, and of every failed snapshot that started before the oldest one kept. It
+//! keeps besides them the newest complete snapshot whose forge collectors all ended `Completed`
+//! ([`forge_complete`]): a collector that did not answer fails only its own rows
+//! (`story:collector-failure-stays-its-own`), and the readers that would take missing forge rows
+//! for none (the dispatch cycle's review fullness, the `github` collector's reuse base) read that
+//! one. A snapshot still collecting keeps its observations. A tenant is dropped with eventlog's own
 //! erasure, `forget_tenant`, in one transaction. The `Snapshot` records stay.
 //!
 //! The tree before the database kept each snapshot's observations under `state/observations/`,
 //! in a tenant named after the snapshot ([`tree_tenant`], [`tenants`]); `conductor store migrate`
 //! reads them from there.
 
+use std::collections::BTreeSet;
 use std::ffi::OsStr;
 use std::fs;
 use std::io;
 use std::path::Path;
 
 use anyhow::{Context as _, Result};
-use conductor_model::behaviour::SnapshotStorage;
-use conductor_model::observation::{SnapshotId, SnapshotState};
+use conductor_model::behaviour::{CollectorRunObservationStorage, SnapshotStorage};
+use conductor_model::observation::{
+    CollectorRunOutcome, SnapshotId, SnapshotSnapshot, SnapshotState,
+};
 use eventlog_core::{EventLogError, TenantId};
 use time::OffsetDateTime;
 use time::format_description::well_known::Rfc3339;
@@ -136,10 +143,43 @@ fn named(name: &OsStr) -> Option<TenantId> {
     TenantId::new(String::from_utf8(bytes).ok()?).ok()
 }
 
+/// The collectors that read the forges, whose missing rows a reader could take for none.
+pub const FORGE_COLLECTORS: [&str; 2] = ["github", "gitlab"];
+
+impl Store {
+    /// The ids, as text, of the snapshots holding a run of a forge collector ([`FORGE_COLLECTORS`]) that
+    /// did not end `Completed`, among the runs the store keeps. A record that does not read is
+    /// left out, as every port leaves it out.
+    #[must_use]
+    pub fn forge_unanswered(&self) -> BTreeSet<String> {
+        CollectorRunObservationStorage::list(self)
+            .into_iter()
+            .filter(|held| FORGE_COLLECTORS.contains(&held.data.collector.as_str()))
+            .filter(|held| held.data.outcome != CollectorRunOutcome::Completed)
+            .map(|held| held.data.snapshot_id.0.0)
+            .collect()
+    }
+}
+
+/// Whether `snapshot` is complete and every forge collector of it ended `Completed`: it names
+/// none of them among its `failed_collectors`, and `unanswered` ([`Store::forge_unanswered`])
+/// does not hold it (`story:collector-failure-stays-its-own`).
+#[must_use]
+pub fn forge_complete(snapshot: &SnapshotSnapshot, unanswered: &BTreeSet<String>) -> bool {
+    snapshot.state == SnapshotState::Complete
+        && !snapshot
+            .data
+            .failed_collectors
+            .iter()
+            .any(|name| FORGE_COLLECTORS.contains(&name.as_str()))
+        && !unanswered.contains(&snapshot.data.snapshot_id.0.0)
+}
+
 impl Store {
     /// Drops the observations retention does not keep, as the module says, keeping those of the
-    /// newest `keep` complete snapshots, and answers the snapshots whose observations it dropped,
-    /// oldest first. With `keep` 0 it drops nothing.
+    /// newest `keep` complete snapshots and of the newest complete one whose forge collectors all
+    /// ended `Completed` ([`forge_complete`]), and answers the snapshots whose observations it
+    /// dropped, oldest first. With `keep` 0 it drops nothing.
     ///
     /// # Errors
     ///
@@ -174,11 +214,17 @@ impl Store {
         let Some(&oldest) = kept.first() else {
             return Ok(Vec::new());
         };
+        let unanswered = self.forge_unanswered();
+        let forge_base = complete
+            .iter()
+            .rev()
+            .copied()
+            .find(|&at| forge_complete(&ordered[at].1, &unanswered));
         let dropped: Vec<SnapshotId> = ordered
             .into_iter()
             .enumerate()
             .filter(|(at, (_, snapshot))| match snapshot.state {
-                SnapshotState::Complete => !kept.contains(at),
+                SnapshotState::Complete => !kept.contains(at) && forge_base != Some(*at),
                 SnapshotState::Failed => *at < oldest,
                 SnapshotState::Collecting => false,
             })

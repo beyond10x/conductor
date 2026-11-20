@@ -621,8 +621,7 @@ fn a_workspace_listing_that_fails_twice_fails_the_snapshot_naming_the_command() 
         blockers::collect_from(&sources, record)
     });
 
-    assert_eq!(taken.state, SnapshotState::Failed);
-    let reason = taken.reason.expect("a failed snapshot has a reason");
+    let reason = collector_failed(&taken);
     assert!(
         reason.contains(&format!("echo listed >> \"$0\"; exit 3 {}", path(&log))),
         "names the command: {reason}"
@@ -2140,4 +2139,16 @@ fn a_wave_narrower_than_its_ready_units_is_recorded_and_the_board_names_it_narro
         .collect();
     assert_eq!(narrow.len(), 1, "{board}");
     assert!(narrow[0].starts_with("| alpha |"), "{board}");
+}
+
+/// The one collector of `taken` that did not answer, as `<collector>: <error>`: the snapshot
+/// completes, and only that collector's run failed (`story:collector-failure-stays-its-own`).
+fn collector_failed(taken: &conductor_cli::snapshot::Taken) -> String {
+    assert_eq!(
+        taken.state,
+        conductor_model::observation::SnapshotState::Complete,
+        "{taken:?}"
+    );
+    assert_eq!(taken.failed.len(), 1, "one collector failed: {taken:?}");
+    taken.failed[0].clone()
 }

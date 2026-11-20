@@ -3601,6 +3601,9 @@ pub struct RecordCollectorRunArgs {
     /// integer
     #[arg(long, allow_negative_numbers = true)]
     pub written_bytes: Option<i64>,
+    /// string: the error a `Failed` run answered
+    #[arg(long)]
+    pub reason: Option<String>,
     /// Actor, as the records print it (`human:<name>`, `agent:<instance>/<role>/<name>`, `daemon`)
     /// or one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`,
     /// `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`;
@@ -3760,6 +3763,9 @@ pub struct CompleteSnapshotArgs {
     /// SnapshotId
     #[arg(long, value_parser = uuid)]
     pub snapshot_id: Option<String>,
+    /// list of string, a JSON array: the collectors whose run ended `Failed`
+    #[arg(long, value_parser = json_list)]
+    pub failed_collectors: Option<String>,
     /// Actor, as the records print it (`human:<name>`, `agent:<instance>/<role>/<name>`, `daemon`)
     /// or one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`,
     /// `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`;

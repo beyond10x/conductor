@@ -1,0 +1,13 @@
+{
+  "at": "2026-11-20T13:27:59Z",
+  "actor": "human:unknown",
+  "artifact": "story:collector-failure-stays-its-own",
+  "kind": "story",
+  "revision": 7,
+  "change": {
+    "change": "evidence",
+    "kind": "test_result",
+    "source": "cargo test -p conductor-cli --test snapshot --test collect_github --test observation_retention --test collector_bounds --test collect_sessions --test collect_stores --test followup_w06 --test instance_sources --test shipped --test status --test repository_marks --test adv_dispatch_unknown_repository_w49 --test dashboard_repo --test watch --test adv_snapshot --test collect_gitlab --test member_failures --test secret_syncs --test workspace_snapshot --test snapshot_store_cost --test forge_access_anonymous --test usage_probe --test store_tree --test adv_cli --test no_organization --test isolated_home --test roles: all pass; run, dashboard, dashboard_overview, api_parity, federated_views bind AF_UNIX sockets the box refuses (needs CI); clippy -D warnings clean; ess conform 735/735",
+    "reference": "crates/conductor/tests/snapshot.rs"
+  }
+}

@@ -1,5 +1,5 @@
 // generated from conductor v1
-// contract digest 990a21ced6fe27f2052a755ba5a22f383ffd50d9d3f92b3324424d62542ace75
+// contract digest 7e3629c3da2f4e81aa7801e5c98183954d804dc4f5b461385f0925b0fb0c265d
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! Observation — `conductor.observation`.
@@ -471,6 +471,8 @@ pub struct StatusReport {
     pub oldest_unanswered_request_id: Option<String>,
     /// `oldest_unanswered_age_seconds` — `Optional<Integer>`.
     pub oldest_unanswered_age_seconds: Option<i64>,
+    /// `failed_collectors` — `List<String>`.
+    pub failed_collectors: Vec<String>,
 }
 
 /// StatusRequest — `conductor.observation.StatusRequest`.
@@ -898,6 +900,8 @@ pub struct CollectorRunObservationData {
     pub read_bytes: Option<i64>,
     /// `written_bytes` — `Optional<Integer>`.
     pub written_bytes: Option<i64>,
+    /// `reason` — `Optional<String>`.
+    pub reason: Option<String>,
 }
 
 impl CollectorRunObservationData {
@@ -2290,6 +2294,8 @@ pub struct SnapshotData {
     pub disk_free_bytes: i64,
     /// `failure_reason` — `Optional<String>`.
     pub failure_reason: Option<String>,
+    /// `failed_collectors` — `List<String>`.
+    pub failed_collectors: Vec<String>,
 }
 
 impl SnapshotData {
@@ -2963,6 +2969,8 @@ pub struct CompleteSnapshot {
     pub actor: crate::operator::Actor,
     /// `snapshot_id` — `conductor.observation.SnapshotId`.
     pub snapshot_id: SnapshotId,
+    /// `failed_collectors` — `List<String>`.
+    pub failed_collectors: Vec<String>,
 }
 
 /// Everything `conductor.observation.CompleteSnapshot` can result in — one variant per declared outcome.
@@ -2974,7 +2982,7 @@ pub struct CompleteSnapshot {
 pub enum CompleteSnapshotOutcome {
     /// `completed` — otherwise.
     ///
-    /// Every source answered; the snapshot is the newest complete one.
+    /// Every collector ran, a failed one keeping only its own rows out; the snapshot is the newest complete one.
     Completed {
         /// The `conductor.observation.SnapshotCompleted` this outcome publishes.
         snapshot_completed: SnapshotCompleted,
@@ -3158,6 +3166,8 @@ pub struct RecordCollectorRun {
     pub read_bytes: Option<i64>,
     /// `written_bytes` — `Optional<Integer>`.
     pub written_bytes: Option<i64>,
+    /// `reason` — `Optional<String>`.
+    pub reason: Option<String>,
 }
 
 /// Everything `conductor.observation.RecordCollectorRun` can result in — one variant per declared outcome.
@@ -4320,6 +4330,8 @@ pub struct CollectorRuns {
     pub read_bytes: Option<i64>,
     /// `written_bytes` — `Optional<Integer>`.
     pub written_bytes: Option<i64>,
+    /// `reason` — `Optional<String>`.
+    pub reason: Option<String>,
     /// `actor` — `conductor.operator.Actor`.
     pub actor: crate::operator::Actor,
 }
@@ -4578,6 +4590,8 @@ pub struct Snapshots {
     pub disk_free_bytes: i64,
     /// `failure_reason` — `Optional<String>`.
     pub failure_reason: Option<String>,
+    /// `failed_collectors` — `List<String>`.
+    pub failed_collectors: Vec<String>,
     /// `actor` — `conductor.operator.Actor`.
     pub actor: crate::operator::Actor,
 }

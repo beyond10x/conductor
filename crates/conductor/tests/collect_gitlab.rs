@@ -934,9 +934,10 @@ fn two_checkouts_of_one_project_are_two_repositories_under_their_directories() {
 }
 
 /// A project without a checkout keeps its path under the group as its name; one whose name a
-/// checkout of another project holds fails the snapshot, naming the name and both projects.
+/// checkout of another project holds fails the `repositories` collector, naming the name and both
+/// projects.
 #[test]
-fn a_project_without_a_checkout_named_as_another_projects_checkout_fails_the_snapshot() {
+fn a_project_without_a_checkout_named_as_another_projects_checkout_fails_its_collector() {
     let case = Case::new("name-taken");
     case.checkout("alpha", "example-org/gamma");
     case.projects(
@@ -960,7 +961,10 @@ fn a_project_without_a_checkout_named_as_another_projects_checkout_fails_the_sna
         ],
     );
     let said = describe(&output);
-    assert_ne!(output.status.code(), Some(0), "{said}");
+    // The `repositories` collector fails alone; the snapshot completes
+    // (`story:collector-failure-stays-its-own`) and standard error names it.
+    assert!(output.status.success(), "{said}");
+    assert!(said.contains(": collector repositories: "), "{said}");
     for part in ["alpha", "gamma", "the gitlab group example-org"] {
         assert!(said.contains(part), "names {part}: {said}");
     }
@@ -1012,9 +1016,9 @@ fn a_local_sources_repository_keeps_its_directory_name_whatever_its_origin_names
 
 /// Two sources may list one project, and it is then one repository; two different projects
 /// under one name are not: `tool` of the group `one` and `tool` of the group `two`, neither
-/// checked out, fail the snapshot, which names the name and both sources.
+/// checked out, fail the `repositories` collector, which names the name and both sources.
 #[test]
-fn two_different_projects_under_one_name_in_two_sources_fail_the_snapshot() {
+fn two_different_projects_under_one_name_in_two_sources_fail_their_collector() {
     let case = Case::new("two-projects-one-name");
     case.projects(
         "one.projects.json",
@@ -1051,7 +1055,10 @@ fn two_different_projects_under_one_name_in_two_sources_fail_the_snapshot() {
         ],
     );
     let said = describe(&output);
-    assert_ne!(output.status.code(), Some(0), "{said}");
+    // The `repositories` collector fails alone; the snapshot completes
+    // (`story:collector-failure-stays-its-own`) and standard error names it.
+    assert!(output.status.success(), "{said}");
+    assert!(said.contains(": collector repositories: "), "{said}");
     for part in [
         "repository tool is listed by",
         "the gitlab group example-org/one",
@@ -1386,13 +1393,17 @@ fn a_rate_limited_read_waits_no_longer_than_the_collector_deadline() {
         "took {took:?}: {}",
         describe(&output)
     );
-    assert_eq!(output.status.code(), Some(1), "{}", describe(&output));
+    // The `gitlab` collector fails alone and the snapshot completes
+    // (`story:collector-failure-stays-its-own`); standard error names the collector.
+    assert!(output.status.success(), "{}", describe(&output));
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(stderr.contains("rate limited (HTTP 429)"), "{stderr}");
+    assert!(stderr.contains(": collector repositories: "), "{stderr}");
 }
 
-/// A read still answered `HTTP 429` after the three waits (5 s, 15 s, 45 s) fails the snapshot,
-/// its line naming the forge, the path and the rate limit.
+/// A read still answered `HTTP 429` after the three waits (5 s, 15 s, 45 s) fails the `gitlab`
+/// collector, its line naming the forge, the path and the rate limit; the snapshot completes
+/// (`story:collector-failure-stays-its-own`).
 #[test]
 fn a_read_still_rate_limited_after_its_retries_names_http_429() {
     let case = Case::new("rate-limited-always");
@@ -1400,7 +1411,7 @@ fn a_read_still_rate_limited_after_its_retries_names_http_429() {
     let config = case.config();
     case.rate_limited(RELEASES, false);
     let output = case.snapshot_with(&config, &[], true);
-    assert_eq!(output.status.code(), Some(1), "{}", describe(&output));
+    assert!(output.status.success(), "{}", describe(&output));
 
     assert_eq!(
         case.lines("limited").len(),

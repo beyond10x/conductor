@@ -547,3 +547,11 @@ box's config directory, a `gates_policy` under no directory the box binds), whic
 does not configure. The release retries a rate-limited forge read, keeps each GitLab commit's
 paths, runs the records commit with the instance's policy and the box's config directory, and
 words two supervisor routines.
+
+## v1.21.0
+
+No onboarding run is due: 1.21.0 changes nothing onboarding runs. `SETUP.md`, `conductor setup`,
+`conductor doctor`, the install path and the prerequisites are as in 1.20.1. A collector that
+fails no longer fails the snapshot: the snapshot completes, names its `failed_collectors`, and the
+failed run carries its `reason`; `snapshot start-snapshot` names each failed collector on standard
+error and exits 0. A dialing runtime says a refusal of the host's token pool once.

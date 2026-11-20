@@ -1,5 +1,6 @@
-//! `story:collector-bounds`: a failed snapshot says why, and no collector waits on a command for
-//! ever. Also the columns of every view `snapshot` shows, against the specification.
+//! `story:collector-bounds`: a failed collector says why, and no collector waits on a command
+//! for ever; since `story:collector-failure-stays-its-own` a collector's failure is its run's,
+//! and the snapshot completes naming it. Also the columns of every view `snapshot` shows, against the specification.
 //!
 //! Each case keeps its store under `state/` in its own directory in this test target's temporary
 //! directory, takes snapshots through the library ([`snapshot::take`]) and reads them back through
@@ -66,6 +67,14 @@ fn stdout(dir: &Path, args: &[&str]) -> String {
     String::from_utf8(output.stdout).expect("UTF-8")
 }
 
+/// The collector runs `snapshot collector-runs --format jsonl` lists.
+fn runs(dir: &Path) -> Vec<Value> {
+    stdout(dir, &["snapshot", "collector-runs", "--format", "jsonl"])
+        .lines()
+        .map(|line| serde_json::from_str(line).expect("one JSON object per line"))
+        .collect()
+}
+
 /// The snapshots `snapshot snapshots --format jsonl` lists.
 fn snapshots(dir: &Path) -> Vec<Value> {
     stdout(dir, &["snapshot", "snapshots", "--format", "jsonl"])
@@ -84,33 +93,43 @@ fn quiet() -> Collector {
     Collector::new("quiet", |_| Ok(()))
 }
 
-/// Acceptance: a collector that returns an error leaves a failed snapshot whose reason names it,
-/// and `snapshot snapshots --format jsonl` shows that reason in a later process.
+/// Acceptance: a collector that returns an error leaves a `Failed` run whose reason says why, in
+/// a snapshot that completes naming it; `snapshot snapshots` and `snapshot collector-runs
+/// --format jsonl` show both in a later process.
 #[test]
-fn a_collector_that_answers_an_error_is_named_by_the_failed_snapshot_in_a_later_process() {
+fn a_collector_that_answers_an_error_is_named_by_its_run_in_a_later_process() {
     let dir = case_dir("error");
     let taken = take(&dir, &[quiet(), broken(), quiet()]);
-    assert_eq!(taken.state, SnapshotState::Failed, "{taken:?}");
-    assert_eq!(
-        taken.reason.as_deref(),
-        Some("broken: the source did not answer")
-    );
+    assert_eq!(taken.state, SnapshotState::Complete, "{taken:?}");
+    assert_eq!(taken.failed, ["broken: the source did not answer"]);
 
     let listed = snapshots(&dir);
     assert_eq!(listed.len(), 1, "{listed:?}");
     assert_eq!(listed[0]["snapshot_id"], taken.snapshot_id.0.0.as_str());
-    assert_eq!(listed[0]["state"], "Failed");
+    assert_eq!(listed[0]["state"], "Complete");
+    assert_eq!(listed[0]["failure_reason"], Value::Null, "{listed:?}");
     assert_eq!(
-        listed[0]["failure_reason"], "broken: the source did not answer",
+        listed[0]["failed_collectors"],
+        serde_json::json!(["broken"]),
         "{listed:?}"
+    );
+    let failed: Vec<Value> = runs(&dir)
+        .into_iter()
+        .filter(|run| run["outcome"] == "Failed")
+        .collect();
+    assert_eq!(failed.len(), 1, "{failed:?}");
+    assert_eq!(failed[0]["collector"], "broken", "{failed:?}");
+    assert_eq!(
+        failed[0]["reason"], "the source did not answer",
+        "{failed:?}"
     );
 }
 
 /// Acceptance (the bound is per command): a collector whose command sleeps past its bound of 2 s
-/// lets `snapshot::take` return within the bound plus 5 s, and the snapshot is `Failed` with a
-/// reason naming the collector, the program and the bound, read in a later process.
+/// lets `snapshot::take` return within the bound plus 5 s, and the collector's run is `Failed`
+/// with a reason naming the program and the bound, read in a later process.
 #[test]
-fn a_command_past_its_bound_fails_the_snapshot_naming_collector_program_and_bound() {
+fn a_command_past_its_bound_fails_its_collector_naming_program_and_bound() {
     let dir = case_dir("bound");
     let slow = Collector::new("slow", |_| {
         collect::run(Command::new("sleep").arg("30"), Duration::from_secs(2))?;
@@ -120,50 +139,64 @@ fn a_command_past_its_bound_fails_the_snapshot_naming_collector_program_and_boun
     let taken = take(&dir, &[slow]);
     let took = started.elapsed();
     assert!(took < Duration::from_secs(7), "the snapshot took {took:?}");
-    assert_eq!(taken.state, SnapshotState::Failed, "{taken:?}");
-    let reason = "slow: `sleep` gave no answer within 2 s";
-    assert_eq!(taken.reason.as_deref(), Some(reason));
+    assert_eq!(taken.state, SnapshotState::Complete, "{taken:?}");
+    assert_eq!(taken.failed, ["slow: `sleep` gave no answer within 2 s"]);
 
     let listed = snapshots(&dir);
     assert_eq!(listed.len(), 1, "{listed:?}");
-    assert_eq!(listed[0]["state"], "Failed");
-    assert_eq!(listed[0]["failure_reason"], reason, "{listed:?}");
+    assert_eq!(listed[0]["state"], "Complete");
+    assert_eq!(
+        listed[0]["failed_collectors"],
+        serde_json::json!(["slow"]),
+        "{listed:?}"
+    );
+    let listed = runs(&dir);
+    assert_eq!(listed.len(), 1, "{listed:?}");
+    assert_eq!(listed[0]["outcome"], "Failed", "{listed:?}");
+    assert_eq!(
+        listed[0]["reason"], "`sleep` gave no answer within 2 s",
+        "{listed:?}"
+    );
 }
 
-/// `snapshot snapshots` shows `failure_reason` in every format: the reason of a failed snapshot,
-/// nothing for a complete one.
+/// `snapshot snapshots` shows `failed_collectors` in every format: the collector that failed in
+/// a snapshot one collector failed, none for one every collector answered; and `failure_reason`,
+/// nothing for either, as both completed (`story:collector-failure-stays-its-own`).
 #[test]
-fn snapshot_snapshots_shows_the_failure_reason_in_every_format() {
+fn snapshot_snapshots_shows_the_failed_collectors_in_every_format() {
     let dir = case_dir("formats");
     let complete = take(&dir, &[quiet()]);
     assert_eq!(complete.state, SnapshotState::Complete, "{complete:?}");
     let failed = take(&dir, &[broken()]);
-    assert_eq!(failed.state, SnapshotState::Failed, "{failed:?}");
-    let reason = "broken: the source did not answer";
+    assert_eq!(failed.state, SnapshotState::Complete, "{failed:?}");
+    let none = serde_json::json!([]);
+    let broken_only = serde_json::json!(["broken"]);
 
     let listed = snapshots(&dir);
     assert_eq!(listed.len(), 2, "{listed:?}");
-    assert_eq!(listed[0]["failure_reason"], Value::Null, "{listed:?}");
-    assert_eq!(listed[1]["failure_reason"], reason, "{listed:?}");
+    assert_eq!(listed[0]["failed_collectors"], none, "{listed:?}");
+    assert_eq!(listed[1]["failed_collectors"], broken_only, "{listed:?}");
+    assert_eq!(listed[1]["failure_reason"], Value::Null, "{listed:?}");
 
     let json: Value = serde_json::from_str(&stdout(
         &dir,
         &["snapshot", "snapshots", "--format", "json"],
     ))
     .expect("one JSON array");
-    assert_eq!(json[0]["failure_reason"], Value::Null, "{json}");
-    assert_eq!(json[1]["failure_reason"], reason, "{json}");
+    assert_eq!(json[0]["failed_collectors"], none, "{json}");
+    assert_eq!(json[1]["failed_collectors"], broken_only, "{json}");
 
     for format in ["text", "markdown"] {
         let shown = stdout(&dir, &["snapshot", "snapshots", "--format", format]);
         let mut lines = shown.lines();
         let header = lines.next().expect("a header line");
         assert!(header.contains("failure_reason"), "{format}: {shown}");
+        assert!(header.contains("failed_collectors"), "{format}: {shown}");
         let failed_line = shown
             .lines()
             .find(|line| line.contains(failed.snapshot_id.0.0.as_str()))
             .expect("the failed snapshot's line");
-        assert!(failed_line.contains(reason), "{format}: {shown}");
+        assert!(failed_line.contains("broken"), "{format}: {shown}");
     }
 }
 

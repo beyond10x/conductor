@@ -6,8 +6,10 @@
 //!   timer of the server ([`TICK`]) both look at. A request never waits for doctor: it answers
 //!   the last result with `taken_at`, the clock when it was taken.
 //! - `snapshot`: the newest snapshot of the store under [`HealthSources::state`], in any state,
-//!   with its `failure_reason`; `collector_runs` and `member_failures`: that snapshot's rows of the
-//!   views `snapshot collector-runs` and `snapshot member-failures`, each failure with its class
+//!   with its `failure_reason` and its `failed_collectors`, whose rows it did not read
+//!   (`story:collector-failure-stays-its-own`); `collector_runs` and `member_failures`: that
+//!   snapshot's rows of the views `snapshot collector-runs` (a `Failed` run with its `reason`) and
+//!   `snapshot member-failures`, each failure with its class
 //!   ([`failure_class`]) and the fix the table [`super::FAILURE_FIXES`] gives that class.
 //! - `disk`: the free bytes of [`HealthSources::disk`], the instance's floors
 //!   `thresholds.disk_low` and `thresholds.disk_admit`, and its `state`: `ok` above `disk_low`,
@@ -443,6 +445,7 @@ fn newest_in(held: Held<'_>, errors: &mut Vec<String>) -> (Value, Vec<Value>, Ve
         "started_at": newest.started_at.0,
         "disk_free_bytes": newest.disk_free_bytes,
         "failure_reason": newest.failure_reason,
+        "failed_collectors": newest.failed_collectors,
     });
     (
         snapshot,
@@ -452,8 +455,9 @@ fn newest_in(held: Held<'_>, errors: &mut Vec<String>) -> (Value, Vec<Value>, Ve
 }
 
 /// One row of `snapshot collector-runs`: the collector, its start, its duration in milliseconds,
-/// how it ended (`Completed`, `Failed`, `OverBudget`) and the bytes read and written while it ran
-/// (`null` where they were not recorded).
+/// how it ended (`Completed`, `Failed`, `OverBudget`), the bytes read and written while it ran
+/// (`null` where they were not recorded), and the reason a `Failed` run answered (`null` on any
+/// other).
 fn collector_run(run: CollectorRuns) -> Value {
     json!({
         "collector": run.collector,
@@ -462,6 +466,7 @@ fn collector_run(run: CollectorRuns) -> Value {
         "outcome": crate::snapshot::collector_run_outcome_name(run.outcome),
         "read_bytes": run.read_bytes,
         "written_bytes": run.written_bytes,
+        "reason": run.reason,
     })
 }
 

@@ -411,11 +411,7 @@ fn a_live_session_without_a_reference_fails_without_naming_where_it_runs() {
     let dir = case_dir("no-reference");
     let codex = codex(&dir, "codex");
     let taken = take(&dir, sources(cat("claude-agents-no-reference.json"), codex));
-    assert_eq!(taken.state, SnapshotState::Failed, "{taken:?}");
-    let reason = taken
-        .reason
-        .clone()
-        .expect("a failed snapshot has a reason");
+    let reason = collector_failed(&taken);
     assert!(reason.starts_with("sessions: "), "{reason}");
     assert!(reason.contains("neither `id` nor `sessionId`"), "{reason}");
     assert_private("the failure reason", reason.as_bytes());
@@ -424,8 +420,11 @@ fn a_live_session_without_a_reference_fails_without_naming_where_it_runs() {
 
     let snapshots = rows(&dir, "snapshots");
     assert_eq!(snapshots.len(), 1, "{snapshots:?}");
-    assert_eq!(snapshots[0]["state"], "Failed");
-    assert_eq!(snapshots[0]["failure_reason"], reason.as_str());
+    assert_eq!(snapshots[0]["state"], "Complete");
+    assert_eq!(
+        snapshots[0]["failed_collectors"],
+        serde_json::json!(["sessions"])
+    );
 }
 
 /// A recent Codex file whose first record is not `session_meta` fails the collector naming the
@@ -435,8 +434,7 @@ fn a_codex_file_without_session_meta_fails_naming_the_file_only() {
     let dir = case_dir("malformed");
     let codex = codex(&dir, "codex-malformed");
     let taken = take(&dir, sources(cat("claude-agents.json"), codex));
-    assert_eq!(taken.state, SnapshotState::Failed, "{taken:?}");
-    let reason = taken.reason.expect("a failed snapshot has a reason");
+    let reason = collector_failed(&taken);
     assert!(reason.starts_with("sessions: "), "{reason}");
     assert!(
         reason.contains("rollout-2026-10-07T11-40-00-00000000-0000-4000-8000-0000000000c9.jsonl"),
@@ -464,8 +462,7 @@ fn the_session_list_command_is_stopped_at_its_bound() {
         "the snapshot took {:?}",
         started.elapsed()
     );
-    assert_eq!(taken.state, SnapshotState::Failed, "{taken:?}");
-    let reason = taken.reason.expect("a failed snapshot has a reason");
+    let reason = collector_failed(&taken);
     assert!(reason.starts_with("sessions: "), "{reason}");
     assert!(
         reason.contains("`sleep` gave no answer within 2 s"),
@@ -481,8 +478,19 @@ fn a_session_list_command_that_fails_fails_the_collector() {
         &dir,
         sources(vec![OsString::from("false")], dir.join("no-such-dir")),
     );
-    assert_eq!(taken.state, SnapshotState::Failed, "{taken:?}");
-    let reason = taken.reason.expect("a failed snapshot has a reason");
+    let reason = collector_failed(&taken);
     assert!(reason.starts_with("sessions: "), "{reason}");
     assert!(reason.contains("`false` exited"), "{reason}");
+}
+
+/// The one collector of `taken` that did not answer, as `<collector>: <error>`: the snapshot
+/// completes, and only that collector's run failed (`story:collector-failure-stays-its-own`).
+fn collector_failed(taken: &conductor_cli::snapshot::Taken) -> String {
+    assert_eq!(
+        taken.state,
+        conductor_model::observation::SnapshotState::Complete,
+        "{taken:?}"
+    );
+    assert_eq!(taken.failed.len(), 1, "one collector failed: {taken:?}");
+    taken.failed[0].clone()
 }

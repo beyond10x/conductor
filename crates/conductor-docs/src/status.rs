@@ -131,9 +131,9 @@ pub const CAPABILITIES: &[Capability] = &[
     ),
     shipped(
         SNAPSHOT,
-        "A silent source fails the snapshot",
-        "A source that does not answer fails the snapshot and keeps what was already recorded.",
-        "crates/conductor/tests/snapshot.rs::a_source_that_does_not_answer_fails_the_snapshot_and_keeps_what_was_recorded",
+        "A silent source fails only its own rows",
+        "A source that does not answer fails its collector's run, with its reason; the snapshot completes with every other collector's rows and names the failed collector.",
+        "crates/conductor/tests/snapshot.rs::a_failing_collector_leaves_the_later_collectors_rows_recorded",
         None,
     ),
     shipped(

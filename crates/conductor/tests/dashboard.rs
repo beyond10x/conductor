@@ -1858,13 +1858,15 @@ mod health_view {
         assert_eq!(runs(&count), 2);
     }
 
+    /// `story:collector-failure-stays-its-own`: a snapshot one collector of which failed
+    /// completes; health serves it naming that collector, and the collector's run with its reason.
     #[test]
-    fn the_newest_snapshot_is_served_when_it_failed_with_its_reason() {
+    fn the_newest_snapshot_is_served_when_a_collector_failed_with_its_reason() {
         let case = Case::new("health-failed");
         let quiet = Collector::new("repositories", |_| Ok(()));
         snapshot::take_in(&case.state(), &[quiet]).expect("an older snapshot");
         let refused = Collector::new("blockers", |_| anyhow::bail!("fetch refused"));
-        let failed = snapshot::take_in(&case.state(), &[refused]).expect("a failed snapshot");
+        let failed = snapshot::take_in(&case.state(), &[refused]).expect("a partial snapshot");
         let port = start(case.sources());
         let health = health(port);
         let snapshot = &health["snapshot"];
@@ -1872,8 +1874,17 @@ mod health_view {
             snapshot["snapshot_id"], failed.snapshot_id.0.0,
             "{health:#}"
         );
-        assert_eq!(snapshot["state"], "Failed", "{health:#}");
-        assert_eq!(snapshot["failure_reason"], "blockers: fetch refused");
+        assert_eq!(snapshot["state"], "Complete", "{health:#}");
+        assert_eq!(snapshot["failure_reason"], Value::Null, "{health:#}");
+        assert_eq!(
+            snapshot["failed_collectors"],
+            json!(["blockers"]),
+            "{health:#}"
+        );
+        let runs = health["collector_runs"].as_array().expect("the runs");
+        assert_eq!(runs.len(), 1, "{health:#}");
+        assert_eq!(runs[0]["outcome"], "Failed", "{health:#}");
+        assert_eq!(runs[0]["reason"], "fetch refused", "{health:#}");
     }
 
     #[test]

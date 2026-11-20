@@ -369,7 +369,8 @@ fn status_report(store: &Store, now: OffsetDateTime) -> StatusReport {
     let items = unanswered(store);
     let oldest = items.first();
     let snapshots = SnapshotStorage::list(store);
-    let newest = newest_complete(&snapshots, None).map(|held| observed(store, held));
+    let newest_held = newest_complete(&snapshots, None);
+    let newest = newest_held.map(|held| observed(store, held));
 
     let mut report = StatusReport {
         snapshot_id: None,
@@ -384,6 +385,11 @@ fn status_report(store: &Store, now: OffsetDateTime) -> StatusReport {
         unanswered_operator_items: count(items.len()),
         oldest_unanswered_request_id: oldest.map(|item| item.request_id.clone()),
         oldest_unanswered_age_seconds: oldest.and_then(|item| age_seconds(&item.raised_at, now)),
+        // The collectors of that snapshot that did not answer, whose kinds of rows it did not
+        // read (`story:collector-failure-stays-its-own`).
+        failed_collectors: newest_held
+            .map(|held| held.data.failed_collectors.clone())
+            .unwrap_or_default(),
     };
     if let Some(snapshot) = &newest {
         report.snapshot_id = Some(snapshot.snapshot_id.0.0.clone());
@@ -500,8 +506,8 @@ fn one_line(text: &str) -> String {
 
 /// `report` as the text `conductor status` prints without `--full`: what asks for attention,
 /// one line each and no heading (`story:conductor-context-budget`). In order: the snapshot (`snapshot
-/// <id>, started <time>, <age> ago`, or that none is complete); the unanswered operator items,
-/// when there are any; one `deviation <repo>: <deviations>` per repository with one, its failing
+/// <id>, started <time>, <age> ago`, or that none is complete); `failed collectors: <names>`,
+/// when a collector of it did not answer; the unanswered operator items, when there are any; one `deviation <repo>: <deviations>` per repository with one, its failing
 /// checks after `; failing checks: `; one `blocked <dispatch> <repo> since <sent>` per blocked
 /// dispatch; one `wait <line>` per wait; one `request <kind> <id> <repo> <state> since <time>:
 /// <what>` per pending request; the usage line, when there is one; and last a line counting the
@@ -518,6 +524,12 @@ fn attention_text(report: &StatusReport) -> String {
         _ => out.push_str(
             "snapshot: none is complete; take one with `conductor snapshot start-snapshot`\n",
         ),
+    }
+    if !report.failed_collectors.is_empty() {
+        out.push_str(&format!(
+            "failed collectors: {}; their rows are not read in this snapshot\n",
+            report.failed_collectors.join(", ")
+        ));
     }
     if report.unanswered_operator_items > 0 {
         out.push_str(&format!(
@@ -596,6 +608,12 @@ fn status_text(report: &StatusReport) -> String {
             out.push_str(&format!(
                 "Newest complete snapshot {id}, started {started}, {age} ago.\n\n"
             ));
+            if !report.failed_collectors.is_empty() {
+                out.push_str(&format!(
+                    "Failed collectors: {}; their rows are not read in this snapshot.\n\n",
+                    report.failed_collectors.join(", ")
+                ));
+            }
         }
         _ => out.push_str(
             "No snapshot is complete; take one with `conductor snapshot start-snapshot`.\n\n",
@@ -769,6 +787,7 @@ fn status_json(report: &StatusReport) -> Value {
         "unanswered_operator_items": report.unanswered_operator_items,
         "oldest_unanswered_request_id": report.oldest_unanswered_request_id,
         "oldest_unanswered_age_seconds": report.oldest_unanswered_age_seconds,
+        "failed_collectors": report.failed_collectors,
     })
 }
 
@@ -821,6 +840,21 @@ pub(crate) fn newest_complete<'a>(
                     && order(&held.data.started_at.0, &current.data.started_at.0) == Ordering::Less
             })
         })
+        .max_by(|left, right| order(&left.data.started_at.0, &right.data.started_at.0))
+}
+
+/// The newest complete snapshot of `snapshots` whose forge collectors all ended `Completed`
+/// ([`crate::store::observations::forge_complete`]), the base of a reader that would take a
+/// failed forge collector's missing rows for none: the dispatch cycle's review fullness
+/// (`story:collector-failure-stays-its-own`). Retention keeps its observations.
+pub(crate) fn newest_forge_complete<'a>(
+    store: &Store,
+    snapshots: &'a [SnapshotSnapshot],
+) -> Option<&'a SnapshotSnapshot> {
+    let unanswered = store.forge_unanswered();
+    snapshots
+        .iter()
+        .filter(|held| crate::store::observations::forge_complete(held, &unanswered))
         .max_by(|left, right| order(&left.data.started_at.0, &right.data.started_at.0))
 }
 

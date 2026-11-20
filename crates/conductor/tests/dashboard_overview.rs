@@ -13,6 +13,7 @@
 
 mod active;
 mod common;
+mod failed;
 mod served;
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -31,7 +32,7 @@ use conductor_cli::snapshot::{self, Recorder};
 use conductor_cli::store;
 use conductor_model::observation::{
     CommitSha, Mergeability, RecordBlocker, RecordMergedPullRequest, RecordPullRequest,
-    RecordRelease, RecordRepository, RecordWorkflowRun, RepositoryName, RunConclusion,
+    RecordRelease, RecordRepository, RecordWorkflowRun, RepositoryName, RunConclusion, SnapshotId,
     SnapshotState, StartSnapshot, Visibility,
 };
 use conductor_model::primitives::Timestamp;
@@ -446,56 +447,74 @@ fn each_snapshot_endpoint_answers_the_fixture_snapshot_s_rows() {
     );
 }
 
+/// The repository `delta` as `snapshot` observes it.
+fn delta(snapshot: SnapshotId) -> RecordRepository {
+    RecordRepository {
+        actor: conductor_cli::actor::daemon(),
+        snapshot_id: snapshot,
+        repository: RepositoryName("delta".to_owned()),
+        visibility: Visibility::Public,
+        archived: false,
+        local_checkout: true,
+        main_head: CommitSha("head-of-delta".to_owned()),
+        main_committed_at: Timestamp("2026-10-12T12:00:00Z".to_owned()),
+        main_commits_7d: 0,
+        real_commits_7d: 0,
+        behind_main: 0,
+        dirty_files: 0,
+        worktrees: 0,
+        open_issues: 0,
+        oldest_open_issue_at: None,
+        latest_release: None,
+        latest_release_at: None,
+        unreleased_commits: None,
+        planning_store_version: None,
+        in_catalog: None,
+        gates_hooks_version: None,
+        gates_version: None,
+        wave_width: None,
+        wave_ready: None,
+        wave_reason: None,
+    }
+}
+
 /// A collector that records the repository `delta`, asks every snapshot endpoint while its
-/// snapshot is still collecting, keeps the answers in `seen`, and then fails.
+/// snapshot is still collecting, and keeps the answers in `seen`.
 fn asks_while_collecting(port: u16, seen: Arc<Mutex<Vec<(String, Value)>>>) -> Collector {
     Collector::new("asks", move |record: &mut Recorder<'_>| {
         let snapshot = record.snapshot().clone();
-        record.repository(RecordRepository {
-            actor: conductor_cli::actor::daemon(),
-            snapshot_id: snapshot,
-            repository: RepositoryName("delta".to_owned()),
-            visibility: Visibility::Public,
-            archived: false,
-            local_checkout: true,
-            main_head: CommitSha("head-of-delta".to_owned()),
-            main_committed_at: Timestamp("2026-10-12T12:00:00Z".to_owned()),
-            main_commits_7d: 0,
-            real_commits_7d: 0,
-            behind_main: 0,
-            dirty_files: 0,
-            worktrees: 0,
-            open_issues: 0,
-            oldest_open_issue_at: None,
-            latest_release: None,
-            latest_release_at: None,
-            unreleased_commits: None,
-            planning_store_version: None,
-            in_catalog: None,
-            gates_hooks_version: None,
-            gates_version: None,
-            wave_width: None,
-            wave_ready: None,
-            wave_reason: None,
-        })?;
+        record.repository(delta(snapshot))?;
         let mut seen = seen.lock().expect("the answers");
         for path in &ENDPOINTS[..5] {
             seen.push(((*path).to_owned(), get(port, path)));
         }
-        anyhow::bail!("fail after the endpoints were asked")
+        Ok(())
     })
 }
 
-/// With a newer snapshot still collecting, and once it failed, every endpoint answers the older
-/// complete one.
+/// With a newer snapshot failed, and one still collecting after it, every endpoint answers the
+/// older complete one. The failed one is made by hand ([`failed::snapshot`]): the driver
+/// completes a snapshot whatever its collectors answer (`story:collector-failure-stays-its-own`).
 #[test]
 fn a_newer_snapshot_collecting_or_failed_is_not_read() {
     let case = Case::new("newer");
     let id = case.complete(EARLIER);
     let port = case.start();
+    failed::snapshot(
+        &case.state(),
+        LATER,
+        "the source did not answer",
+        |store, snapshot| {
+            failed::repository(store, snapshot, delta(snapshot.clone()));
+        },
+    );
+    let failed: Vec<(String, Value)> = ENDPOINTS[..5]
+        .iter()
+        .map(|path| ((*path).to_owned(), get(port, path)))
+        .collect();
     let seen = Arc::new(Mutex::new(Vec::new()));
     let (_, state) = case.take(LATER, asks_while_collecting(port, Arc::clone(&seen)));
-    assert_eq!(state, SnapshotState::Failed);
+    assert_eq!(state, SnapshotState::Complete);
 
     let collecting = seen.lock().expect("the answers").clone();
     assert_eq!(
@@ -503,10 +522,6 @@ fn a_newer_snapshot_collecting_or_failed_is_not_read() {
         5,
         "every endpoint was asked while collecting"
     );
-    let failed: Vec<(String, Value)> = ENDPOINTS[..5]
-        .iter()
-        .map(|path| ((*path).to_owned(), get(port, path)))
-        .collect();
     for (path, answer) in collecting.iter().chain(&failed) {
         assert_eq!(answer["snapshot"]["id"], json!(id), "{path}: {answer:#}");
         assert_eq!(answer["snapshot"]["started_at"], json!(EARLIER), "{path}");

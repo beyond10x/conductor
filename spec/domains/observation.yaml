@@ -62,8 +62,10 @@ types:
     variants: [Valid, Refused, NotRun]
 
   # How one collector's run in a snapshot ended (story:snapshot-duration): `Completed`, it
-  # answered; `Failed`, it answered an error, which fails the snapshot; `OverBudget`, it ran past
-  # the budget `start-snapshot --budget` gave it and was stopped there, which does not.
+  # answered; `Failed`, it answered an error, which fails only its own rows: the driver runs the
+  # other collectors and the snapshot completes (story:collector-failure-stays-its-own);
+  # `OverBudget`, it ran past the budget `start-snapshot --budget` gave it and was stopped there,
+  # which does not fail the snapshot either.
   - name: conductor.observation.CollectorRunOutcome
     kind: enum
     variants: [Completed, Failed, OverBudget]
@@ -306,7 +308,9 @@ types:
   # `unanswered_operator_items` counts the decision requests escalated as class O or H and not
   # answered or withdrawn yet (story:decisions-notify); `oldest_unanswered_request_id` and
   # `oldest_unanswered_age_seconds` name the one raised first and how long ago it was raised,
-  # both absent when the count is 0.
+  # both absent when the count is 0. `failed_collectors` names the collectors whose run in that
+  # snapshot ended `Failed`, whose kinds of rows it did not read
+  # (story:collector-failure-stays-its-own); empty when none failed or no snapshot is complete.
   - name: conductor.observation.StatusReport
     kind: struct
     fields:
@@ -322,8 +326,12 @@ types:
       - {name: unanswered_operator_items, type: Integer}
       - {name: oldest_unanswered_request_id, type: Optional<String>}
       - {name: oldest_unanswered_age_seconds, type: Optional<Integer>}
+      - {name: failed_collectors, type: List<String>}
 
 entities:
+  # One sense run. `failed_collectors` names the collectors whose run ended `Failed`: a complete
+  # snapshot holds every other collector's rows and none of theirs
+  # (story:collector-failure-stays-its-own); empty on a snapshot completed before it was kept.
   - name: conductor.observation.Snapshot
     identity:
       name: snapshot_id
@@ -337,6 +345,8 @@ entities:
         type: Integer
       - name: failure_reason
         type: Optional<String>
+      - name: failed_collectors
+        type: List<String>
     relations:
       - name: repositories
         kind: owns
@@ -810,7 +820,9 @@ entities:
   # collector a slow snapshot spends its time in can be named. `read_bytes` and `written_bytes`
   # are what the snapshot's process read and wrote while the collector ran, its records kept
   # included (story:snapshot-store-cost); absent where the system does not report them, and on a
-  # run recorded before they were.
+  # run recorded before they were. `reason` is the error a `Failed` run answered
+  # (story:collector-failure-stays-its-own); absent on a run that did not fail, and on a run
+  # recorded before it was kept.
   - name: conductor.observation.CollectorRunObservation
     identity:
       name: observation_id
@@ -832,6 +844,8 @@ entities:
         type: Optional<Integer>
       - name: written_bytes
         type: Optional<Integer>
+      - name: reason
+        type: Optional<String>
     relations:
       - name: snapshot
         kind: references
@@ -1064,6 +1078,7 @@ commands:
           actor: input.actor
           started_at: input.started_at
           disk_free_bytes: input.disk_free_bytes
+          failed_collectors: []
         emits:
           - conductor.observation.SnapshotStarted
         payload:
@@ -1844,6 +1859,11 @@ commands:
       - name: written_bytes
         type: Optional<Integer>
         example: 1048576
+      # The error a `Failed` run answered (story:collector-failure-stays-its-own); none on a run
+      # that did not fail.
+      - name: reason
+        type: Optional<String>
+        example: "the source did not answer"
     outcomes:
       - name: negative-duration
         when: duration_ms < 0
@@ -1878,6 +1898,7 @@ commands:
           outcome: input.outcome
           read_bytes: input.read_bytes
           written_bytes: input.written_bytes
+          reason: input.reason
         emits:
           - conductor.observation.CollectorRunRecorded
         payload:
@@ -2113,17 +2134,23 @@ commands:
       - {name: actor, type: conductor.operator.Actor}
       - name: snapshot_id
         type: conductor.observation.SnapshotId
+      # The collectors whose run ended `Failed` (story:collector-failure-stays-its-own); empty
+      # when every collector answered.
+      - name: failed_collectors
+        type: List<String>
     outcomes:
       - name: completed
         moves: conductor.observation.Snapshot.complete
         instance: snapshot_id
+        sets:
+          failed_collectors: input.failed_collectors
         emits:
           - conductor.observation.SnapshotCompleted
         payload:
           conductor.observation.SnapshotCompleted:
             actor: input.actor
             snapshot_id: input.snapshot_id
-        summary: Every source answered; the snapshot is the newest complete one.
+        summary: Every collector ran, a failed one keeping only its own rows out; the snapshot is the newest complete one.
       - name: no-such-snapshot
         unknown_instance: true
         error: conductor.observation.SnapshotNotFound
@@ -2406,6 +2433,8 @@ views:
         type: Integer
       - name: failure_reason
         type: Optional<String>
+      - name: failed_collectors
+        type: List<String>
       - name: actor
         type: conductor.operator.Actor
     naming:
@@ -2682,8 +2711,9 @@ views:
       wire: member-failures
       display: Members a collector could not read
 
-  # Each collector's run of every kept snapshot, with its start, duration, outcome and bytes read
-  # and written (story:snapshot-duration, story:snapshot-store-cost).
+  # Each collector's run of every kept snapshot, with its start, duration, outcome, bytes read
+  # and written (story:snapshot-duration, story:snapshot-store-cost), and the reason a `Failed`
+  # run answered (story:collector-failure-stays-its-own).
   - name: conductor.observation.CollectorRuns
     source: conductor.observation.CollectorRunObservation
     consistency: read_your_writes
@@ -2704,6 +2734,8 @@ views:
         type: Optional<Integer>
       - name: written_bytes
         type: Optional<Integer>
+      - name: reason
+        type: Optional<String>
       - name: actor
         type: conductor.operator.Actor
     naming:

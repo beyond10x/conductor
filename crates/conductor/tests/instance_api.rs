@@ -1670,12 +1670,21 @@ fn a_dialing_runtime_says_a_refusal_once_and_a_surplus_dial_not_at_all() {
     std::thread::sleep(Duration::from_secs(3));
     drop(refused);
     let text = fs::read_to_string(&log).expect("the log");
+    // The dialer's refusal, said once; the pool probe's refusal of the same token, at most once
+    // and in one text however its connection closed (story:instance-api-refusal-said-once-flake).
     assert_eq!(
-        text.matches("closed the connection").count(),
+        text.matches("before any request").count(),
         1,
         "said once:\n{text}"
     );
-    assert!(text.contains("before any request"), "{text}");
+    assert!(
+        text.matches("closed the connection unanswered").count() <= 1,
+        "the probe's refusal said at most once:\n{text}"
+    );
+    assert!(
+        !text.contains("read conductord's answer") && !text.contains("ask conductord"),
+        "the probe's refusal in another text:\n{text}"
+    );
     stamped(&text);
 
     // Surplus: the pool holds its bound already.
