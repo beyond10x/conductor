@@ -801,6 +801,19 @@ errors:
       - name: controller_id
         type: conductor.dispatch.ControllerId
 
+  # A session of an instance whose `placement` opens a substrate box was to be started or resumed
+  # by a process outside that box (issue #226, `crates/conductor/src/spawn.rs`,
+  # `outside_box_to_resume`): `controller resume-controller` on the host refuses before anything is
+  # launched, and the controller stays `Paused`. The box's runtime resumes it, or the controller is
+  # stopped and `conductor instance cycle` spawns it again.
+  - name: conductor.dispatch.OutsideBox
+    summary: >
+      The instance's sessions run in its box and this process runs outside it, so no session was
+      started or resumed and nothing moved.
+    fields:
+      - name: session_name
+        type: String
+
   - name: conductor.dispatch.GoalNotFound
     summary: No goal has this id, so nothing was dispatched.
     fields:

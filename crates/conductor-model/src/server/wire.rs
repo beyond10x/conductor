@@ -1,5 +1,5 @@
 // generated from conductor v1
-// contract digest 1e51e8597d088c769b802ce8f4771c1aad9184faa80e8cdb7b667bcf452d7949
+// contract digest 76ff8853154fd9fc652d256e9f2ea0288061fa7a3c87c5f5925297785077991a
 // do not edit: regenerate with `ess synthesize --layout crate`
 //! Every generated declaration, as JSON, in the renderings the published wire contracts fix.
 //!
@@ -19089,6 +19089,14 @@ pub fn encode_error_conductor_dispatch_not_a_need(value: &crate::dispatch::NotAN
     out.push('{');
     json::member(out, "message_id");
     encode_conductor_dispatch_message_id(&value.message_id, out);
+    out.push('}');
+}
+
+/// Writes the declared error `conductor.dispatch.OutsideBox` as JSON.
+pub fn encode_error_conductor_dispatch_outside_box(value: &crate::dispatch::OutsideBox, out: &mut String) {
+    out.push('{');
+    json::member(out, "session_name");
+    json::push_text(out, &value.session_name);
     out.push('}');
 }
 

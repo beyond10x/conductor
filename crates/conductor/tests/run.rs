@@ -1536,6 +1536,8 @@ fn a_second_limit_after_a_resume_at_reset_backs_off() {
     assert_eq!(actions(&case.tick(&[])), ["resumed"]);
 
     let minutes = |wait: time::Duration| wait.whole_seconds() as f64 / 60.0;
+    // The resumed session meets its limit again: it lists blocked, with no pid, as at the first.
+    case.live("alpha", FIRST, false);
     let before = OffsetDateTime::now_utc();
     let again = case.tick(&["usage limit: You've hit your limit; 1 sessions: ex-alpha"]);
     assert_eq!(actions(&again), ["usage-limit"], "{again}");
@@ -1550,6 +1552,7 @@ fn a_second_limit_after_a_resume_at_reset_backs_off() {
 
     reset_passed(&case, "ex-alpha");
     assert_eq!(actions(&case.tick(&[])), ["resumed"]);
+    case.live("alpha", FIRST, false);
     let before = OffsetDateTime::now_utc();
     case.tick(&["usage limit: You've hit your limit; 1 sessions: ex-alpha"]);
     assert_eq!(limited(&case)["ex-alpha"]["attempts"], 2);
@@ -1559,6 +1562,7 @@ fn a_second_limit_after_a_resume_at_reset_backs_off() {
     reset_passed(&case, "ex-alpha");
     assert_eq!(actions(&case.tick(&[])), ["resumed"]);
     let (resets, at) = reset_in(3);
+    case.live("alpha", FIRST, false);
     case.tick(&[&format!(
         "usage limit: You've hit your limit · {resets}; 1 sessions: ex-alpha"
     )]);

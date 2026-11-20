@@ -1,13 +1,13 @@
 <!--
   generated from conductor v1
-  contract digest 1e51e8597d088c769b802ce8f4771c1aad9184faa80e8cdb7b667bcf452d7949
+  contract digest 76ff8853154fd9fc652d256e9f2ea0288061fa7a3c87c5f5925297785077991a
   do not edit: regenerate with `ess synthesize --layout crate`
 -->
 # Synthesis plan — conductor v1
 
 Scope: `component-skeletons`, laid out as `crate`, planned by `ess-synth`. Regenerate with `ess synthesize --layout crate`.
 
-1044 capabilities: **1028 generated**, **16 obligations**, **0 refused**. An obligation is yours to implement against its contract; a refusal is a fact about this synthesis scope, not about the specification.
+1045 capabilities: **1029 generated**, **16 obligations**, **0 refused**. An obligation is yours to implement against its contract; a refusal is a fact about this synthesis scope, not about the specification.
 
 ## Generated
 
@@ -826,6 +826,7 @@ Scope: `component-skeletons`, laid out as `crate`, planned by `ess-synth`. Regen
 | error type | `conductor.dispatch.MessageStateConflict` |
 | error type | `conductor.dispatch.NeedNotRouted` |
 | error type | `conductor.dispatch.NotANeed` |
+| error type | `conductor.dispatch.OutsideBox` |
 | error type | `conductor.dispatch.ReferenceHeld` |
 | error type | `conductor.dispatch.ReopenByAgent` |
 | error type | `conductor.dispatch.RepositoryBusy` |
