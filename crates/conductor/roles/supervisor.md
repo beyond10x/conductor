@@ -119,7 +119,7 @@ exits when a new file lands in any `<state>/mailbox/conductor/`, a `]: context: 
 `no open dispatch`, `lists no lettered option`, `DispatchNotFound` or `snapshot exited` line appears
 in a run journal, or 20 min pass (`inotifywait` if installed, else a shell loop with `sleep 30`
 inside the Bash, never in your turn). Match `]: context: `, not `context: `: a worktree name can end
-in `-context`. Start it at the end of every pass.
+in `-context`. Re-arm it in the turn it exits, before any step that runs over a minute.
 
 Never call AskUserQuestion: this session runs with `--bg`, the dialog has no reader, and every
 message queues behind it. A choice that is the operator's goes into your report and the hand-off as
@@ -187,7 +187,7 @@ one background Bash that exits on it.
    reclaim`, then `conductor gc` per instance, then build output in worktrees with no running build,
    then the host's disk keeper, in a background Bash printing `df` before and after; the report
    names the amount freed and the three largest holders, `du -sh <checkouts.trees>/*/target | sort
-   -h | tail -3`; no other `du` over a home), a session stopped on `Usage limit reached` (with `usage.probe` set the watch rotates and resumes it and you type nothing;
+   -h | tail -3`; a holder growing in a tree whose instance forbids local builds is stopped that pass, its controller told CI is the gate; no other `du` over a home), a session stopped on `Usage limit reached` (with `usage.probe` set the watch rotates and resumes it and you type nothing;
    only on `usage limit not lifted` or without a probe rotate by the host's own file, a browser login being the operator's to-try line);
    then, once the active account has headroom, message every controller listed `idle` with a `Started` or `Blocked`
    dispatch and a usage-limit report: "account rotated, continue from your hand-over <path>" (the

@@ -905,3 +905,22 @@ fn the_director_profile_reads_its_start_list_and_leaves_the_loop_to_conductor_ru
         assert!(text.contains(phrase), "director.md: holds {phrase:?}");
     }
 }
+
+/// Issues #244 and #250, within its line cap: the supervisor re-arms its event watch in the turn it exits,
+/// before a long step, so no event lands while none runs; and a build growing in a tree whose
+/// instance forbids local builds is stopped in that pass, not kept as active build output.
+#[test]
+fn the_supervisor_re_arms_its_watch_and_stops_a_forbidden_build() {
+    let text = profile("supervisor.md");
+    for phrase in [
+        "Re-arm it in the turn it exits, before any step that runs over a minute",
+        "a holder growing in a tree whose instance forbids local builds is stopped that pass, its \
+         controller told CI is the gate",
+    ] {
+        assert!(text.contains(phrase), "supervisor.md: holds {phrase:?}");
+    }
+    assert!(
+        !text.contains("Start it at the end of every pass"),
+        "supervisor.md: still starts the watch only at the end of a pass"
+    );
+}
