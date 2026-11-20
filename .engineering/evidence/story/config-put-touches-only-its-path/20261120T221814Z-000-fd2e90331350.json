@@ -1,0 +1,13 @@
+{
+  "at": "2026-11-20T22:18:14Z",
+  "actor": "human:unknown",
+  "artifact": "story:config-put-touches-only-its-path",
+  "kind": "story",
+  "revision": 7,
+  "change": {
+    "change": "evidence",
+    "kind": "test_result",
+    "source": "review fixes (findings 1, 2, 3, 5, 7): cargo test -p conductor-cli --lib config::edit 18/18; --test config_globals 16/16; --test tuner 4/4; no_organization 4/4; isolated_home 7/7; instance_routes 15/17 locally (the new a_replace_with_the_mapping_the_file_holds_leaves_its_text passes; the 2 failures bind a Unix socket, needs CI); instance_api, dashboard_config, rev3/sec_standing_rules fail only on Unix-socket binds (needs CI); clippy --all-targets -D warnings clean; the 3 new edit unit tests and the 3 new integration tests failed before the fix",
+    "reference": "commit 1a43a785a"
+  }
+}

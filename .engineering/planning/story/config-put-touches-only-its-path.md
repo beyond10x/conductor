@@ -29,7 +29,7 @@ scope:
   path: website/docs/concepts/config.md
 - confidence: cited
   path: website/docs/guides/configure-an-instance.md
-revision: 6
+revision: 7
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-20T21:31:02Z", actor: "human:unknown", revision: 5}
 - {from: "proposed", to: "active", at: "2026-11-20T21:31:02Z", actor: "human:unknown", revision: 6}
@@ -205,3 +205,20 @@ as text, line by line.
   new locator is a follow-up.
 - No change to the spec, the generated model or the reference pages; `spec/` is out of scope.
 - Shares no file with `story:supervisor-cap-through-config-owner` (wave 73).
+
+Follow-ups from the wave 73 review, not fixed in this story (findings 1, 2, 3, 5 and 7 are):
+
+- **Follow-up: an emptied `instances: []` blocks later in-place adds.** Removing the last
+  instance writes `instances: []` on the key's line (`config/edit.rs:131`); the next add then
+  finds a flow list and refuses (`config/edit.rs:97`, "instances is not a block list"), so every
+  later add writes the file whole.
+- **Follow-up: CRLF and mixed line endings.** The locator splits on `\n` and trims `\r`
+  (`config/edit.rs:192`, `:225`), but inserted and moved lines are written with `\n` alone, so an
+  edit of a CRLF file mixes endings in it.
+- **Follow-up: the daemon API and the tuner cannot tell a no-op.** `PUT /v1/config`
+  (`daemon/api.rs:1850`) and the tuner (`tune.rs:722`) call `put_config`, which drops
+  `Written::unchanged`; a no-op answers like a change, with an empty `commit`.
+- **Follow-up: `.nan` forces the whole rewrite.** The read-back compares value trees
+  (`config/edit.rs:156`), and NaN equals nothing, so a file holding `.nan` anywhere is written
+  whole on every put; the no-op check (`config/put.rs:510`, `config/instance.rs:310`) misses for
+  the same reason.
