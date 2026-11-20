@@ -221,6 +221,9 @@ impl Cli {
             | Group::Trust(_)
             | Group::Init(_)
             | Group::Doctor
+            // The supervisor watch reads every instance of the file, and selects none
+            // (`story:supervisor-watch-command`).
+            | Group::Supervisor(_)
             | Group::Setup(_)
             | Group::Upgrade(_)
             | Group::Daemon(_)
@@ -528,6 +531,11 @@ impl Cli {
             Group::Broker(command) => match command {
                 BrokerCommand::Serve => crate::broker::broker_serve(state),
             },
+            Group::Supervisor(command) => match command {
+                SupervisorCommand::Watch(args) => {
+                    crate::supervisor_watch::supervisor_watch(self.config.as_deref(), &args)
+                }
+            },
             Group::Build(command) => match command {
                 BuildCommand::Run(args) => build::build_run(state, &args),
             },
@@ -791,6 +799,11 @@ pub enum Group {
     #[command(subcommand)]
     Store(StoreCommand),
 
+    // No help, as for `dashboard`: the binding declares the group only through `supervisor
+    // watch` (`story:supervisor-watch-command`).
+    #[command(subcommand)]
+    Supervisor(SupervisorCommand),
+
     // No help, as for `dashboard`: the binding declares the group only through `token reveal`
     // (`story:token-pool`).
     #[command(subcommand)]
@@ -1047,6 +1060,9 @@ pub const LEAVES: &[(&[&str], Access)] = &[
     (&["spawn"], Access::Writes),
     // A view over the store: starts no snapshot and creates nothing (story:status-command).
     (&["status"], Access::Reads),
+    // Writes its lock and cursors under supervisor-watch/ of the host directory, and nothing
+    // else (story:supervisor-watch-command).
+    (&["supervisor", "watch"], Access::Writes),
     // Copies the store into the tree layout under the state directory.
     (&["store", "migrate"], Access::Writes),
     (&["trust"], Access::Writes),
@@ -1979,6 +1995,39 @@ pub struct BuildRunArgs {
     /// The command and its arguments, after `--`
     #[arg(last = true, value_name = "COMMAND")]
     pub command: Vec<String>,
+}
+
+// `conductor supervisor`: the command the binding declares over the `local` callable
+// `supervisor-watch` (`story:supervisor-watch-command`). A plain comment, as for `dashboard`.
+#[allow(missing_docs)]
+#[derive(Debug, Subcommand)]
+pub enum SupervisorCommand {
+    /// Block until the first supervisor trigger fires on any instance of the config file (or each --instance) - a new mailbox file, a runtime log line, a lost runtime or operator upgrade, the operator inbox, low disk, an unpushed commit (also of each --checkout), an idle controller - then print one line per fired trigger, TRIGGER instance subject detail, or TIMEOUT after --timeout (20m); cursors persist under supervisor-watch/ of the host directory and move only after the lines are printed; exit 1 naming InvalidWatchTimeout, UnknownInstance, WatchStateUnwritable or SupervisorWatchRunning
+    #[command(name = "watch")]
+    Watch(SupervisorWatchArgs),
+}
+
+/// The input of the binding's `supervisor-watch` callable, `conductor.host.WatchSupervisor`
+/// (`story:supervisor-watch-command`). The timeout and the format are text the handler reads, so
+/// a value it refuses is named there.
+#[derive(Debug, Clone, Args)]
+pub struct SupervisorWatchArgs {
+    /// An instance of the config file to watch; repeatable. Default: every instance
+    #[arg(long, value_name = "NAME")]
+    pub instance: Vec<String>,
+    /// A checkout outside every instance whose local commits UNPUSHED reads, such as the product
+    /// checkout; repeatable
+    #[arg(long, value_name = "PATH")]
+    pub checkout: Vec<String>,
+    /// How long to wait for a trigger: <n>s, <n>m or <n>h. Default: 20m
+    #[arg(long, value_name = "DURATION")]
+    pub timeout: Option<String>,
+    /// A ref GREEN passes over; repeatable
+    #[arg(long, value_name = "REF")]
+    pub hold: Vec<String>,
+    /// How each trigger is printed: text or json. Default: text
+    #[arg(long)]
+    pub format: Option<String>,
 }
 
 // `conductor broker`: the command the binding declares over the `local` callable `broker-serve`

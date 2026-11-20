@@ -17,6 +17,8 @@ scope:
 - confidence: cited
   path: crates/conductor-model
 - confidence: cited
+  path: crates/conductor/Cargo.toml
+- confidence: cited
   path: crates/conductor/cli.yaml
 - confidence: cited
   path: crates/conductor/http.yaml
@@ -28,15 +30,17 @@ scope:
   path: crates/conductor/src/config.rs
 - confidence: cited
   path: crates/conductor/src/lib.rs
-- confidence: inferred
+- confidence: cited
+  path: crates/conductor/src/store.rs
+- confidence: cited
   path: crates/conductor/src/supervisor_watch/local.rs
-- confidence: inferred
+- confidence: cited
   path: crates/conductor/src/supervisor_watch/mod.rs
 - confidence: cited
   path: crates/conductor/src/watch.rs
 - confidence: cited
   path: crates/conductor/tests/profiles.rs
-- confidence: inferred
+- confidence: cited
   path: crates/conductor/tests/supervisor_watch.rs
 - confidence: cited
   path: docs/config.md
@@ -48,7 +52,7 @@ scope:
   path: website/docs/reference/cli.md
 - confidence: cited
   path: website/docs/reference/config.md
-revision: 10
+revision: 11
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-20T13:56:15Z", actor: "human:unknown", revision: 9}
 - {from: "proposed", to: "active", at: "2026-11-20T13:56:15Z", actor: "human:unknown", revision: 10}

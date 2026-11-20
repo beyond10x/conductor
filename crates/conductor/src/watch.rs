@@ -3685,7 +3685,7 @@ fn role_named(name: &str) -> Option<String> {
 /// When a session last wrote: the newest modification time of its `transcript` and of every
 /// `*.jsonl` at any depth under `<transcript without .jsonl>/subagents/`, where its sub-agents
 /// keep theirs; `None` when its transcript cannot be read.
-fn newest_write(transcript: &Path) -> Option<SystemTime> {
+pub(crate) fn newest_write(transcript: &Path) -> Option<SystemTime> {
     let mut newest = fs::metadata(transcript).ok()?.modified().ok()?;
     let mut directories = vec![transcript.with_extension("").join("subagents")];
     while let Some(directory) = directories.pop() {
