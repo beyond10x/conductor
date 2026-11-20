@@ -230,12 +230,14 @@ types:
   # has no auto-merge, whose checks or head pipeline all ended green over 15 min ago, once per
   # head sha, unless a `hold` names it; subject `<repo>#<n>` (GitHub) or `<repo>!<iid>` (GitLab).
   # `CiEnd`: the newest report of a `Running` controller's repository is `blocked ci <ref>`, and
-  # the checks or head pipeline of that open request ended after the report was written; once per
-  # ref and report. Both read the forge of the instance's `github` and `gitlab` sources with the
-  # host's `gh` and `glab`, at most every 2 min per instance and only for the repositories with an
-  # open request or such a report; a read that fails is one note, and doubles that instance's
-  # interval up to 16 min until a read succeeds; an instance with `forge_access: anonymous` is
-  # not read, one note per run. `Idle`: a `Running`
+  # the checks or head pipeline of the open request the ref names (in the repository it names,
+  # else the controller's) ended after the report was written; once per ref and report. Both read
+  # the forge of the instance's `github` and `gitlab` sources with the host's `gh` and `glab`, at
+  # most every 2 min per instance, only for the repositories with an open request, and within 60 s
+  # per reading (or the run's `timeout`, when nearer; the rest at the next due reading, one note);
+  # the last reading of a run, once lines are pending, reads no forge. A read that fails is one
+  # note, and doubles that instance's interval up to 16 min until a read succeeds; an instance
+  # with `forge_access: anonymous` is not read, one note per run. `Idle`: a `Running`
   # controller with an open dispatch whose transcripts (its checkout's and its own trees') have not
   # been written for 15 min, or with none, whose dispatch was sent 15 min ago; at most once per 30
   # min, unless its newest report waits on a person. `Timeout`: `timeout` passed with no

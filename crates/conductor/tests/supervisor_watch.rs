@@ -132,6 +132,7 @@ fn sources(dir: &Path, clock: fn() -> OffsetDateTime) -> Sources {
         journal: fake_journal(dir),
         gh: quiet_forge(),
         glab: quiet_forge(),
+        forge_budget: Duration::from_secs(60),
     }
 }
 

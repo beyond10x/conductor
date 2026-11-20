@@ -36,11 +36,15 @@ use time::format_description::well_known::Rfc3339;
 
 const GITHUB: &str = "[{github: example-org}]";
 
+const GITLAB: &str = "[{gitlab: example-org, host: gitlab.example.com}]";
+
 const BOTH: &str = "[{github: example-org}, {gitlab: example-org, host: gitlab.example.com}]";
 
 thread_local! {
     /// The case's clock: each case runs on a thread of its own.
     static NOW: Cell<i64> = const { Cell::new(0) };
+    /// How far each reading of the case's clock moves it on, in seconds; 0 unless a case sets it.
+    static STEP: Cell<i64> = const { Cell::new(0) };
 }
 
 fn at(text: &str) -> OffsetDateTime {
@@ -54,7 +58,9 @@ fn set_clock(time: &str) {
 }
 
 fn clock() -> OffsetDateTime {
-    OffsetDateTime::from_unix_timestamp(NOW.with(Cell::get)).expect("a clock")
+    let now = NOW.with(Cell::get);
+    NOW.with(|cell| cell.set(now + STEP.with(Cell::get)));
+    OffsetDateTime::from_unix_timestamp(now).expect("a clock")
 }
 
 fn case(name: &str) -> Scratch {
@@ -104,7 +110,8 @@ struct Fake {
 impl Fake {
     /// Writes the fakes. `gh search prs` prints `gh-search.json`, `gh pr list -R <owner>/<repo>`
     /// prints `gh-pulls-<repo>.json`, each `[]` when absent; with `gh-fail-search` or
-    /// `gh-fail-pr` there, that read prints the file on standard error and exits 1. `glab api`
+    /// `gh-fail-pr` there, that read prints the file on standard error and exits 1; with
+    /// `gh-sleep` there, `gh pr list` first sleeps the seconds it holds. `glab api`
     /// prints `glab-mrs.json` for the group's open merge requests, `glab-projects.json` for its
     /// projects and `glab-mr-<iid>.json` for one merge request. Both log their words to
     /// `gh.log` and `glab.log`.
@@ -122,6 +129,7 @@ impl Fake {
                  \x20   file=\"$d/gh-pulls-${{repo##*/}}.json\" ;;\n\
                  \x20 *) exit 1 ;;\n\
                  esac\n\
+                 if [ \"$kind\" = pr ] && [ -f \"$d/gh-sleep\" ]; then sleep \"$(cat \"$d/gh-sleep\")\"; fi\n\
                  if [ -f \"$d/gh-fail-$kind\" ]; then cat \"$d/gh-fail-$kind\" >&2; exit 1; fi\n\
                  if [ -f \"$file\" ]; then cat \"$file\"; else echo '[]'; fi\n"
             ),
@@ -161,7 +169,50 @@ impl Fake {
             journal: vec!["sh".to_owned(), "-c".to_owned(), "exit 0".to_owned()],
             gh: program("fake-gh"),
             glab: program("fake-glab"),
+            forge_budget: Duration::from_secs(60),
         }
+    }
+
+    /// The group's one project `lib` (id 101).
+    fn gitlab_project(&self) {
+        self.write(
+            "glab-projects.json",
+            &json!([{"id": 101, "path_with_namespace": "example-org/lib", "archived": false,
+                     "visibility": "private", "default_branch": "main", "open_issues_count": 0,
+                     "web_url": "https://gitlab.example.com/example-org/lib"}]),
+        );
+    }
+
+    /// lib's open merge requests, `(iid, head sha)` each, no draft and no auto-merge.
+    fn merge_requests(&self, requests: &[(u64, &str)]) {
+        let list: Vec<Value> = requests
+            .iter()
+            .map(|(iid, sha)| {
+                json!({"iid": iid, "project_id": 101, "sha": sha, "draft": false,
+                       "merge_when_pipeline_succeeds": false})
+            })
+            .collect();
+        self.write("glab-mrs.json", &Value::from(list));
+    }
+
+    /// Merge request `iid` of lib on `sha`, its head pipeline `pipeline` with `status`, finished
+    /// at `2026-10-07T<finished>Z` or not; with no `status`, no head pipeline.
+    fn detail(
+        &self,
+        iid: u64,
+        sha: &str,
+        pipeline: u64,
+        status: Option<&str>,
+        finished: Option<&str>,
+    ) {
+        let head = status.map_or(Value::Null, |status| {
+            json!({"id": pipeline, "status": status, "sha": sha,
+                   "finished_at": finished.map(|time| format!("2026-10-07T{time}Z"))})
+        });
+        self.write(
+            &format!("glab-mr-{iid}.json"),
+            &json!({"iid": iid, "sha": sha, "head_pipeline": head}),
+        );
     }
 
     fn write(&self, name: &str, value: &Value) {
@@ -633,5 +684,254 @@ fn the_forge_is_read_at_most_every_two_minutes_per_instance() {
             .filter(|line| line.starts_with("pr list"))
             .all(|line| line.contains("-R example-org/app ")),
         "only the repository with an open request is read: {log}"
+    );
+}
+
+// -------------------------------------------------------------------------------------------
+// Review findings
+// -------------------------------------------------------------------------------------------
+
+/// A store of alpha with a Running controller of each of `repositories`, and in its mailbox the
+/// report `text` of `repository` written at `11:45`.
+fn blocked_report(dir: &Path, repositories: &[&str], text: &str) {
+    let state = dir.join("alpha/state");
+    {
+        let mut handle = store::open(&state).expect("open alpha's store");
+        for (n, repository) in repositories.iter().enumerate() {
+            running(
+                &mut handle,
+                &format!("{n}1111111-1111-4111-8111-111111111111"),
+                repository,
+            );
+        }
+        handle.check().expect("kept");
+    }
+    let mailbox = state.join("mailbox/conductor");
+    fs::create_dir_all(&mailbox).expect("create the mailbox");
+    fs::write(mailbox.join(ulid("11:45:00", "0000000000000001")), text).expect("write a report");
+}
+
+/// A pipeline run again on the same head is read: a re-run that ends after a `blocked ci`
+/// report fires `CIEND`, and a failed head pipeline run again green fires `GREEN`.
+#[test]
+fn a_gitlab_pipeline_run_again_on_the_same_head_fires_ciend_and_green() {
+    let scratch = case("gitlab-rerun");
+    let dir = scratch.path().to_owned();
+    let config = parsed(&dir, GITLAB);
+    blocked_report(&dir, &["lib"], "[REPORT lib DSP-1] blocked ci !3\n");
+    let fake = Fake::new(&dir);
+    fake.gitlab_project();
+    fake.merge_requests(&[(3, "ddd"), (4, "eee")]);
+    fake.detail(3, "ddd", 1, Some("failed"), Some("11:30:00"));
+    fake.detail(4, "eee", 2, Some("failed"), Some("11:00:00"));
+    set_clock("12:00:00");
+    let mut first = watch(&config, &input(), fake.sources());
+    let (found, notes) = printed(&mut first, &["GREEN", "CIEND"]);
+    assert_eq!(found, Vec::<String>::new(), "{notes}");
+
+    fake.detail(3, "ddd", 5, Some("success"), Some("12:05:00"));
+    fake.detail(4, "eee", 6, Some("success"), Some("12:01:00"));
+    set_clock("12:20:00");
+    let mut second = watch(&config, &input(), fake.sources());
+    let (found, notes) = printed(&mut second, &["GREEN", "CIEND"]);
+    assert_eq!(
+        found,
+        [
+            "GREEN alpha lib!4 green 19m, head eee",
+            "CIEND alpha lib!3 !3 green, ended 2026-10-07T12:05:00Z",
+        ],
+        "{notes}"
+    );
+}
+
+/// A `blocked ci` ref that names another repository is matched there, never to the request of
+/// the same number in the reporting controller's repository.
+#[test]
+fn ciend_matches_the_repository_its_ref_names() {
+    let scratch = case("ciend-repository");
+    let dir = scratch.path().to_owned();
+    let config = parsed(&dir, GITHUB);
+    blocked_report(&dir, &["app"], "[REPORT app DSP-1] blocked ci lib#4\n");
+    let fake = Fake::new(&dir);
+    fake.search(&[("app", 4), ("lib", 4)]);
+    fake.pulls(
+        "app",
+        &[pull(4, "aaa", false, false, &[done("FAILURE", "12:05:00")])],
+    );
+    fake.pulls(
+        "lib",
+        &[pull(4, "bbb", false, false, &[done("SUCCESS", "12:06:00")])],
+    );
+    set_clock("12:10:00");
+    let mut watch = watch(&config, &input(), fake.sources());
+    let (found, notes) = printed(&mut watch, &["CIEND"]);
+    assert_eq!(
+        found,
+        ["CIEND alpha lib#4 lib#4 green, ended 2026-10-07T12:06:00Z"],
+        "{notes}"
+    );
+}
+
+/// The forge reads of one pass stop at its budget, with one note; the rest waits for the next
+/// due pass.
+#[test]
+fn a_pass_reads_the_forge_within_its_budget_and_notes_the_rest() {
+    let scratch = case("budget");
+    let dir = scratch.path().to_owned();
+    let config = parsed(&dir, GITHUB);
+    let fake = Fake::new(&dir);
+    fake.search(&[("app", 1), ("lib", 2), ("web", 3)]);
+    fs::write(dir.join("gh-sleep"), "1\n").expect("write the sleep");
+    let mut sources = fake.sources();
+    sources.forge_budget = Duration::from_millis(1500);
+    set_clock("12:00:00");
+    let mut watch = watch(&config, &input(), sources);
+    let started = std::time::Instant::now();
+    let (_, _, notes) = lines(&mut watch, &[]);
+    assert!(
+        started.elapsed() < Duration::from_millis(2800),
+        "the pass took {:?}",
+        started.elapsed()
+    );
+    assert!(fake.calls("gh.log", "pr list") < 3);
+    assert!(
+        notes.contains("budget"),
+        "one note names the budget: {notes}"
+    );
+}
+
+/// The last reading of a run, once lines are pending, reads no forge.
+#[test]
+fn the_final_reading_of_a_run_reads_no_forge_once_lines_are_pending() {
+    let scratch = case("final-reading");
+    let dir = scratch.path().to_owned();
+    let config = parsed(&dir, GITHUB);
+    let fake = Fake::new(&dir);
+    fake.search(&[("app", 7)]);
+    fake.pulls(
+        "app",
+        &[pull(7, "aaa", false, false, &[done("SUCCESS", "11:40:00")])],
+    );
+    set_clock("12:00:00");
+    STEP.with(|step| step.set(180));
+    let mut watch = watch(&config, &input(), fake.sources());
+    let (mut out, mut notes) = (Vec::new(), Vec::new());
+    watch.run(false, &mut out, &mut notes).expect("run");
+    STEP.with(|step| step.set(0));
+    let out = String::from_utf8_lossy(&out);
+    assert!(out.contains("GREEN alpha app#7 "), "{out}");
+    assert_eq!(fake.calls("gh.log", "pr list"), 1, "{out}");
+}
+
+/// A merge request with no head pipeline is read again only once its head changed or half an
+/// hour after its last read.
+#[test]
+fn a_gitlab_request_with_no_pipeline_is_read_again_after_half_an_hour_or_a_new_head() {
+    let scratch = case("no-pipeline");
+    let dir = scratch.path().to_owned();
+    let config = parsed(&dir, GITLAB);
+    let fake = Fake::new(&dir);
+    fake.gitlab_project();
+    fake.merge_requests(&[(3, "ddd")]);
+    fake.detail(3, "ddd", 0, None, None);
+    let reads = || fake.calls("glab.log", "merge_requests/3");
+    for (time, expected) in [("12:00:00", 1), ("12:02:00", 1), ("12:31:00", 2)] {
+        set_clock(time);
+        let mut run = watch(&config, &input(), fake.sources());
+        printed(&mut run, &[]);
+        assert_eq!(reads(), expected, "at {time}");
+    }
+    fake.merge_requests(&[(3, "fff")]);
+    fake.detail(3, "fff", 0, None, None);
+    set_clock("12:34:00");
+    let mut run = watch(&config, &input(), fake.sources());
+    printed(&mut run, &[]);
+    assert_eq!(reads(), 3, "a new head is read");
+}
+
+/// A pass whose GitHub read is refused keeps what its GitLab read found, not the older cache.
+#[test]
+fn a_refused_pass_keeps_what_the_gitlab_read_beside_it_found() {
+    let scratch = case("refused-fresh");
+    let dir = scratch.path().to_owned();
+    let config = parsed(&dir, BOTH);
+    let fake = Fake::new(&dir);
+    fake.search(&[("app", 7)]);
+    fs::write(dir.join("gh-fail-pr"), "HTTP 403\n").expect("write the refusal");
+    fake.gitlab_project();
+    fake.merge_requests(&[(6, "d06")]);
+    fake.detail(6, "d06", 1, Some("running"), None);
+    let reads = || fake.calls("glab.log", "merge_requests/6");
+    set_clock("12:00:00");
+    printed(&mut watch(&config, &input(), fake.sources()), &[]);
+    assert_eq!(reads(), 1);
+    fake.detail(6, "d06", 1, Some("success"), Some("12:01:00"));
+    set_clock("12:04:00");
+    printed(&mut watch(&config, &input(), fake.sources()), &[]);
+    assert_eq!(reads(), 2, "read again while it ran");
+    fs::remove_file(dir.join("gh-fail-pr")).expect("the forge answers again");
+    set_clock("12:12:00");
+    printed(&mut watch(&config, &input(), fake.sources()), &[]);
+    assert_eq!(
+        reads(),
+        2,
+        "the ended pipeline read beside the refusal was kept"
+    );
+}
+
+/// A forge cursor that cannot be read is a note; the other triggers still fire.
+#[test]
+fn an_unreadable_forge_cursor_is_a_note_and_the_other_triggers_fire() {
+    let scratch = case("cursor-unreadable");
+    let dir = scratch.path().to_owned();
+    let config = parsed(&dir, GITHUB);
+    let fake = Fake::new(&dir);
+    fs::create_dir_all(dir.join("host/supervisor-watch/alpha/forge"))
+        .expect("a directory where the forge cursor is");
+    let mailbox = dir.join("alpha/state/mailbox/conductor");
+    fs::create_dir_all(&mailbox).expect("create the mailbox");
+    set_clock("12:00:00");
+    let mut watch = watch(&config, &input(), fake.sources());
+    let (_, notes) = printed(&mut watch, &[]);
+    assert!(
+        notes.contains("alpha: GREEN, CIEND:"),
+        "the cursor is a note: {notes}"
+    );
+    fs::write(
+        mailbox.join(ulid("12:01:00", "0000000000000001")),
+        "hello\n",
+    )
+    .expect("write a mail");
+    set_clock("12:02:00");
+    let (found, _) = printed(&mut watch, &["MAIL"]);
+    assert_eq!(found.len(), 1, "the mail fires: {found:?}");
+}
+
+/// A request that drops out of one search and comes back on the same head is not named again.
+#[test]
+fn green_is_not_named_again_when_a_request_drops_out_of_a_search() {
+    let scratch = case("green-dropped");
+    let dir = scratch.path().to_owned();
+    let config = parsed(&dir, GITHUB);
+    let fake = Fake::new(&dir);
+    fake.search(&[("app", 7)]);
+    fake.pulls(
+        "app",
+        &[pull(7, "aaa", false, false, &[done("SUCCESS", "11:40:00")])],
+    );
+    let mut runs = Vec::new();
+    for (time, found) in [("12:00:00", true), ("12:02:00", false), ("12:04:00", true)] {
+        fake.search(if found { &[("app", 7)] } else { &[] });
+        set_clock(time);
+        let mut run = watch(&config, &input(), fake.sources());
+        runs.push(printed(&mut run, &["GREEN"]).0);
+    }
+    assert_eq!(
+        runs,
+        [
+            vec!["GREEN alpha app#7 green 20m, head aaa".to_owned()],
+            Vec::new(),
+            Vec::new(),
+        ]
     );
 }

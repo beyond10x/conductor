@@ -11,25 +11,33 @@
 //!   `groups/<group>/merge_requests?state=opened` names its open merge requests (head, draft,
 //!   `merge_when_pipeline_succeeds`); when there is one, the group's projects name their
 //!   repositories ([`Forge::projects`]), and `projects/<id>/merge_requests/<iid>` reads a
-//!   request's head pipeline, again only once its head changed or while its pipeline ran at the
-//!   last read ([`GITLAB_CACHE`]).
+//!   request's head pipeline. That detail is kept ([`GITLAB_CACHE`]) and read again on a new
+//!   head, while a `CIEND` waits on the request, while its pipeline runs or failed (a job or a
+//!   pipeline run again on the same head), and, with no pipeline, [`NO_PIPELINE_AGAIN`] after
+//!   the last read; a pipeline that ended green on the head is not read again.
+//! - **Budget.** The reads of one pass stop at [`Sources::forge_budget`](super::Sources) (or at
+//!   the run's `--timeout`, when nearer), with one note; what is left is read at the next due
+//!   pass. The last reading of a run, once lines are pending, reads no forge.
 //! - **`GREEN`**: an open request that is no draft and has no auto-merge, whose checks all ended
 //!   green over [`GREEN_AFTER`] ago (the newest end on its head), once per head sha
 //!   ([`GREEN_CURSOR`]); one a `--hold` names is passed over and not kept.
 //! - **`CIEND`**: the newest report in the mailbox of a repository a `Running` controller works
-//!   on is `blocked ci <ref>`, and the checks of that open request ended after the report's ULID
-//!   time; once per ref and report ([`CIEND_CURSOR`]).
+//!   on is `blocked ci <ref>`, and the checks of the open request the ref names (in the
+//!   repository it names, else the controller's) ended after the report's ULID time; once per
+//!   ref and report ([`CIEND_CURSOR`]).
+//! - **Kept lines.** A head or report named stays in its cursor for [`KEEP`] after the last read
+//!   that saw its request, so a request that drops out of one read is not named again.
 //! - **Refusals.** A read that fails (`gh` or `glab` exits non-zero: HTTP 403 or 429, no login)
 //!   is one note naming the instance and what was read, and doubles the instance's interval up
 //!   to [`FORGE_EVERY_MAX`] until a pass reads every source ([`FORGE_CURSOR`]). What it could not
-//!   read loses nothing: the kept heads and reports stay. An instance with `forge_access:
-//!   anonymous` is not read, one note per run.
+//!   read loses nothing. An instance with `forge_access: anonymous` is not read, one note per
+//!   run.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::io::Write;
 use std::path::Path;
 use std::process::Command;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use anyhow::{Context as _, Result, anyhow, bail};
 use conductor_model::behaviour::ControllerStorage;
@@ -55,8 +63,18 @@ pub const FORGE_EVERY: Duration = Duration::from_secs(2 * 60);
 /// The longest interval a refused forge backs its instance off to.
 pub const FORGE_EVERY_MAX: Duration = Duration::from_secs(16 * 60);
 
+/// How long the forge reads of one pass may take together, unless the run's timeout is nearer.
+pub const FORGE_BUDGET: Duration = Duration::from_secs(60);
+
 /// How long a request's checks have ended green before `GREEN` names it.
 pub const GREEN_AFTER: Duration = Duration::from_secs(15 * 60);
+
+/// How long a GitLab request with no head pipeline waits before its detail is read again on the
+/// same head.
+pub const NO_PIPELINE_AGAIN: Duration = Duration::from_secs(30 * 60);
+
+/// How long a named head or report stays in its cursor after the last read that saw its request.
+pub const KEEP: Duration = Duration::from_secs(7 * 24 * 3600);
 
 /// How long one `gh` or `glab` read may take before it is stopped.
 const FORGE_BOUND: Duration = Duration::from_secs(60);
@@ -68,14 +86,14 @@ const PAGES: usize = 10;
 /// The forge cursor of an instance: `<next read, Unix seconds> <interval, seconds>`.
 const FORGE_CURSOR: &str = "forge";
 
-/// The heads `GREEN` named of the requests still open: `<subject> <head sha>`, one per line.
+/// The heads `GREEN` named: `<subject> <head sha> <last seen, Unix seconds>`, one per line.
 const GREEN_CURSOR: &str = "green";
 
-/// The reports `CIEND` named: `<subject> <report file>`, one per line.
+/// The reports `CIEND` named: `<subject> <report file> <last seen, Unix seconds>`, one per line.
 const CIEND_CURSOR: &str = "ciend";
 
 /// What the last read of each GitLab merge request found: `<host> <project id> <iid> <head sha>
-/// <pipeline status, else -> <finished at, else ->`, one per line.
+/// <pipeline status, else -> <finished at, else -> <read at, Unix seconds>`, one per line.
 const GITLAB_CACHE: &str = "gitlab";
 
 /// One open request of an instance, as either forge answers it.
@@ -102,16 +120,54 @@ struct Blocked {
     file: String,
     /// The ref as the report wrote it.
     reference: String,
+    /// The repository the ref names, else the reporting controller's: its last path step.
+    target: String,
     number: u64,
     /// When it was written: its ULID time.
     written: OffsetDateTime,
+}
+
+/// The last path step of a repository's name: what a ref names it by.
+fn own(repository: &str) -> &str {
+    repository.rsplit('/').next().unwrap_or(repository)
+}
+
+/// The time the forge reads of one pass have left.
+struct Budget {
+    until: Instant,
+}
+
+impl Budget {
+    /// What is left, none once spent.
+    fn left(&self) -> Option<Duration> {
+        self.until
+            .checked_duration_since(Instant::now())
+            .filter(|left| !left.is_zero())
+    }
+}
+
+/// A read not made, or stopped, because the pass's [`Budget`] was spent.
+#[derive(Debug)]
+struct Spent;
+
+impl std::fmt::Display for Spent {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("the forge reads of this pass spent their budget")
+    }
+}
+
+impl std::error::Error for Spent {}
+
+/// Whether `error` is, or was caused by, a spent budget.
+fn spent(error: &anyhow::Error) -> bool {
+    error.chain().any(|cause| cause.is::<Spent>())
 }
 
 /// `GREEN` and `CIEND` of `instance`, when its forge is due a read.
 ///
 /// # Errors
 ///
-/// The forge cursor or the GitLab cache cannot be read or written.
+/// The forge cursor, the GitLab cache or a trigger cursor cannot be read or written.
 pub(super) fn forge(
     watch: &mut Watch,
     instance: &Instance,
@@ -146,24 +202,33 @@ pub(super) fn forge(
     if now.unix_timestamp() < next {
         return Ok(());
     }
+    let mut until = Instant::now() + watch.sources.forge_budget;
+    if let Some(deadline) = watch.deadline {
+        until = until.min(deadline);
+    }
+    let budget = Budget { until };
     for forge in &mut forges {
         forge.glab.clone_from(&watch.sources.glab);
-        forge.bound = FORGE_BOUND;
     }
-    let mut refusals = Vec::new();
+    let blocked = blocked(watch, instance);
+    let watched: BTreeSet<(String, u64)> = blocked
+        .values()
+        .map(|report| (report.target.clone(), report.number))
+        .collect();
+    let mut errors = Vec::new();
     let mut requests = Vec::new();
     for owner in &origins.owners {
-        match github(watch, owner, origins.include.get(owner)) {
+        match github(watch, &budget, owner, origins.include.get(owner)) {
             Ok((read, refused)) => {
                 requests.extend(read);
-                refusals.extend(refused);
+                errors.extend(refused);
             }
-            Err(error) => refusals.push(error),
+            Err(error) => errors.push(error),
         }
     }
     let cache_file = cursors.join(GITLAB_CACHE);
     let cache = read(&cache_file)?.unwrap_or_default();
-    let mut cached: BTreeMap<String, String> = cache
+    let cached: BTreeMap<String, String> = cache
         .lines()
         .filter_map(|line| {
             let mut words = line.splitn(4, ' ');
@@ -172,19 +237,29 @@ pub(super) fn forge(
         })
         .collect();
     let mut fresh = BTreeMap::new();
-    for forge in &forges {
-        match gitlab_requests(watch, forge, &cached, &mut fresh) {
+    let reading = Reading {
+        budget: &budget,
+        cached: &cached,
+        watched: &watched,
+        now: now.unix_timestamp(),
+    };
+    for forge in &mut forges {
+        match gitlab_requests(watch, forge, &reading, &mut fresh) {
             Ok((read, refused)) => {
                 requests.extend(read);
-                refusals.extend(refused);
+                errors.extend(refused);
             }
-            Err(error) => refusals.push(error),
+            Err(error) => errors.push(error),
         }
     }
-    let refused = !refusals.is_empty();
-    if refused {
-        // A request a refused read did not reach keeps what was cached of it.
-        fresh.append(&mut cached);
+    let (stopped, refusals): (Vec<_>, Vec<_>) = errors.into_iter().partition(spent);
+    let complete = stopped.is_empty() && refusals.is_empty();
+    if !complete {
+        // A request a refused or stopped read did not reach keeps what was cached of it; what
+        // this pass read stays.
+        for (key, value) in cached {
+            fresh.entry(key).or_insert(value);
+        }
     }
     let text: String = fresh
         .iter()
@@ -196,31 +271,55 @@ pub(super) fn forge(
     for error in &refusals {
         watch.note(notes, format!("{name}: GREEN, CIEND: {error:#}"));
     }
-    let interval = if refused {
+    if !stopped.is_empty() {
+        watch.note(
+            notes,
+            format!(
+                "{name}: GREEN, CIEND: the forge reads stopped at their budget of {}s; the rest \
+                 is read at the next due pass",
+                watch.sources.forge_budget.as_secs()
+            ),
+        );
+    }
+    let interval = if refusals.is_empty() {
+        FORGE_EVERY.as_secs()
+    } else {
         interval
             .max(FORGE_EVERY.as_secs())
             .saturating_mul(2)
             .min(FORGE_EVERY_MAX.as_secs())
-    } else {
-        FORGE_EVERY.as_secs()
     };
     let next = now
         .unix_timestamp()
         .saturating_add(i64::try_from(interval).unwrap_or(i64::MAX));
     put(&cursor_file, &format!("{next} {interval}\n"))?;
-    green(watch, &name, &requests, refused, pass, now, at)?;
-    let blocked = blocked(watch, instance);
-    ciend(watch, &name, &requests, &blocked, refused, pass, at)
+    green(watch, &name, &requests, pass, now, at)?;
+    ciend(watch, &name, &requests, &blocked, pass, now, at)
 }
 
-/// The lines of the cursor `before` a pass keeps whatever it reads: all of them when a read was
-/// `refused`, so what it could not read loses nothing; else none.
-fn kept_of(before: &str, refused: bool) -> BTreeSet<String> {
-    if refused {
-        before.lines().map(str::to_owned).collect()
-    } else {
-        BTreeSet::new()
-    }
+/// A trigger cursor: each key named and when a read last saw its request, Unix seconds. A line
+/// of an older form, with no time, reads as seen `now`.
+fn named_of(text: &str, now: i64) -> BTreeMap<String, i64> {
+    text.lines()
+        .filter(|line| !line.trim().is_empty())
+        .map(|line| match line.rsplit_once(' ') {
+            Some((key, seen)) if key.contains(' ') => match seen.parse() {
+                Ok(seen) => (key.to_owned(), seen),
+                Err(_) => (line.to_owned(), now),
+            },
+            _ => (line.to_owned(), now),
+        })
+        .collect()
+}
+
+/// The cursor `named` as text, without the keys not seen for [`KEEP`].
+fn named_text(named: &BTreeMap<String, i64>, now: i64) -> String {
+    let keep = i64::try_from(KEEP.as_secs()).unwrap_or(i64::MAX);
+    named
+        .iter()
+        .filter(|(_, seen)| now.saturating_sub(**seen) <= keep)
+        .map(|(key, seen)| format!("{key} {seen}\n"))
+        .collect()
 }
 
 /// `GREEN` over the requests read: see the module.
@@ -228,20 +327,19 @@ fn green(
     watch: &Watch,
     name: &str,
     requests: &[Request],
-    refused: bool,
     pass: &mut Pass,
     now: OffsetDateTime,
     at: &Timestamp,
 ) -> Result<()> {
     let file = watch.cursors(name).join(GREEN_CURSOR);
     let before = read(&file)?.unwrap_or_default();
-    let named: BTreeSet<&str> = before.lines().collect();
-    let mut kept = kept_of(&before, refused);
+    let seconds = now.unix_timestamp();
+    let mut named = named_of(&before, seconds);
     let after = i64::try_from(GREEN_AFTER.as_secs()).unwrap_or(i64::MAX);
     for request in requests {
         let key = format!("{} {}", request.subject, request.head);
-        if named.contains(key.as_str()) {
-            kept.insert(key);
+        if let Some(seen) = named.get_mut(&key) {
+            *seen = seconds;
             continue;
         }
         let Some((true, ended)) = request.ended else {
@@ -262,9 +360,9 @@ fn green(
             &format!("green {}m, head {}", green_for / 60, request.head),
             at,
         );
-        kept.insert(key);
+        named.insert(key, seconds);
     }
-    let text: String = kept.iter().map(|line| format!("{line}\n")).collect();
+    let text = named_text(&named, seconds);
     if text != before {
         pass.write(file, text);
     }
@@ -278,24 +376,23 @@ fn ciend(
     name: &str,
     requests: &[Request],
     blocked: &BTreeMap<String, Blocked>,
-    refused: bool,
     pass: &mut Pass,
+    now: OffsetDateTime,
     at: &Timestamp,
 ) -> Result<()> {
     let file = watch.cursors(name).join(CIEND_CURSOR);
     let before = read(&file)?.unwrap_or_default();
-    let named: BTreeSet<&str> = before.lines().collect();
-    let mut kept = kept_of(&before, refused);
-    for (repository, report) in blocked {
-        let Some(request) = requests
-            .iter()
-            .find(|request| &request.repository == repository && request.number == report.number)
-        else {
+    let seconds = now.unix_timestamp();
+    let mut named = named_of(&before, seconds);
+    for report in blocked.values() {
+        let Some(request) = requests.iter().find(|request| {
+            own(&request.repository) == report.target && request.number == report.number
+        }) else {
             continue;
         };
         let key = format!("{} {}", request.subject, report.file);
-        if named.contains(key.as_str()) {
-            kept.insert(key);
+        if let Some(seen) = named.get_mut(&key) {
+            *seen = seconds;
             continue;
         }
         let Some((green, ended)) = request.ended else {
@@ -316,9 +413,9 @@ fn ciend(
             ),
             at,
         );
-        kept.insert(key);
+        named.insert(key, seconds);
     }
-    let text: String = kept.iter().map(|line| format!("{line}\n")).collect();
+    let text = named_text(&named, seconds);
     if text != before {
         pass.write(file, text);
     }
@@ -354,7 +451,7 @@ fn blocked(watch: &Watch, instance: &Instance) -> BTreeMap<String, Blocked> {
         let Some(reference) = words.get(2) else {
             continue;
         };
-        let Some((_, number)) = reference_of(reference) else {
+        let Some((named, number)) = reference_of(reference) else {
             continue;
         };
         let Some(written) = ulid_ms(&file)
@@ -363,10 +460,12 @@ fn blocked(watch: &Watch, instance: &Instance) -> BTreeMap<String, Blocked> {
         else {
             continue;
         };
+        let target = named.unwrap_or_else(|| own(&repository).to_owned());
         found.insert(
             repository,
             Blocked {
                 reference: (*reference).to_owned(),
+                target,
                 file,
                 number,
                 written,
@@ -376,9 +475,9 @@ fn blocked(watch: &Watch, instance: &Instance) -> BTreeMap<String, Blocked> {
     found
 }
 
-/// The repository a ref names, if any, and its request's number: `<repo>#<n>`, `<repo>!<n>`,
-/// `<owner>/<repo>#<n>`, `#<n>`, `!<n>`, `<n>`, or a request's URL (`…/<repo>/pull/<n>`,
-/// `…/<repo>/-/merge_requests/<n>`).
+/// The repository a ref names, if any (its last path step), and its request's number:
+/// `<repo>#<n>`, `<repo>!<n>`, `<owner>/<repo>#<n>`, `#<n>`, `!<n>`, `<n>`, or a request's URL
+/// (`…/<repo>/pull/<n>`, `…/<repo>/-/merge_requests/<n>`).
 fn reference_of(text: &str) -> Option<(Option<String>, u64)> {
     let text = text.trim().trim_end_matches(['.', ',', ';', ':', ')']);
     let last = |path: &str| {
@@ -409,17 +508,15 @@ fn holds(hold: &str, request: &Request) -> bool {
     let Some((repository, number)) = reference_of(hold) else {
         return false;
     };
-    let own = request
-        .repository
-        .rsplit('/')
-        .next()
-        .unwrap_or(&request.repository);
-    number == request.number && repository.is_none_or(|repository| repository == own)
+    number == request.number
+        && repository.is_none_or(|repository| repository == own(&request.repository))
 }
 
-/// What `program`, then `words`, printed, or why not: it ran over [`FORGE_BOUND`] or exited
-/// non-zero, with the start of its standard error.
-fn output(program: &[String], words: &[&str], what: &str) -> Result<String> {
+/// What `program`, then `words`, printed, or why not: it ran over [`FORGE_BOUND`] or what is
+/// left of `budget` ([`Spent`] once that is spent), or exited non-zero, with the start of its
+/// standard error.
+fn output(program: &[String], words: &[&str], what: &str, budget: &Budget) -> Result<String> {
+    let left = budget.left().ok_or(Spent)?;
     let (first, rest) = program
         .split_first()
         .ok_or_else(|| anyhow!("{what}: no program is given"))?;
@@ -435,9 +532,15 @@ fn output(program: &[String], words: &[&str], what: &str) -> Result<String> {
         .args(words)
         .env(gitlab::TELEMETRY_VARIABLE, "false")
         .env("GH_PROMPT_DISABLED", "1");
-    let output = crate::collect::run(&mut command, FORGE_BOUND)
-        .with_context(|| format!("{what}: `{shown}`"))?;
+    let output = match crate::collect::run(&mut command, left.min(FORGE_BOUND)) {
+        Ok(output) => output,
+        Err(_) if budget.left().is_none() => return Err(Spent.into()),
+        Err(error) => return Err(error.context(format!("{what}: `{shown}`"))),
+    };
     if !output.status.success() {
+        if budget.left().is_none() {
+            return Err(Spent.into());
+        }
         let status = output.status.code().map_or_else(
             || "was stopped by a signal".to_owned(),
             |code| format!("exited {code}"),
@@ -459,8 +562,13 @@ fn output(program: &[String], words: &[&str], what: &str) -> Result<String> {
 }
 
 /// [`output`] read as JSON.
-fn json<T: DeserializeOwned>(program: &[String], words: &[&str], what: &str) -> Result<T> {
-    let text = output(program, words, what)?;
+fn json<T: DeserializeOwned>(
+    program: &[String],
+    words: &[&str],
+    what: &str,
+    budget: &Budget,
+) -> Result<T> {
+    let text = output(program, words, what, budget)?;
     serde_json::from_str(&text).with_context(|| format!("{what}: it printed no JSON it answers"))
 }
 
@@ -492,13 +600,14 @@ struct Pull {
 }
 
 /// The open pull requests of the repositories of `owner` with one (those `include` names, when
-/// it is given), and each repository's read that was refused.
+/// it is given), and each repository's read that was refused or stopped.
 ///
 /// # Errors
 ///
-/// The search was refused.
+/// The search was refused or stopped.
 fn github(
     watch: &Watch,
+    budget: &Budget,
     owner: &str,
     include: Option<&Vec<String>>,
 ) -> Result<(Vec<Request>, Vec<anyhow::Error>)> {
@@ -519,6 +628,7 @@ fn github(
             "repository,number",
         ],
         &format!("the open pull requests of {owner} not read"),
+        budget,
     )?;
     let repositories: BTreeSet<String> = found
         .into_iter()
@@ -544,6 +654,7 @@ fn github(
                 "number,headRefOid,isDraft,autoMergeRequest,statusCheckRollup",
             ],
             &format!("the pull requests of {named} not read"),
+            budget,
         ) {
             Ok(pulls) => pulls,
             Err(error) => {
@@ -612,11 +723,12 @@ fn pages<T: DeserializeOwned>(
     host: &str,
     path: &str,
     what: &str,
+    budget: &Budget,
 ) -> Result<Vec<T>> {
     let mut entries = Vec::new();
     for page in 1..=PAGES {
         let paged = format!("{path}&per_page={PER_PAGE}&page={page}");
-        let answered: Vec<T> = json(program, &["api", "--hostname", host, &paged], what)?;
+        let answered: Vec<T> = json(program, &["api", "--hostname", host, &paged], what, budget)?;
         let full = answered.len() >= PER_PAGE;
         entries.extend(answered);
         if !full {
@@ -626,21 +738,60 @@ fn pages<T: DeserializeOwned>(
     Ok(entries)
 }
 
-/// The open merge requests of `forge`'s group, each with its head pipeline, read again only
-/// when `cached` (by `<host> <project id> <iid>`: `<sha> <status> <finished at>`) holds no
-/// pipeline that ended on its head; what each read found goes into `fresh`. And each request's
-/// read that was refused.
+/// What the GitLab reads of one pass go by.
+struct Reading<'a> {
+    budget: &'a Budget,
+    /// The cache, by `<host> <project id> <iid>`: `<sha> <status> <finished at> <read at>`.
+    cached: &'a BTreeMap<String, String>,
+    /// The requests a `CIEND` waits on: the repository's last path step and the number.
+    watched: &'a BTreeSet<(String, u64)>,
+    /// Unix seconds.
+    now: i64,
+}
+
+impl Reading<'_> {
+    /// The cached status and finish of a request on `sha`, when its detail need not be read
+    /// again: see the module.
+    fn settled(&self, key: &str, sha: &str, watched: bool) -> Option<(String, String, i64)> {
+        if watched {
+            return None;
+        }
+        let value = self.cached.get(key)?;
+        let mut words = value.split(' ');
+        let (head, status, finished) = (words.next()?, words.next()?, words.next()?);
+        let read_at: i64 = words.next().and_then(|at| at.parse().ok()).unwrap_or(0);
+        if head != sha {
+            return None;
+        }
+        let settled = match status {
+            "-" => {
+                self.now.saturating_sub(read_at)
+                    < i64::try_from(NO_PIPELINE_AGAIN.as_secs()).unwrap_or(i64::MAX)
+            }
+            status => matches!(
+                gitlab::conclusion(status),
+                Some(RunConclusion::Success | RunConclusion::Skipped)
+            ),
+        };
+        settled.then(|| (status.to_owned(), finished.to_owned(), read_at))
+    }
+}
+
+/// The open merge requests of `forge`'s group, each with its head pipeline, its detail read
+/// unless [`Reading::settled`]; what each read found goes into `fresh`. And each request's read
+/// that was refused or stopped.
 ///
 /// # Errors
 ///
-/// The group's list or its projects were refused.
+/// The group's list or its projects were refused or stopped.
 fn gitlab_requests(
     watch: &Watch,
-    forge: &Forge,
-    cached: &BTreeMap<String, String>,
+    forge: &mut Forge,
+    reading: &Reading<'_>,
     fresh: &mut BTreeMap<String, String>,
 ) -> Result<(Vec<Request>, Vec<anyhow::Error>)> {
     let program = &watch.sources.glab;
+    let budget = reading.budget;
     let group = forge.named();
     let opened: Vec<MergeRequest> = pages(
         program,
@@ -650,17 +801,21 @@ fn gitlab_requests(
             gitlab::encoded(forge.group.trim_matches('/'))
         ),
         &format!("the open merge requests of {group} not read"),
+        budget,
     )?;
     if opened.is_empty() {
         return Ok((Vec::new(), Vec::new()));
     }
-    let projects: BTreeMap<u64, String> = forge
-        .projects()
-        .with_context(|| format!("the projects of {group} not read"))?
-        .into_iter()
-        .filter(|project| !project.archived)
-        .map(|project| (project.id, project.name))
-        .collect();
+    forge.bound = budget.left().ok_or(Spent)?.min(FORGE_BOUND);
+    let projects: BTreeMap<u64, String> = match forge.projects() {
+        Ok(projects) => projects,
+        Err(_) if budget.left().is_none() => return Err(Spent.into()),
+        Err(error) => return Err(error.context(format!("the projects of {group} not read"))),
+    }
+    .into_iter()
+    .filter(|project| !project.archived)
+    .map(|project| (project.id, project.name))
+    .collect();
     let mut requests = Vec::new();
     let mut refused = Vec::new();
     for request in opened {
@@ -669,53 +824,52 @@ fn gitlab_requests(
         };
         let sha: String = request.sha.unwrap_or_default().split_whitespace().collect();
         let key = format!("{} {} {}", forge.host, request.project_id, request.iid);
-        let known = cached.get(&key).and_then(|value| {
-            let mut words = value.split(' ');
-            let (head, status, finished) = (words.next()?, words.next()?, words.next()?);
-            (head == sha && ended(status)).then(|| (status.to_owned(), finished.to_owned()))
-        });
-        let (status, finished) = if let Some(known) = known {
-            known
-        } else {
-            let path = format!(
-                "projects/{}/merge_requests/{}",
-                request.project_id, request.iid
-            );
-            let detail: Detail = match json(
-                program,
-                &["api", "--hostname", &forge.host, &path],
-                &format!("the merge request {repository}!{} not read", request.iid),
-            ) {
-                Ok(detail) => detail,
-                Err(error) => {
-                    refused.push(error);
-                    continue;
-                }
-            };
-            detail
-                .head_pipeline
-                .filter(|pipeline| pipeline.sha.as_deref().is_none_or(|on| on == sha))
-                .map_or_else(
-                    || ("-".to_owned(), "-".to_owned()),
-                    |pipeline| {
-                        let status: String = pipeline.status.split_whitespace().collect();
-                        let finished = pipeline
-                            .finished_at
-                            .map(|at| at.split_whitespace().collect::<String>())
-                            .filter(|at| !at.is_empty())
-                            .unwrap_or_else(|| "-".to_owned());
-                        (
-                            if status.is_empty() {
+        let watched = reading
+            .watched
+            .contains(&(own(repository).to_owned(), request.iid));
+        let (status, finished, read_at) =
+            if let Some(settled) = reading.settled(&key, &sha, watched) {
+                settled
+            } else {
+                let path = format!(
+                    "projects/{}/merge_requests/{}",
+                    request.project_id, request.iid
+                );
+                let detail: Detail = match json(
+                    program,
+                    &["api", "--hostname", &forge.host, &path],
+                    &format!("the merge request {repository}!{} not read", request.iid),
+                    budget,
+                ) {
+                    Ok(detail) => detail,
+                    Err(error) => {
+                        refused.push(error);
+                        continue;
+                    }
+                };
+                let (status, finished) = detail
+                    .head_pipeline
+                    .filter(|pipeline| pipeline.sha.as_deref().is_none_or(|on| on == sha))
+                    .map_or_else(
+                        || ("-".to_owned(), "-".to_owned()),
+                        |pipeline| {
+                            let status: String = pipeline.status.split_whitespace().collect();
+                            let finished = pipeline
+                                .finished_at
+                                .map(|at| at.split_whitespace().collect::<String>())
+                                .filter(|at| !at.is_empty())
+                                .unwrap_or_else(|| "-".to_owned());
+                            let status = if status.is_empty() {
                                 "-".to_owned()
                             } else {
                                 status
-                            },
-                            finished,
-                        )
-                    },
-                )
-        };
-        fresh.insert(key, format!("{sha} {status} {finished}"));
+                            };
+                            (status, finished)
+                        },
+                    );
+                (status, finished, reading.now)
+            };
+        fresh.insert(key, format!("{sha} {status} {finished} {read_at}"));
         let green = match gitlab::conclusion(&status) {
             Some(RunConclusion::Success | RunConclusion::Skipped) => Some(true),
             Some(RunConclusion::Failure | RunConclusion::Cancelled) => Some(false),
@@ -732,18 +886,4 @@ fn gitlab_requests(
         });
     }
     Ok((requests, refused))
-}
-
-/// Whether a pipeline of `status` ended, as GitLab's mapping decides it
-/// ([`gitlab::conclusion`]).
-fn ended(status: &str) -> bool {
-    matches!(
-        gitlab::conclusion(status),
-        Some(
-            RunConclusion::Success
-                | RunConclusion::Skipped
-                | RunConclusion::Failure
-                | RunConclusion::Cancelled
-        )
-    )
 }

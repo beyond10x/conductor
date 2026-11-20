@@ -119,6 +119,8 @@ pub struct Sources {
     /// The program, and any words before its own, that `GREEN` and `CIEND` read GitLab with:
     /// `glab` ([`forge`]).
     pub glab: Vec<String>,
+    /// How long the forge reads of one pass may take together ([`forge::FORGE_BUDGET`]).
+    pub forge_budget: Duration,
 }
 
 /// The journal of an unboxed instance's runtime unit, as [`Sources::journal`] reads it.
@@ -151,6 +153,7 @@ impl Sources {
             journal: JOURNAL.iter().map(|word| (*word).to_owned()).collect(),
             gh: vec!["gh".to_owned()],
             glab: vec!["glab".to_owned()],
+            forge_budget: forge::FORGE_BUDGET,
         }
     }
 }
@@ -403,6 +406,8 @@ pub struct Watch {
     sources: Sources,
     /// The notes printed in this run, each once.
     noted: BTreeSet<String>,
+    /// When the running [`Watch::run`] times out: the forge reads of a pass end by then.
+    deadline: Option<Instant>,
 }
 
 impl Watch {
@@ -456,6 +461,7 @@ impl Watch {
             timeout,
             sources,
             noted: BTreeSet::new(),
+            deadline: None,
         })
     }
 
@@ -539,6 +545,12 @@ impl Watch {
     ///
     /// A cursor or baseline cannot be written.
     pub fn pass(&mut self, notes: &mut dyn Write) -> Result<Pass> {
+        self.reading(notes, true)
+    }
+
+    /// [`Watch::pass`], reading the forge only when `forge`. A forge trigger that cannot keep
+    /// its cursors is one note, and the other triggers fire.
+    fn reading(&mut self, notes: &mut dyn Write, forge: bool) -> Result<Pass> {
         let mut pass = Pass::default();
         self.files(&mut pass, notes)?;
         let (now, at) = self.now();
@@ -551,7 +563,10 @@ impl Watch {
         local::unpushed(self, &instances, &mut pass, now, &at, notes);
         for instance in &instances {
             local::idle(self, instance, &mut pass, now, &at, notes);
-            forge::forge(self, instance, &mut pass, now, &at, notes)?;
+            if forge && let Err(error) = forge::forge(self, instance, &mut pass, now, &at, notes) {
+                let name = &instance.name.0;
+                self.note(notes, format!("{name}: GREEN, CIEND: {error:#}"));
+            }
         }
         Ok(pass)
     }
@@ -603,6 +618,7 @@ impl Watch {
     ) -> Result<Vec<SupervisorTrigger>> {
         let started = Instant::now();
         let deadline = started + self.timeout;
+        self.deadline = Some(deadline);
         let mut changes = local::Changes::new(&self.instances);
         let mut fired = self.pass(notes)?;
         let mut last_full = Instant::now();
@@ -640,7 +656,8 @@ impl Watch {
             pass.fire(SupervisorTriggerKind::Timeout, NO_INSTANCE, "", "", &at);
             pass
         } else {
-            let again = self.pass(notes)?;
+            // Lines are pending: this last reading reads no forge, which could hold them.
+            let again = self.reading(notes, false)?;
             fired.merged_into(again)
         };
         let printed = pass.sorted();
