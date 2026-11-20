@@ -960,12 +960,33 @@ fn config_file(dir: &Path) -> PathBuf {
     file
 }
 
+/// The binary over the config file `file`, with a fake `journalctl` first on its `PATH`, so the
+/// unboxed instance `beta` reads no journal of the host (AGENTS.md rule 5). The fake, written by
+/// the case into `<dir>/bin`, appends its arguments to `<dir>/bin/journal-read` and answers one
+/// cursor.
 fn binary(dir: &Path, file: &Path) -> Command {
+    use std::os::unix::fs::PermissionsExt as _;
     let home = dir.join("home");
     fs::create_dir_all(&home).expect("create the home");
+    let bin = dir.join("bin");
+    fs::create_dir_all(&bin).expect("create the case's bin");
+    let fake = bin.join("journalctl");
+    fs::write(
+        &fake,
+        format!(
+            "#!/bin/sh\necho \"$*\" >> {read:?}\necho \"-- cursor: fake-1\"\n",
+            read = bin.join("journal-read")
+        ),
+    )
+    .expect("write the fake journalctl");
+    fs::set_permissions(&fake, fs::Permissions::from_mode(0o755)).expect("make it runnable");
+    let path = std::env::var_os("PATH").unwrap_or_default();
+    let mut paths = vec![bin];
+    paths.extend(std::env::split_paths(&path));
     let mut command = common::conductor(&home);
     command
         .env(config::CONFIG_VARIABLE, file)
+        .env("PATH", std::env::join_paths(paths).expect("a PATH"))
         .current_dir(dir)
         .args(["supervisor", "watch"]);
     command
@@ -986,6 +1007,13 @@ fn timeout_prints_one_timeout_line_and_exits_zero() {
         String::from_utf8_lossy(&output.stderr)
     );
     assert_eq!(String::from_utf8_lossy(&output.stdout), "TIMEOUT - - -\n");
+    let read = fs::read_to_string(dir.join("bin/journal-read")).expect("the fake journal was read");
+    let unit = conductor_cli::daemon::reconcile::unit_name("beta");
+    assert!(
+        read.lines()
+            .any(|line| line.starts_with("--user -u ") && line.contains(&unit)),
+        "beta's journal is read through the fake journalctl: {read:?}"
+    );
     let output = binary(&dir, &file)
         .args(["--timeout", "1s", "--format", "json"])
         .output()
@@ -1156,7 +1184,9 @@ fn the_watch_creates_no_store_and_writes_only_under_the_host_directory() {
     }
     for written in files(&dir) {
         assert!(
-            written == Path::new("conductor.yaml") || written.starts_with("host/supervisor-watch"),
+            written == Path::new("conductor.yaml")
+                || written.starts_with("host/supervisor-watch")
+                || written.starts_with("bin"),
             "{} is written outside supervisor-watch/ of the host directory",
             written.display()
         );
