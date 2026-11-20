@@ -879,20 +879,23 @@ impl<'s, 'a> Tick<'s, 'a> {
         }
     }
 
-    /// Why a start of `repo` is not made though a place may be free: the place is kept for a unit
-    /// of work that waits for one (issue #245,
+    /// Why a start of `repo` is not made though a place is free: the place is kept for a unit of
+    /// work that waits for one (issue #245,
     /// `story:blocked-repository-yields-place-to-waiting-unit`). Only a repository whose every
-    /// open dispatch is `Blocked` yields. A unit waits while it is a `Sent` dispatch with a
-    /// reference, of another repository with no `Running` or `Paused` controller, not left to
-    /// the operator after its failed starts. The start yields to a waiting unit its own need
-    /// opened ([`opened_by_need_of`]); and, when it is a respawn (`held` false), to any waiting
-    /// unit while the free places under `controllers.max_working` do not exceed the repositories
-    /// the waiting units are in. Answers `max_working <n>: the place is kept for <dispatch> of
-    /// <repo>`, naming the unit the first rule found, else the first waiting unit in store order.
+    /// open dispatch is `Blocked` yields, and only while places are short: the free places under
+    /// `controllers.max_working` do not exceed the repositories the waiting units are in. A unit
+    /// waits while it is a `Sent` dispatch with a reference, of another repository with no
+    /// `Running` or `Paused` controller and no controller stopped at a usage limit, whose
+    /// `waiting` reason dispatch v1 last recorded as `ControllerLimit`: a unit that starts once a
+    /// place is free, not one refused for a lasting reason or left to the operator. The start
+    /// yields to a waiting unit its own need opened ([`opened_by_need_of`]); and, when it is a
+    /// respawn (`held` false), to any waiting unit. Answers `max_working <n>: the place is kept
+    /// for <dispatch> of <repo>`, naming the unit the first rule found, else the first waiting
+    /// unit in store order.
     ///
     /// # Errors
     ///
-    /// The store does not open, or the dispatch log does not read.
+    /// The store does not open.
     fn kept_for_unit(&self, repo: &str, held: bool) -> Result<Option<String>> {
         let store = crate::state::open(self.state)?;
         let dispatches = DispatchStorage::list(&store);
@@ -922,26 +925,41 @@ impl<'s, 'a> Tick<'s, 'a> {
                     )
             })
         };
-        let records = Path::new(&self.instance().records);
-        let mut waiting = Vec::new();
-        for unit in &dispatches {
-            let other = unit.data.repository.0.as_str();
-            if unit.state != DispatchState::Sent
-                || unit.data.reference.is_none()
-                || other == repo
-                || controlled(other)
-                || crate::dispatch::failed_starts(
-                    records,
-                    &unit.data.sent_at,
-                    other,
-                    &unit.data.dispatch_id.0,
-                )? >= crate::dispatch::FAILED_STARTS_MOST
-            {
-                continue;
-            }
-            waiting.push(unit);
-        }
+        let limited = read_json(&self.dir, handlers::LIMITED, json!({}));
+        let (at_reset, _) = dispatch::waiting_in(&limited, OffsetDateTime::now_utc());
+        let for_a_place = format!("{}:", work_refusal_name(WorkStartRefusal::ControllerLimit));
+        let waiting: Vec<_> = dispatches
+            .iter()
+            .filter(|unit| {
+                let other = unit.data.repository.0.as_str();
+                unit.state == DispatchState::Sent
+                    && unit.data.reference.is_some()
+                    && other != repo
+                    && !controlled(other)
+                    && !at_reset.iter().any(|(limited, _)| limited == other)
+                    && unit
+                        .data
+                        .waiting
+                        .as_deref()
+                        .is_some_and(|why| why.starts_with(&for_a_place))
+            })
+            .collect();
+        let Some(first) = waiting.first() else {
+            return Ok(None);
+        };
         let limit = self.instance().controllers.max_working;
+        let running = controllers
+            .iter()
+            .filter(|held| held.state == ControllerState::Running)
+            .count();
+        let free = limit.saturating_sub(i64::try_from(running).unwrap_or(i64::MAX));
+        let repos: std::collections::BTreeSet<&str> = waiting
+            .iter()
+            .map(|unit| unit.data.repository.0.as_str())
+            .collect();
+        if free > i64::try_from(repos.len()).unwrap_or(i64::MAX) {
+            return Ok(None);
+        }
         let kept =
             |id: &str, of: &str| format!("max_working {limit}: the place is kept for {id} of {of}");
         if let Some(unit) = waiting
@@ -953,23 +971,7 @@ impl<'s, 'a> Tick<'s, 'a> {
                 &unit.data.repository.0,
             )));
         }
-        if held {
-            return Ok(None);
-        }
-        let Some(first) = waiting.first() else {
-            return Ok(None);
-        };
-        let running = controllers
-            .iter()
-            .filter(|held| held.state == ControllerState::Running)
-            .count();
-        let free = limit.saturating_sub(i64::try_from(running).unwrap_or(i64::MAX));
-        let repos: std::collections::BTreeSet<&str> = waiting
-            .iter()
-            .map(|unit| unit.data.repository.0.as_str())
-            .collect();
-        Ok((free <= i64::try_from(repos.len()).unwrap_or(i64::MAX))
-            .then(|| kept(&first.data.dispatch_id.0, &first.data.repository.0)))
+        Ok((!held).then(|| kept(&first.data.dispatch_id.0, &first.data.repository.0)))
     }
 
     /// Starts `repo`'s controller again for its open dispatch, as [`Tick::spawn`] does; when the

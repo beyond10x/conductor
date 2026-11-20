@@ -2059,6 +2059,60 @@ fn a_handover_restart_keeps_its_place_while_an_unrelated_unit_waits() {
     assert_eq!(case.launched(), ["ex-alpha", "ex-alpha"]);
 }
 
+/// Issue #245, review: a hand-over restart with places free keeps running though the unit its own
+/// need opened waits: that unit takes another place, and alpha is not stranded.
+#[test]
+fn a_handover_restart_with_free_places_keeps_running_while_its_need_s_unit_waits() {
+    let case = Case::new("handover-free-places");
+    blocked_beside_a_waiting_unit(&case, "alpha");
+    case.configure("{provider: none}", "{max_working: 3}");
+    let (tick, _) = handed_over(&case);
+    assert_eq!(
+        actions(&tick),
+        ["handover", "sent", "controller-restarted"],
+        "{tick}"
+    );
+    assert_eq!(case.launched(), ["ex-alpha", "ex-alpha"]);
+}
+
+/// Issue #245, review: a unit of work refused for a lasting reason (`NoCheckout`) would not start
+/// in a free place, so it keeps no place: its Blocked requester restarts after `session gone`.
+#[test]
+fn a_unit_refused_no_checkout_does_not_keep_its_requester_from_restarting() {
+    let case = Case::new("unit-no-checkout");
+    let (_, beta) = blocked_beside_a_waiting_unit(&case, "alpha");
+    fs::remove_dir_all(case.checkout("beta")).expect("remove beta's checkout");
+    case.configure("{provider: none}", "{max_working: 2}");
+    cycle(&case);
+    let reason = waiting_shown(&case, &beta);
+    assert!(
+        reason
+            .as_str()
+            .is_some_and(|why| why.starts_with("NoCheckout")),
+        "{reason}"
+    );
+    case.configure("{provider: none}", "{max_working: 1}");
+    stop_alpha(&case);
+    let tick = case.tick(&[&format!("session gone: ex-alpha {FIRST_SHORT}")]);
+    assert_eq!(actions(&tick), ["sent", "controller-restarted"], "{tick}");
+    assert_eq!(case.launched(), ["ex-alpha", "ex-alpha"]);
+}
+
+/// The need that opened a unit names its repository as a whole field: a need of `alpha-two` is
+/// not `alpha`'s, so `alpha`'s hand-over restart keeps its place.
+#[test]
+fn a_need_of_a_longer_repository_name_is_not_the_shorter_one_s() {
+    let case = Case::new("need-name-prefix");
+    blocked_beside_a_waiting_unit(&case, "alpha-two");
+    let (tick, _) = handed_over(&case);
+    assert_eq!(
+        actions(&tick),
+        ["handover", "sent", "controller-restarted"],
+        "{tick}"
+    );
+    assert_eq!(case.launched(), ["ex-alpha", "ex-alpha"]);
+}
+
 /// With no unit of work waiting, a Blocked repository whose session is gone takes the free place
 /// again.
 #[test]

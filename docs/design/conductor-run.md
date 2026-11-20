@@ -131,17 +131,20 @@ Yield (issue #245, `story:blocked-repository-yields-place-to-waiting-unit`): eve
 `Tick::try_start` (the restart after `session gone`, a hand-over restart, reconcile's restart, dispatch
 v1's start of an Active repository, a red `main`) of a repository whose every open dispatch is
 `Blocked` is checked inside the `STARTS` lock and before `make_room`. A waiting unit of work is a
-`Sent` dispatch with a reference whose repository has no `Running` or `Paused` controller and that
-is not left to the operator after its failed starts. The start is not made while a waiting unit was
-opened by this repository's need: its reference starts `need-` and its brief's first line is a
-`[NEED <repo> …]` naming it. Nor, when it is a respawn (the caller held no `Running` or `Paused`
-controller as the start began: `session gone` after a stop, dispatch v1, a red `main`), while any
-unit waits and the free places under `controllers.max_working` do not exceed the repositories the
-waiting units are in. A hand-over or reconcile restart of a held controller yields only to the first
-rule, so a routine hand-over keeps its place (decision class C). The refusal reads `max_working <n>:
-the place is kept for <dispatch> of <repo>`, the unit the first rule found, else the first waiting
-unit in store order; in the watch tick it is one journal line and no error, the controller stopped
-and its dispatch left `Blocked` for the unit's controller to start first.
+`Sent` dispatch with a reference whose repository has no `Running` or `Paused` controller and no
+controller stopped at a usage limit, and whose `waiting` reason dispatch v1 last recorded as
+`ControllerLimit`: a unit that starts once a place is free, not one refused for a lasting reason
+(`NoCheckout`, say) or left to the operator. A start yields only while places are short: the free
+places under `controllers.max_working`, counted after the restart's stop, do not exceed the
+repositories the waiting units are in. Then it is not made while a waiting unit was opened by this
+repository's need: its reference starts `need-` and its brief's first line is a `[NEED <repo> …]`
+naming it. Nor, when it is a respawn (the caller held no `Running` or `Paused` controller as the
+start began: `session gone` after a stop, dispatch v1, a red `main`), while any unit waits. A
+hand-over or reconcile restart of a held controller yields only to the first rule, so a routine
+hand-over keeps its place (decision class C). The refusal reads `max_working <n>: the place is kept
+for <dispatch> of <repo>`, the unit the first rule found, else the first waiting unit in store
+order; in the watch tick it is one journal line and no error, the controller stopped and its
+dispatch left `Blocked` for the unit's controller to start first.
 
 Dispatch v1: each cycle, for each Active repository with a charter and no Running controller,
 spawn one, until `controllers.max_working` run; a repository marked `merge: human` with

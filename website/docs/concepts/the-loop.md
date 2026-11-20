@@ -33,12 +33,13 @@ controller carries why (no complete snapshot, Inactive, no charter, `max_working
 refused start), shown by `dispatch dispatches` and written once per change as a `waiting` line.
 
 A repository whose every open dispatch is `Blocked` gives way to the units of work that wait for a
-place. It is not started while a unit its own `[NEED]` opened waits; and when no controller of it
+place, while places are short: the free places do not exceed the repositories those units wait in.
+A unit waits when its last start was refused at `max_working`, not for a lasting reason. The
+repository is not started while a unit its own `[NEED]` opened waits; and when no controller of it
 ran as the start began (its controller was stopped, by the loop or the operator), it is not started
-again while any unit waits and the free places do not exceed the repositories those units wait in.
-A routine hand-over restart keeps its place but for the first rule. A start that gives way says
-`max_working <n>: the place is kept for <dispatch> of <repo>`: in the watch tick as one journal
-line, in the cycle as the repository's `waits:` part of the `cycle` line.
+again while any unit waits. A routine hand-over restart keeps its place but for the first rule. A
+start that gives way says `max_working <n>: the place is kept for <dispatch> of <repo>`: in the
+watch tick as one journal line, in the cycle as the repository's `waits:` part of the `cycle` line.
 
 A unit of work's controller starts on conductor's default charter where the repository has none.
 `controllers.unit_merge` chooses its form: `human`, the default, ends `merge: human`, and the

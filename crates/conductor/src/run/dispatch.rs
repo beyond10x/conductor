@@ -325,7 +325,10 @@ fn waiting_at_limit(tick: &Tick<'_, '_>) -> Vec<(String, String)> {
 /// Of the marks `limited` holds ([`handlers::LIMITED`]) at `now`: the repositories whose stopped
 /// controller waits for its reset, each with it, and the sessions whose stopped mark waits no
 /// more: no reset that reads, or one more than [`crate::token::LIMIT_WINDOW`] past.
-fn waiting_in(limited: &Value, now: OffsetDateTime) -> (Vec<(String, String)>, Vec<String>) {
+pub(super) fn waiting_in(
+    limited: &Value,
+    now: OffsetDateTime,
+) -> (Vec<(String, String)>, Vec<String>) {
     let mut waiting = Vec::new();
     let mut expired = Vec::new();
     for (session, entry) in limited.as_object().into_iter().flatten() {
