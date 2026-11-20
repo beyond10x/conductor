@@ -2,7 +2,7 @@
 format: aep.planning-md/3
 id: story:secret-refresh-classified-credential
 kind: story
-status: active
+status: implemented
 title: A request to refresh or update secrets is class H, rule credential
 summary: The credential rule's verbs take refresh, update, replace, reissue and upload, so decision handle escalates such a request as class H
 refs:
@@ -16,10 +16,11 @@ scope:
   path: crates/conductor/src/decide/handle.rs
 - confidence: cited
   path: crates/conductor/tests/decide_class.rs
-revision: 6
+revision: 7
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-20T14:13:22Z", actor: "human:unknown", revision: 5}
 - {from: "proposed", to: "active", at: "2026-11-20T14:13:23Z", actor: "human:unknown", revision: 6}
+- {from: "active", to: "implemented", at: "2026-11-20T17:26:43Z", actor: "human:unknown", revision: 7, decided_on: {"recorded":{"test_result":1}}}
 ---
 ## Why
 

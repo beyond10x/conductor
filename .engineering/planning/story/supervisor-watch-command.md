@@ -2,7 +2,7 @@
 format: aep.planning-md/3
 id: story:supervisor-watch-command
 kind: story
-status: active
+status: implemented
 title: conductor supervisor watch blocks until any supervisor trigger fires on the host
 summary: 'One command replaces the supervisor''s hand-written watch: ten triggers, persistent cursors, one line per fired trigger'
 refs:
@@ -52,10 +52,11 @@ scope:
   path: website/docs/reference/cli.md
 - confidence: cited
   path: website/docs/reference/config.md
-revision: 13
+revision: 14
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-20T13:56:15Z", actor: "human:unknown", revision: 9}
 - {from: "proposed", to: "active", at: "2026-11-20T13:56:15Z", actor: "human:unknown", revision: 10}
+- {from: "active", to: "implemented", at: "2026-11-20T17:26:43Z", actor: "human:unknown", revision: 14, decided_on: {"recorded":{"test_result":2}}}
 ---
 ## Why
 

@@ -2,7 +2,7 @@
 format: aep.planning-md/3
 id: story:supervisor-watch-forge-triggers
 kind: story
-status: active
+status: implemented
 title: conductor supervisor watch fires GREEN and CIEND from the forge, rate-bounded
 summary: 'The two forge-reading supervisor triggers: a green unmerged request once per head sha, and the end of a blocking pipeline'
 refs:
@@ -27,10 +27,11 @@ scope:
   path: crates/conductor/tests/supervisor_watch_forge.rs
 - confidence: cited
   path: spec/domains/host.yaml
-revision: 13
+revision: 14
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-20T13:56:16Z", actor: "human:unknown", revision: 4}
 - {from: "proposed", to: "active", at: "2026-11-20T13:56:16Z", actor: "human:unknown", revision: 5}
+- {from: "active", to: "implemented", at: "2026-11-20T17:26:43Z", actor: "human:unknown", revision: 14, decided_on: {"recorded":{"test_result":2}}}
 ---
 ## Why
 
