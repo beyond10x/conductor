@@ -163,6 +163,11 @@ pub fn render_at(config: &Config, instance: &Instance, data: &Path, secrets: &Pa
                 map.shift_remove(key);
             }
         }
+        // An instance that declares nothing for its box (story:box-tool-roots) renders as before
+        // the key existed.
+        if own.r#box == super::no_box() {
+            map.shift_remove("box");
+        }
         map.remove("conductor");
         map.remove("remote");
     }
