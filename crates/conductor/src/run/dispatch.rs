@@ -37,7 +37,9 @@
 //! unedited, gets none but for its open dispatch, and waits. A start that finds
 //! `controllers.max_working` controllers running first stops the `Running` controller of another
 //! repository that has no open dispatch and whose session the list shows idle, and the `cycle`
-//! line names it (`story:idle-controller-yields-place`, [`Tick::make_room`]). The units of work
+//! line names it (`story:idle-controller-yields-place`, [`Tick::make_room`]); before that, a
+//! repository whose every open dispatch is `Blocked` yields its place to a waiting unit of work
+//! (`story:blocked-repository-yields-place-to-waiting-unit`). The units of work
 //! skip the `merge: human` review cap below: the work call is the control plane telling the
 //! instance to work the unit. A repository whose charter has the line `merge: human` and that has
 //! at least `controllers.max_open_reviews` pull requests waiting for review in the newest complete
@@ -265,18 +267,19 @@ fn reconcile(tick: &mut Tick<'_, '_>) -> Result<Option<String>> {
         if !tick.open_dispatch(&repo)? || tick.running(&repo)?.is_some() {
             continue;
         }
-        match tick.start_again(&repo, &format!("its session {session} is gone"))? {
-            Ok(true) => {
+        // The record was `Running`: a held controller's restart.
+        match tick.start_again(&repo, &format!("its session {session} is gone"), true)? {
+            Ok(super::Again::Started) => {
                 let mut line = tick.line(DispatchLogEvent::ControllerRestarted, &repo)?;
                 line.session = Some(session);
                 line.reason = Some("gone".to_owned());
                 tick.write(&line)?;
                 parts.push(format!("restarted {repo}"));
             }
-            Ok(false) => parts.push(format!(
+            Ok(super::Again::Ended) => parts.push(format!(
                 "{repo} has no charter to start again from: its open dispatches ended"
             )),
-            Err(why) => parts.push(format!("{repo} waits: {why}")),
+            Ok(super::Again::Yielded(why)) | Err(why) => parts.push(format!("{repo} waits: {why}")),
         }
     }
     Ok((!parts.is_empty()).then(|| parts.join("; ")))
@@ -322,7 +325,10 @@ fn waiting_at_limit(tick: &Tick<'_, '_>) -> Vec<(String, String)> {
 /// Of the marks `limited` holds ([`handlers::LIMITED`]) at `now`: the repositories whose stopped
 /// controller waits for its reset, each with it, and the sessions whose stopped mark waits no
 /// more: no reset that reads, or one more than [`crate::token::LIMIT_WINDOW`] past.
-fn waiting_in(limited: &Value, now: OffsetDateTime) -> (Vec<(String, String)>, Vec<String>) {
+pub(super) fn waiting_in(
+    limited: &Value,
+    now: OffsetDateTime,
+) -> (Vec<(String, String)>, Vec<String>) {
     let mut waiting = Vec::new();
     let mut expired = Vec::new();
     for (session, entry) in limited.as_object().into_iter().flatten() {

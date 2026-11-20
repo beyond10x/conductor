@@ -1,0 +1,13 @@
+{
+  "at": "2026-11-20T14:55:37Z",
+  "actor": "human:unknown",
+  "artifact": "story:blocked-repository-yields-place-to-waiting-unit",
+  "kind": "story",
+  "revision": 13,
+  "change": {
+    "change": "evidence",
+    "kind": "test_result",
+    "source": "cargo clippy -p conductor-cli --all-targets -D warnings clean at 0aaf6506d (review fixes); the eight tests/run.rs tests of the story need CI (box refuses AF_UNIX, every spawn-driven run.rs test fails here at the fixture's spawn)",
+    "reference": "github:beyond10x/conductor#245"
+  }
+}

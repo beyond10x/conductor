@@ -25,7 +25,7 @@ scope:
   path: docs/design/conductor-run.md
 - confidence: cited
   path: website/docs/concepts/the-loop.md
-revision: 11
+revision: 13
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-20T14:13:19Z", actor: "human:unknown", revision: 10}
 - {from: "proposed", to: "active", at: "2026-11-20T14:13:20Z", actor: "human:unknown", revision: 11}
@@ -64,13 +64,20 @@ Read in the code on main:
   dispatch whose reference starts `need-` and whose brief, the whole `[NEED <repo> <request-id>]`
   message (`run/mailbox.rs:788-811`), names `R` as `<repo>` on its first line (read as
   `crate::message::read` reads a first line, so `alpha` never matches `alpha-two`), its repository
-  with no `Running` or `Paused` controller, not left to the operator after its failed starts. This holds for every start through
+  with no `Running` or `Paused` controller and no controller stopped at a usage limit, and whose
+  `waiting` reason dispatch v1 last recorded as `ControllerLimit` (a unit that starts once a place
+  is free; one refused for a lasting reason, `NoCheckout` say, or left to the operator after its
+  failed starts, waits for no place). This holds for every start through
   `Tick::try_start`: the watch tick's restart after `session gone`, a hand-over restart, the cycle's
   reconcile restart and dispatch v1's start of an Active repository.
 - **No respawn of a Blocked repository while units wait.** A respawn of a repository whose every
-  open dispatch is `Blocked` is not made while any unit of work waits as above and the free places
-  under `controllers.max_working` do not exceed the units waiting. This covers a controller that
-  reported `blocked handover` and was then stopped.
+  open dispatch is `Blocked` is not made while any unit of work waits as above. This covers a
+  controller that reported `blocked handover` and was then stopped.
+- **Only while places are short.** Both rules hold only while the free places under
+  `controllers.max_working`, counted after the restart's stop, do not exceed the repositories the
+  waiting units are in. With a place to spare the repository starts as today, so a restart never
+  stops a controller for a unit that would start beside it: nothing else would start a non-Active
+  repository again (review of wave 70).
 - A respawn is a start for which no controller was held when the start began. `restart_with` and
   the cycle's reconcile stop the held record before they start again (`run.rs:1153-1172`,
   `run/dispatch.rs:229`, `:268`), so the newest record is `Stopped` in every case by the time
@@ -128,6 +135,15 @@ by a cycle. `<repo>` is `alpha` where a test says `alpha`'s need, else `gamma`.
   and no unit of work anywhere; `session gone: ex-alpha ...` writes `controller-restarted` and
   launches `ex-alpha`.
 - `tests/run.rs` `a_gone_session_with_an_open_dispatch_is_respawned` passes unchanged.
+- `tests/run.rs` `a_handover_restart_with_free_places_keeps_running_while_its_need_s_unit_waits`
+  (review): the fixture with `beta` `alpha`'s need, then `max_working: 3`; the hand-over restarts
+  `alpha` (`controller-restarted`, `ex-alpha` launched again).
+- `tests/run.rs` `a_unit_refused_no_checkout_does_not_keep_its_requester_from_restarting`
+  (review): the fixture with `beta` `alpha`'s need; `beta`'s checkout removed and a cycle at
+  `max_working: 2` records its `waiting` reason `NoCheckout: ...`; back at `max_working: 1`,
+  `alpha`'s controller stopped, `session gone: ex-alpha ...` writes `controller-restarted`.
+- `tests/run.rs` `a_need_of_a_longer_repository_name_is_not_the_shorter_one_s` (guards the parse):
+  the fixture with `beta` `alpha-two`'s need; `alpha`'s hand-over restarts it.
 
 ## Boundaries
 
