@@ -507,3 +507,10 @@ scratch origin, which the release host does not have; they are made again when t
 No onboarding run is due: 1.18.0 changes nothing onboarding runs. `SETUP.md`, `conductor setup`,
 `conductor doctor`, the install path and the prerequisites are as in 1.17.0; the release adds the
 loop's alerts and the held `done` of a resumed controller, with `dispatch reopen-dispatch`.
+
+## v1.19.0
+
+No onboarding run is due: 1.19.0 changes nothing onboarding runs. `SETUP.md`, `conductor setup`,
+`conductor doctor`, the install path and the prerequisites are as in 1.18.0; the release adds the
+config key `controllers.unit_merge`, a gone box recreated, a `[NEED]` opening a unit of work, the
+records check's quoted fields, a refused message recorded, and the guard's repository words.

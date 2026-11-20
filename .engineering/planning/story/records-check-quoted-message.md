@@ -2,7 +2,7 @@
 format: aep.planning-md/3
 id: story:records-check-quoted-message
 kind: story
-status: active
+status: implemented
 title: records check reads no decision citation out of a field that quotes another's text
 summary: A DEC- id a message's first line or a report's evidence quotes is no UnknownDecision
 refs:
@@ -21,10 +21,11 @@ scope:
   path: spec/domains/dispatch.yaml
 - confidence: cited
   path: website/docs/concepts/records-and-store.md
-revision: 5
+revision: 6
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-20T01:04:25Z", actor: "human:unknown", revision: 2}
 - {from: "proposed", to: "active", at: "2026-11-20T01:04:26Z", actor: "human:unknown", revision: 3}
+- {from: "active", to: "implemented", at: "2026-11-20T02:20:15Z", actor: "human:unknown", revision: 6, decided_on: {"recorded":{"test_result":1}}}
 ---
 ## Why
 

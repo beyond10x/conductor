@@ -2,7 +2,7 @@
 format: aep.planning-md/3
 id: story:failing-start-recreates-box
 kind: story
-status: active
+status: implemented
 title: A box substrate answers as gone is forgotten and a new one opened; a failed recreation alerts
 summary: No silent retry of a stored box substrate no longer holds
 refs:
@@ -24,10 +24,11 @@ scope:
   path: crates/conductor/tests/placement.rs
 - confidence: cited
   path: spec/domains/dispatch.yaml
-revision: 11
+revision: 12
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-19T19:24:59Z", actor: "human:unknown", revision: 8}
 - {from: "proposed", to: "active", at: "2026-11-19T19:24:59Z", actor: "human:unknown", revision: 9}
+- {from: "active", to: "implemented", at: "2026-11-20T02:20:14Z", actor: "human:unknown", revision: 12, decided_on: {"recorded":{"test_result":1}}}
 ---
 ## Why
 

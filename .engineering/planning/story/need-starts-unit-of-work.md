@@ -2,7 +2,7 @@
 format: aep.planning-md/3
 id: story:need-starts-unit-of-work
 kind: story
-status: active
+status: implemented
 title: A NEED to a repository with no charter becomes a unit of work
 summary: The mailbox opens one unit-of-work dispatch for the chartless repository and routes the NEED to it; the cycle starts it
 refs:
@@ -22,10 +22,11 @@ scope:
   path: crates/conductor/tests/run.rs
 - confidence: cited
   path: spec/domains/dispatch.yaml
-revision: 8
+revision: 9
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-19T19:25:00Z", actor: "human:unknown", revision: 5}
 - {from: "proposed", to: "active", at: "2026-11-19T19:25:00Z", actor: "human:unknown", revision: 6}
+- {from: "active", to: "implemented", at: "2026-11-20T02:20:14Z", actor: "human:unknown", revision: 9, decided_on: {"recorded":{"test_result":2}}}
 ---
 ## Why
 

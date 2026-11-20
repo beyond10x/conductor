@@ -2,7 +2,7 @@
 format: aep.planning-md/3
 id: story:unit-merge-policy
 kind: story
-status: active
+status: implemented
 title: An instance setting chooses who merges a unit of work's request
 summary: 'controllers.unit_merge: controller or human; the unit charter carries it'
 refs:
@@ -36,10 +36,11 @@ scope:
   path: website/docs/concepts/the-loop.md
 - confidence: inferred
   path: website/docs/reference
-revision: 7
+revision: 8
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-19T19:24:58Z", actor: "human:unknown", revision: 6}
 - {from: "proposed", to: "active", at: "2026-11-19T19:24:58Z", actor: "human:unknown", revision: 7}
+- {from: "active", to: "implemented", at: "2026-11-20T02:20:14Z", actor: "human:unknown", revision: 8, decided_on: {"recorded":{"test_result":1}}}
 ---
 ## Why
 
