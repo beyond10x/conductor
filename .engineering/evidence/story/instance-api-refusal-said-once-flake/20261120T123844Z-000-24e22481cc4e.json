@@ -1,0 +1,13 @@
+{
+  "at": "2026-11-20T12:38:44Z",
+  "actor": "human:unknown",
+  "artifact": "story:instance-api-refusal-said-once-flake",
+  "kind": "story",
+  "revision": 8,
+  "change": {
+    "change": "evidence",
+    "kind": "test_result",
+    "source": "cargo test -p conductor-cli --test token_pool a_refused_pool_call_reads_the_same_whether_the_close_resets_or_ends; --test instance_api a_dialing_runtime_says_a_refusal_once_and_a_surplus_dial_not_at_all (5 runs each, pass; both fail before the fix); --test instance_upgrade 15/15; clippy -D warnings clean",
+    "reference": "a62651043"
+  }
+}
