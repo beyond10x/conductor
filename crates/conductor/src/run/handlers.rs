@@ -29,23 +29,29 @@
 //! cycle recorded its controller stopped; an entry of an older loop has the repository alone and
 //! is resumed in the next tick), `stalled.json` (each session a check-in was sent),
 //! `resumed.json` ([`crate::limit::RESUMED`]: each session the loop resumed, when, and after
-//! how many limits in a row) and `person.json` ([`PERSON`]: each repository whose start was refused
+//! how many limits in a row), `person.json` ([`PERSON`]: each repository whose start was refused
 //! because it is held for a person, its open dispatches, the reason, when, and the journal line
-//! last said of it).
+//! last said of it) and `paused.json` ([`PAUSED`]: each session of a paused repository a handler
+//! left alone, with the line said of it).
 //!
 //! **A wait on a person** (`story:person-wait-and-pause-hold-restarts`). A repository is held for
 //! a person when it has an open dispatch, every open dispatch is `Blocked` with a newest `blocked`
 //! reason whose first word is `person` ([`person_wait`]), and `pending.json` keeps no delivery for
-//! it that no controller refused for good. No start through [`Tick::try_start`] is made for it:
-//! the watch tick's restarts, the cycle's reconcile and dispatch v1. Each watch tick reads
-//! `person.json` after the hand-overs and again after the mailbox and free disk ([`persons`]):
-//! an entry whose repository runs or pauses a controller, or has no open dispatch, is dropped; one
-//! no longer held (a delivery kept, the dispatch moved) is started, its `controller-restarted`
-//! line's reason `person wait ended: <what>`, and the kept deliveries that follow are offered to it.
+//! it that no controller refused for good and that is no watch line. No start through
+//! [`Tick::try_start`] is made for it: the watch tick's restarts, a red `main`, the cycle's
+//! reconcile and dispatch v1; nor a resume of its session ([`held_for_person`]). A watch line for
+//! it is kept for its next controller, one per kind and subject ([`keep_watch`]), and does not
+//! end the wait. Each watch tick reads `person.json` after the hand-overs and again after the
+//! mailbox and free disk ([`persons`]): an entry whose repository runs or pauses a controller, or
+//! has no open dispatch, is dropped; one no longer held (a delivery kept, the dispatch moved) is
+//! started, its `controller-restarted` line's reason `person wait ended: <what>`, and the kept
+//! deliveries are offered to it.
 //!
 //! **A pause holds.** No watch-tick handler starts, resumes or stops a session of a repository
-//! with a `Paused` controller ([`Tick::restart_with`], [`resume`], [`resume_stopped`]): one journal
-//! line `<repo> is paused: <session> not restarted` (or `not resumed`), and the session forgotten.
+//! with a `Paused` controller ([`Tick::restart_with`], [`resume`], [`limited`]): one journal line
+//! `<repo> is paused: <session> not restarted` (or `not resumed`), said once while the pause
+//! lasts. The session's hand-over request and usage-limit mark are kept for the controller
+//! `resume-controller` resumes.
 //!
 //! The `gc` a `disk low` line starts runs on a thread of its own, so the loop's ticks go on while
 //! it works (`story:first-cycle-not-blocked-by-archiving`); one runs at a time, and a `disk low`
@@ -100,6 +106,10 @@ pub(crate) const PENDING: &str = "pending.json";
 /// The repositories a start was refused for because they are held for a person ([`persons`]).
 pub(super) const PERSON: &str = "person.json";
 
+/// The sessions of a paused repository a handler left alone, each with the journal line said
+/// of it, so a pause is said once while it lasts ([`held_paused`]).
+const PAUSED: &str = "paused.json";
+
 /// The sessions the loop resumed after a usage limit ([`crate::limit::RESUMED`]).
 const RESUMED: &str = crate::limit::RESUMED;
 
@@ -124,14 +134,29 @@ pub fn pending(tick: &mut Tick<'_, '_>) {
 
 /// The person pass ([`persons`]), then the kept deliveries ([`deliveries`]): a repository whose
 /// wait on a person ended is started first, so what was kept for it is offered to it in the same
-/// tick. Run in [`pending`], and again after the mailbox and free disk ([`super::handle`]), so an
-/// input the mailbox or a watch line kept in a tick starts its controller in that tick.
+/// tick. Run in [`pending`]; [`lift_again`] runs the pass again later in the tick.
 pub fn lift(tick: &mut Tick<'_, '_>) {
     if let Err(error) = persons(tick) {
         tick.note("person wait", &error);
     }
-    if let Err(error) = deliveries(tick) {
+    if let Err(error) = deliveries(tick, None) {
         tick.note("kept deliveries", &error);
+    }
+}
+
+/// The person pass again, after the mailbox and free disk ([`super::handle`]), so an input the
+/// mailbox or a handler kept in a tick starts its controller in that tick; the kept deliveries are
+/// offered then only to the repositories it started, so no delivery is offered to one controller
+/// twice in a tick and [`OFFERS`] counts ticks.
+pub fn lift_again(tick: &mut Tick<'_, '_>) {
+    match persons(tick) {
+        Ok(started) if !started.is_empty() => {
+            if let Err(error) = deliveries(tick, Some(&started)) {
+                tick.note("kept deliveries", &error);
+            }
+        }
+        Ok(_) => {}
+        Err(error) => tick.note("person wait", &error),
     }
 }
 
@@ -350,7 +375,10 @@ fn handovers(tick: &mut Tick<'_, '_>) -> Result<()> {
             .running(&repo)?
             .filter(|(_, running)| running == session)
         else {
-            forget(tick, session);
+            // A pause keeps what was asked, for the controller `resume-controller` resumes.
+            if !tick.paused(&repo)? {
+                forget(tick, session);
+            }
             continue;
         };
         let delivered = instant(&entry["delivered"]).unwrap_or(0);
@@ -772,6 +800,10 @@ fn limited(tick: &mut Tick<'_, '_>) -> Result<()> {
             continue;
         }
         let repo = entry["repo"].as_str().unwrap_or("-").to_owned();
+        // A pause keeps the mark, for the controller `resume-controller` resumes.
+        if repo != "-" && held_paused(tick, &repo, session, "resumed")? {
+            continue;
+        }
         let standing = match asked.get(session).filter(|_| repo != "-") {
             Some(entry) => match stands(tick, entry, session, &repo) {
                 Ok(standing) => standing,
@@ -810,14 +842,14 @@ fn limited(tick: &mut Tick<'_, '_>) -> Result<()> {
 /// as [`resume`] does, within `controllers.max_working`: its controller is recorded running
 /// again under the session's name first, and stopped again when nothing was resumed. Answers
 /// `None` while that many controllers run, or another controller of `repo` runs, so it waits;
-/// else whether it was resumed. A repository with a `Paused` controller resumes nothing
-/// ([`held_paused`]): `Some(false)`, so its mark is taken out of [`LIMITED`].
+/// else whether it was resumed. A repository held for a person resumes nothing
+/// ([`held_for_person`]): `Some(false)`, before any controller is recorded.
 ///
 /// # Errors
 ///
 /// The store cannot be written, or the resume fails.
 fn resume_stopped(tick: &mut Tick<'_, '_>, repo: &str, session: &str) -> Result<Option<bool>> {
-    if held_paused(tick, repo, session, "resumed")? {
+    if held_for_person(tick, repo, session)? {
         return Ok(Some(false));
     }
     let controller = {
@@ -863,14 +895,15 @@ fn resume_stopped(tick: &mut Tick<'_, '_>, repo: &str, session: &str) -> Result<
 /// its model, and writes `resumed`; answers whether it did. Nothing when there is nothing to
 /// resume (no measurement, or a live session).
 ///
-/// A repository with a `Paused` controller resumes nothing ([`held_paused`]).
+/// A repository with a `Paused` controller resumes nothing ([`held_paused`]), nor one held for a
+/// person ([`held_for_person`]).
 ///
 /// A hand-over asked of the session and still kept is dated `resumed`, the instant the resume
 /// returned (`story:handover-restart-by-controller-id`): the session runs on under its id in a
 /// process started after the delivery, by the loop and not by hand, so [`superseded`] takes a
 /// start up to that instant as the loop's own.
 fn resume(tick: &mut Tick<'_, '_>, repo: &str, session: &str) -> Result<bool> {
-    if held_paused(tick, repo, session, "resumed")? {
+    if held_paused(tick, repo, session, "resumed")? || held_for_person(tick, repo, session)? {
         return Ok(false);
     }
     let resumed = crate::spawn::resume_leased(
@@ -904,7 +937,9 @@ fn resume(tick: &mut Tick<'_, '_>, repo: &str, session: &str) -> Result<bool> {
 
 /// Whether `repo` has a `Paused` controller, which no watch-tick handler starts, resumes or
 /// stops a session of (`story:person-wait-and-pause-hold-restarts`): then one journal line
-/// `<repo> is paused: <session> not <what>`, and the session forgotten.
+/// `<repo> is paused: <session> not <what>`, said once while the pause lasts ([`PAUSED`]).
+/// Nothing kept of the session is forgotten: its hand-over request and its usage-limit mark wait
+/// for the controller `resume-controller` resumes.
 ///
 /// # Errors
 ///
@@ -915,14 +950,49 @@ pub(super) fn held_paused(
     session: &str,
     what: &str,
 ) -> Result<bool> {
+    let mut said = read_json(&tick.dir, PAUSED, json!({}));
     if !tick.paused(repo)? {
+        if said.get(session).is_some() {
+            unkeep(tick, PAUSED, session);
+        }
         return Ok(false);
     }
-    super::say(
-        true,
-        &format!("conductor run: {repo} is paused: {session} not {what}"),
-    );
-    forget(tick, session);
+    let line = format!("{repo} is paused: {session} not {what}");
+    if said[session].as_str() != Some(line.as_str()) {
+        super::say(true, &format!("conductor run: {line}"));
+        said[session] = json!(line);
+        if let Err(error) = write_json(&tick.dir, PAUSED, &said) {
+            tick.note(PAUSED, &error);
+        }
+    }
+    Ok(true)
+}
+
+/// Whether `repo` is held for a person ([`person_wait`]), so its session `session` is not
+/// resumed: the resume is a wait, as a refused start is. The repository is kept in [`PERSON`],
+/// one journal line `<repo> waits: <why>` is said ([`said_once`]), and its running controller of
+/// that session, whose session is not live, is recorded stopped, so an input that ends the wait
+/// starts it again ([`persons`]).
+///
+/// # Errors
+///
+/// The store or the dispatch log does not read.
+fn held_for_person(tick: &Tick<'_, '_>, repo: &str, session: &str) -> Result<bool> {
+    let Some((dispatches, why)) = person_wait(tick, repo)? else {
+        return Ok(false);
+    };
+    if let Some((controller, running)) = tick.running(repo)?
+        && running == session
+        && let Err(error) = stop_record(
+            tick,
+            &controller,
+            &format!("conductor run: {session} is not resumed: {why}"),
+        )
+    {
+        tick.note(&format!("stop the controller {controller}"), &error);
+    }
+    hold(tick, repo, &dispatches, &why);
+    said_once(tick, repo, &format!("{repo} waits: {why}"));
     Ok(true)
 }
 
@@ -931,8 +1001,8 @@ pub(super) fn held_paused(
 // ---------------------------------------------------------------------------------------------
 
 /// A pull request's checks or `main`'s CI: relayed to the running controller of `repo`; with
-/// none, kept for a repository [`PERSON`] holds, an input that ends its wait ([`persons`]); else a
-/// red `main` dispatched ([`red_ci`]).
+/// none, kept for the next controller of a repository [`PERSON`] holds ([`keep_watch`]), which
+/// does not end its wait; else a red `main` dispatched ([`red_ci`]).
 fn relay(tick: &mut Tick<'_, '_>, line: &str, repo: &str) -> Result<bool> {
     if let Some((controller, session)) = tick.running(repo)? {
         send(
@@ -948,13 +1018,7 @@ fn relay(tick: &mut Tick<'_, '_>, line: &str, repo: &str) -> Result<bool> {
         return Ok(true);
     }
     if read_json(&tick.dir, PERSON, json!({})).get(repo).is_some() {
-        let item = json!({
-            "repo": repo,
-            "text": format!("[REPORT {repo} -] watch: {line}"),
-            "event": "relayed",
-            "line": line,
-        });
-        deliver_or_keep(tick, item)?;
+        keep_watch(tick, repo, line)?;
         return Ok(true);
     }
     if line.starts_with("CI red on main: ") {
@@ -964,23 +1028,71 @@ fn relay(tick: &mut Tick<'_, '_>, line: &str, repo: &str) -> Result<bool> {
 }
 
 /// A red `main` with no running controller: spawned from the charter (`red-ci`, `spawned`), or
-/// noted (`no charter`, or why the spawn did not happen).
+/// noted (`no charter`, or why the spawn did not happen). A repository held for a person keeps
+/// the line for its next controller ([`keep_watch`]), as [`relay`] does.
 fn red_ci(tick: &mut Tick<'_, '_>, line: &str, repo: &str) -> Result<bool> {
     let mut written = tick.line(DispatchLogEvent::RedCi, repo)?;
     written.line = Some(line.to_owned());
     if tick.charter(repo).is_file() {
-        match tick.spawn(repo)? {
+        match tick.try_start(repo, false)? {
             Ok(()) => {
                 written.reason = Some("spawned".to_owned());
                 written.session = Some(super::session_of(repo).0);
             }
-            Err(why) => written.reason = Some(why),
+            Err(super::NotStarted::Held(why)) => {
+                keep_watch(tick, repo, line)?;
+                written.reason = Some(why);
+            }
+            Err(super::NotStarted::Yielded(why) | super::NotStarted::Refused(_, why)) => {
+                written.reason = Some(why);
+            }
         }
     } else {
         written.reason = Some("no charter".to_owned());
     }
     tick.write(&written)?;
     Ok(true)
+}
+
+/// Keeps the watch line `line` for the next controller of `repo`, held for a person, as
+/// `[REPORT <repo> -] watch: <line>`: one item per kind of line and subject ([`watch_key`]), a
+/// newer line replacing the older. The item carries its key as `watch`; a kept watch line does
+/// not end a wait on a person ([`kept_for`]): each CI event would start the controller only for
+/// it to wait again.
+///
+/// # Errors
+///
+/// The kept file cannot be written.
+fn keep_watch(tick: &Tick<'_, '_>, repo: &str, line: &str) -> Result<()> {
+    let key = watch_key(line);
+    let mut kept = read_json(&tick.dir, PENDING, json!([]));
+    let Some(items) = kept.as_array_mut() else {
+        return Ok(());
+    };
+    items.retain(|item| {
+        !(item["repo"].as_str() == Some(repo) && item["watch"].as_str() == Some(key.as_str()))
+    });
+    items.push(json!({
+        "repo": repo,
+        "text": format!("[REPORT {repo} -] watch: {line}"),
+        "event": "relayed",
+        "line": line,
+        "watch": key,
+    }));
+    write_json(&tick.dir, PENDING, &kept)
+}
+
+/// The kind of a watch line and its subject: `PR checks done: alpha#7` of `PR checks done:
+/// alpha#7 green (head 0a1b2c3)`, `CI red on main: alpha / check` of `CI red on main: alpha /
+/// check (run 9)`.
+fn watch_key(line: &str) -> String {
+    let (kind, rest) = line.split_once(": ").unwrap_or((line, ""));
+    let subject = if rest.contains(" / ") {
+        rest.split(" (").next().unwrap_or(rest).trim()
+    } else {
+        rest.split_whitespace().next().unwrap_or_default()
+    };
+    format!("{kind}: {subject}")
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -1396,10 +1508,18 @@ fn on_disk(reason: &str) -> bool {
 /// The first word of a block's reason that makes it a wait on a person.
 const PERSON_WORD: &str = "person";
 
-/// Whether a block's `reason` is a wait on a person: its first word is `person`, as the controller
-/// role reports work left only to persons (`blocked person: waits on <who> for <what>`).
+/// Whether a block's `reason` is a wait on a person: it starts with `person` (any case), then the
+/// end, a `:` or whitespace, as the controller role reports work left only to persons (`blocked
+/// person: waits on <who> for <what>`); not `personal`, `person-x`, `person_x` or `person's`.
 fn on_person(reason: &str) -> bool {
-    first_word_is(reason, PERSON_WORD)
+    let reason = reason.trim_start();
+    reason
+        .get(..PERSON_WORD.len())
+        .is_some_and(|first| first.eq_ignore_ascii_case(PERSON_WORD))
+        && reason[PERSON_WORD.len()..]
+            .chars()
+            .next()
+            .is_none_or(|next| next == ':' || next.is_whitespace())
 }
 
 /// A person wait's `reason` without its leading `person` and the `:` and whitespace after it.
@@ -1416,7 +1536,8 @@ fn person_rest(reason: &str) -> &str {
 /// reason in the dispatch log is a wait on a person ([`on_person`]), and [`PENDING`] keeps no
 /// delivery for it that no controller refused for good ([`kept_for`]). The reason reads
 /// `<dispatch> waits on a person: <rest>`, of the first such dispatch in store order. The log is
-/// read only when every open dispatch is `Blocked`. None when it is not held.
+/// read only when every open dispatch is `Blocked`, and once in a tick ([`Tick::newest_blocked`]).
+/// None when it is not held.
 ///
 /// # Errors
 ///
@@ -1450,13 +1571,13 @@ pub(super) fn person_wait(
     if open.is_empty() || !blocked || kept_for(tick, repo).is_some() {
         return Ok(None);
     }
-    let (lines, _) = crate::records::log_objects(
-        Path::new(&tick.instance().records),
-        crate::records::DISPATCHES,
-    )?;
+    let newest = tick.newest_blocked()?;
     let mut why = None;
     for (id, _) in &open {
-        let Some(reason) = newest_blocked_reason(&lines, id).filter(|reason| on_person(reason))
+        let Some(reason) = newest
+            .get(id)
+            .map(String::as_str)
+            .filter(|reason| on_person(reason))
         else {
             return Ok(None);
         };
@@ -1469,19 +1590,25 @@ pub(super) fn person_wait(
 }
 
 /// The event of the first delivery [`PENDING`] keeps for `repo` that no controller refused for
-/// good (`refused_by`): such a delivery ends a wait on a person. One refused for good waits for a
-/// controller other than the one that refused it, and ends none.
+/// good (`refused_by`) and that is no watch line ([`keep_watch`]): such a delivery ends a wait on
+/// a person. One refused for good waits for a controller other than the one that refused it, and
+/// a watch line is kept only for the next controller: neither ends a wait.
 fn kept_for(tick: &Tick<'_, '_>, repo: &str) -> Option<String> {
     read_json(&tick.dir, PENDING, json!([]))
         .as_array()?
         .iter()
-        .find(|item| item["repo"].as_str() == Some(repo) && item["refused_by"].is_null())
+        .find(|item| {
+            item["repo"].as_str() == Some(repo)
+                && item["refused_by"].is_null()
+                && item["watch"].is_null()
+        })
         .map(|item| item["event"].as_str().unwrap_or("relayed").to_owned())
 }
 
 /// Keeps in [`PERSON`] that a start of `repo` was refused because it is held for a person: its
 /// open dispatches `dispatches`, the reason `why` and when; an entry kept already keeps when it
-/// was first held and the journal line last said of it ([`said_once`]).
+/// was first held and the journal line last said of it ([`said_once`]), and is written only when
+/// its dispatches or its reason changed.
 pub(super) fn hold(tick: &Tick<'_, '_>, repo: &str, dispatches: &[String], why: &str) {
     let mut kept = read_json(&tick.dir, PERSON, json!({}));
     let Some(map) = kept.as_object_mut() else {
@@ -1493,6 +1620,9 @@ pub(super) fn hold(tick: &Tick<'_, '_>, repo: &str, dispatches: &[String], why: 
     let entry = map
         .entry(repo.to_owned())
         .or_insert_with(|| json!({"at": at}));
+    if entry["dispatches"] == json!(dispatches) && entry["reason"] == json!(why) {
+        return;
+    }
     entry["dispatches"] = json!(dispatches);
     entry["reason"] = json!(why);
     if let Err(error) = write_json(&tick.dir, PERSON, &kept) {
@@ -1528,17 +1658,18 @@ pub(super) fn said_once(tick: &Tick<'_, '_>, repo: &str, line: &str) {
 /// <event>`, or `the dispatch moved`) and drops it, as does a start that ended its dispatches for
 /// want of a charter. A start refused for any reason, still held for a person included, keeps it,
 /// the refusal said in one journal line only when it differs from the one said last
-/// ([`said_once`]).
+/// ([`said_once`]). Answers the repositories it started.
 ///
 /// # Errors
 ///
 /// The store does not open, or a line cannot be written.
-fn persons(tick: &mut Tick<'_, '_>) -> Result<()> {
+fn persons(tick: &mut Tick<'_, '_>) -> Result<Vec<String>> {
     use conductor_model::dispatch::ControllerState;
 
+    let mut started = Vec::new();
     let kept = read_json(&tick.dir, PERSON, json!({}));
     let Some(kept) = kept.as_object().filter(|kept| !kept.is_empty()) else {
-        return Ok(());
+        return Ok(started);
     };
     for repo in kept.keys() {
         let controlled = tick.controllers()?.iter().any(|held| {
@@ -1563,6 +1694,7 @@ fn persons(tick: &mut Tick<'_, '_>) -> Result<()> {
                 written.session = Some(super::session_of(repo).0);
                 written.reason = Some(format!("person wait ended: {what}"));
                 tick.write(&written)?;
+                started.push(repo.clone());
             }
             Ok(Again::Ended) => unhold(tick, repo),
             Ok(Again::Yielded(why) | Again::Held(why)) | Err(why) => {
@@ -1570,7 +1702,7 @@ fn persons(tick: &mut Tick<'_, '_>) -> Result<()> {
             }
         }
     }
-    Ok(())
+    Ok(started)
 }
 
 /// A desktop notification of `line`, titled `<instance>: decision` ([`crate::alert::notify`]);
@@ -1845,15 +1977,24 @@ fn made(tick: &mut Tick<'_, '_>, item: &Value) -> Result<Made> {
 
 /// The deliveries kept: each made once its repository has a running controller; one refused is
 /// kept for the next controller, or for the same one while it stays Running and has not
-/// refused it [`OFFERS`] times.
-fn deliveries(tick: &mut Tick<'_, '_>) -> Result<()> {
+/// refused it [`OFFERS`] times. With `only`, the items of those repositories alone are offered,
+/// the others kept as they are.
+fn deliveries(tick: &mut Tick<'_, '_>, only: Option<&[String]>) -> Result<()> {
     let kept = read_json(&tick.dir, PENDING, json!([]));
     let Some(items) = kept.as_array().filter(|items| !items.is_empty()) else {
         return Ok(());
     };
     let mut left = Vec::new();
     for item in items {
-        left.extend(made(tick, item)?.kept(item.clone()));
+        let offered = only.is_none_or(|only| {
+            only.iter()
+                .any(|repo| item["repo"].as_str() == Some(repo.as_str()))
+        });
+        if offered {
+            left.extend(made(tick, item)?.kept(item.clone()));
+        } else {
+            left.push(item.clone());
+        }
     }
     write_json(&tick.dir, PENDING, &Value::Array(left)).context("keep the deliveries left")
 }
@@ -1917,12 +2058,23 @@ mod tests {
 
     #[test]
     fn a_person_reason_is_read_by_its_first_word() {
-        for reason in ["person: x", "Person x", "person", "  PERSON: x", "person:x"] {
+        for reason in [
+            "person: x",
+            "Person x",
+            "person",
+            "  PERSON: x",
+            "person:x",
+            "person\tx",
+        ] {
             assert!(on_person(reason), "{reason:?} is a person wait");
         }
         for reason in [
             "personal x",
             "persons x",
+            "person-x",
+            "person_x",
+            "person's retest",
+            "person.x",
             "disk: x",
             "handover x",
             "",

@@ -5906,24 +5906,118 @@ fn an_unblocked_report_starts_a_controller_held_for_a_person() {
     assert!(person_kept(&case).get("alpha").is_none());
 }
 
-/// A watch line for a held repository with no running controller is kept, not dropped, and
-/// starts its controller in the same tick, which is offered the line.
+/// The texts of the deliveries kept for `repo`.
+fn kept_for_repo(case: &Case, repo: &str) -> Vec<String> {
+    kept(case)
+        .iter()
+        .filter(|item| item["repo"] == repo)
+        .filter_map(|item| item["text"].as_str().map(str::to_owned))
+        .collect()
+}
+
+/// A watch line for a held repository with no running controller is kept for its next
+/// controller, not dropped, and does not end the wait: each CI event starting a controller that
+/// only waits again is the churn of issue #258. Nothing starts, over two ticks.
 #[test]
-fn a_watch_line_for_a_held_repository_is_kept_and_starts_its_controller() {
+fn a_watch_line_for_a_held_repository_is_kept_and_starts_nothing() {
     let case = Case::new("person-watch-line");
     held_for_a_person(&case);
     let line = "PR checks done: alpha#7 green (head 0a1b2c3)";
     let tick = case.tick(&[line]);
-    assert_eq!(restarted_by(&case, &tick).len(), 1, "{tick}");
-    assert_eq!(case.launched(), ["ex-alpha", "ex-alpha"]);
-    assert!(
-        case.deliveries().contains(&(
-            "ex-alpha".to_owned(),
-            format!("[REPORT alpha -] watch: {line}")
-        )),
-        "{:?}",
-        case.deliveries()
+    let after = case.tick(&[]);
+    assert!(restarted_by(&case, &tick).is_empty(), "{tick}");
+    assert!(restarted_by(&case, &after).is_empty(), "{after}");
+    assert_eq!(case.launched(), ["ex-alpha"]);
+    assert_eq!(
+        kept_for_repo(&case, "alpha"),
+        [format!("[REPORT alpha -] watch: {line}")]
     );
+    assert!(person_kept(&case).get("alpha").is_some());
+}
+
+/// A watch line kept for a held repository is offered to the controller a later input starts:
+/// a decision answer starts it, and it is offered the decision and the kept line.
+#[test]
+fn a_decision_answer_after_a_kept_watch_line_starts_it_and_offers_the_line() {
+    let case = Case::new("person-watch-then-decision");
+    held_for_a_person(&case);
+    let line = "PR checks done: alpha#7 green (head 0a1b2c3)";
+    case.tick(&[line]);
+    assert_eq!(case.launched(), ["ex-alpha"]);
+    let decision = answer_request(&case);
+    let tick = case.tick(&["answered R-1 A"]);
+    let restarted = restarted_by(&case, &tick);
+    assert_eq!(restarted.len(), 1, "{tick}");
+    assert_eq!(
+        restarted[0]["reason"],
+        "person wait ended: a delivery kept: decision-sent"
+    );
+    assert_eq!(case.launched(), ["ex-alpha", "ex-alpha"]);
+    let delivered = case.deliveries();
+    for text in [
+        format!("[REPORT alpha -] watch: {line}"),
+        format!("[DECISION R-1] A one migration, then one layout ({decision})"),
+    ] {
+        assert!(
+            delivered.contains(&("ex-alpha".to_owned(), text.clone())),
+            "{text}: {delivered:?}"
+        );
+    }
+    assert!(kept_for_repo(&case, "alpha").is_empty());
+}
+
+/// One watch line is kept per repository, kind of line and subject: a newer `PR checks done` of
+/// the same pull request replaces the older, one of another pull request is kept beside it.
+#[test]
+fn a_held_repository_keeps_one_watch_line_per_kind_and_subject() {
+    let case = Case::new("person-watch-dedup");
+    held_for_a_person(&case);
+    case.tick(&["PR checks done: alpha#7 red (head 0a1b2c3)"]);
+    case.tick(&["PR checks done: alpha#7 green (head 1b2c3d4)"]);
+    case.tick(&[
+        "PR checks done: alpha#8 green (head 2c3d4e5)",
+        "CI red on main: alpha / check (run 9)",
+        "CI red on main: alpha / check (run 10)",
+    ]);
+    assert_eq!(
+        kept_for_repo(&case, "alpha"),
+        [
+            "[REPORT alpha -] watch: PR checks done: alpha#7 green (head 1b2c3d4)",
+            "[REPORT alpha -] watch: PR checks done: alpha#8 green (head 2c3d4e5)",
+            "[REPORT alpha -] watch: CI red on main: alpha / check (run 10)",
+        ]
+    );
+    assert_eq!(case.launched(), ["ex-alpha"]);
+}
+
+/// A kept delivery a running controller refuses and is asked again is offered once per watch
+/// tick, though the tick runs the person pass twice: with a repository held for a person beside
+/// it, two ticks make two offers.
+#[test]
+fn a_kept_delivery_is_offered_once_per_tick_beside_a_held_repository() {
+    let case = Case::new("person-offers-per-tick");
+    write(
+        &case.charter("beta"),
+        "# Charter: beta\n\nKeep main green.\n",
+    );
+    held_for_a_person(&case);
+    case.spawn("beta", "s0000002-0000");
+    case.mail(
+        "0004",
+        "[NEED alpha r1] beta export the store id\n\nalpha reads it on start.\n",
+    );
+    write(&case.fake().join("unreachable/ex-beta"), "");
+    let offers = |case: &Case| {
+        case.attempts()
+            .iter()
+            .filter(|(name, _)| name == "ex-beta")
+            .count()
+    };
+    case.tick(&[]);
+    assert_eq!(offers(&case), 1, "{:?}", case.attempts());
+    case.tick(&[]);
+    assert_eq!(offers(&case), 2, "{:?}", case.attempts());
+    assert_eq!(states_of(&case, "beta"), ["Running"]);
 }
 
 /// A paused controller's gone session is not restarted: nothing launched, the controller stays
@@ -5999,11 +6093,17 @@ fn a_paused_controller_s_usage_limit_reset_resumes_nothing() {
     );
     assert_eq!(case.launched(), ["ex-alpha"]);
     assert_eq!(states_of(&case, "alpha"), ["Paused"]);
+    assert!(
+        limited(&case).get("ex-alpha").is_some(),
+        "a pause keeps the mark: {}",
+        limited(&case)
+    );
 }
 
 /// A usage-limit mark the cycle recorded `stopped`, whose reset passed, of a repository whose
-/// controller is `Paused`: nothing is resumed and no controller recorded running, and the mark is
-/// taken out of `limited.json`, so it is not tried every tick.
+/// controller is `Paused`: nothing is resumed and no controller recorded running; the mark is
+/// kept for the controller `resume-controller` resumes, and the pause is said once over two
+/// ticks.
 #[test]
 fn a_paused_repository_s_stopped_limit_mark_resumes_nothing() {
     let case = Case::new("paused-stopped-mark");
@@ -6017,7 +6117,8 @@ fn a_paused_repository_s_stopped_limit_mark_resumes_nothing() {
     reset_passed(&case, "ex-alpha");
     pause(&case, "alpha");
     case.live("alpha", FIRST, false);
-    let tick = case.tick(&[]);
+    let (tick, mut said) = case.tick_said(&[]);
+    said.extend(case.tick_said(&[]).1);
     assert!(!actions(&tick).contains(&"resumed".to_owned()), "{tick}");
     assert_eq!(states_of(&case, "alpha"), ["Paused"]);
     assert!(
@@ -6029,9 +6130,118 @@ fn a_paused_repository_s_stopped_limit_mark_resumes_nothing() {
         case.claude_calls()
     );
     assert!(
-        limited(&case).get("ex-alpha").is_none(),
+        limited(&case).get("ex-alpha").is_some(),
         "{}",
         limited(&case)
+    );
+    let paused = "conductor run: alpha is paused: ex-alpha not resumed";
+    assert_eq!(
+        said.iter().filter(|line| *line == paused).count(),
+        1,
+        "{said:?}"
+    );
+}
+
+/// A hand-over asked of a controller that is then paused is kept for the controller
+/// `resume-controller` resumes: the tick does not drop it.
+#[test]
+fn a_paused_controller_s_hand_over_request_is_kept() {
+    let case = Case::new("paused-handover");
+    case.spawn("alpha", FIRST);
+    case.dispatch("alpha");
+    let asked = case.tick(&[&format!(
+        "context: alpha 230k tokens (session {FIRST_SHORT})"
+    )]);
+    assert_eq!(actions(&asked), ["handover-sent"], "{asked}");
+    pause(&case, "alpha");
+    case.tick(&[]);
+    let kept: Value = fs::read_to_string(case.state().join("run/handover.json"))
+        .ok()
+        .and_then(|text| serde_json::from_str(&text).ok())
+        .unwrap_or_else(|| json!({}));
+    assert!(kept.get("ex-alpha").is_some(), "{kept}");
+    assert_eq!(case.launched(), ["ex-alpha"]);
+}
+
+/// A held repository's session that exited (a runtime restart) is not resumed: the resume is a
+/// wait, one journal line, its controller recorded stopped, the repository kept in `person.json`.
+#[test]
+fn a_held_repository_s_exited_session_is_not_resumed() {
+    let case = Case::new("person-exited");
+    let id = waits_on(&case, PERSON_WAIT, true);
+    case.live("alpha", FIRST, false);
+    let (tick, said) =
+        case.tick_said(&[&format!("session exited (blocked): ex-alpha {FIRST_SHORT}")]);
+    assert!(!actions(&tick).contains(&"resumed".to_owned()), "{tick}");
+    assert!(
+        !case
+            .claude_calls()
+            .iter()
+            .any(|call| call.contains("--resume")),
+        "{:?}",
+        case.claude_calls()
+    );
+    assert_eq!(states_of(&case, "alpha"), ["Stopped"]);
+    assert!(person_kept(&case).get("alpha").is_some());
+    assert_eq!(
+        said.iter()
+            .filter(|line| **line == person_waits(&id))
+            .count(),
+        1,
+        "{said:?}"
+    );
+}
+
+/// A held repository's session on a token its owner withdrew is ended and not resumed.
+#[test]
+fn a_held_repository_s_withdrawn_session_is_not_resumed() {
+    let case = Case::new("person-withdrawn");
+    let id = waits_on(&case, PERSON_WAIT, true);
+    write(
+        &case.state().join("run/tokens-withdrawn.json"),
+        &json!(["ex-alpha"]).to_string(),
+    );
+    let (tick, said) = case.tick_said(&[]);
+    assert!(!actions(&tick).contains(&"resumed".to_owned()), "{tick}");
+    assert!(
+        !case
+            .claude_calls()
+            .iter()
+            .any(|call| call.contains("--resume")),
+        "{:?}",
+        case.claude_calls()
+    );
+    assert_eq!(states_of(&case, "alpha"), ["Stopped"]);
+    assert!(person_kept(&case).get("alpha").is_some());
+    assert!(said.contains(&person_waits(&id)), "{said:?}");
+}
+
+/// A paused repository's session on a token its owner withdrew is not resumed.
+#[test]
+fn a_paused_controller_s_withdrawn_session_is_not_resumed() {
+    let case = Case::new("paused-withdrawn");
+    case.spawn("alpha", FIRST);
+    let id = case.dispatch("alpha");
+    case.ok(&["dispatch", "report-started", "--dispatch-id", &id]);
+    pause(&case, "alpha");
+    write(
+        &case.state().join("run/tokens-withdrawn.json"),
+        &json!(["ex-alpha"]).to_string(),
+    );
+    let (tick, said) = case.tick_said(&[]);
+    assert!(!actions(&tick).contains(&"resumed".to_owned()), "{tick}");
+    assert!(
+        !case
+            .claude_calls()
+            .iter()
+            .any(|call| call.contains("--resume")),
+        "{:?}",
+        case.claude_calls()
+    );
+    assert_eq!(states_of(&case, "alpha"), ["Paused"]);
+    assert!(
+        said.contains(&"conductor run: alpha is paused: ex-alpha not resumed".to_owned()),
+        "{said:?}"
     );
 }
 
@@ -6095,6 +6305,11 @@ fn a_repeated_person_refusal_writes_one_journal_line() {
 fn a_lift_refused_at_max_working_keeps_the_entry() {
     let case = Case::new("person-lift-later");
     lift_at_max_working(&case);
+    assert!(
+        person_kept(&case).get("alpha").is_some(),
+        "the refused lift keeps the entry: {}",
+        person_kept(&case)
+    );
     case.configure("{provider: none}", "{max_working: 2}");
     let tick = case.tick(&[]);
     let restarted = restarted_by(&case, &tick);
@@ -6107,8 +6322,8 @@ fn a_lift_refused_at_max_working_keeps_the_entry() {
     assert!(person_kept(&case).get("alpha").is_none());
 }
 
-/// A red `main` of a held repository is kept as a delivery, not spawned through `red-ci`; the
-/// person pass of the same tick starts alpha once, and it is offered the line.
+/// A red `main` of a held repository is kept for its next controller, not spawned through
+/// `red-ci`, and starts nothing.
 #[test]
 fn a_held_repository_s_red_main_is_kept_not_spawned() {
     let case = Case::new("person-red-main");
@@ -6116,16 +6331,36 @@ fn a_held_repository_s_red_main_is_kept_not_spawned() {
     let line = "CI red on main: alpha / check (run 9)";
     let tick = case.tick(&[line]);
     assert!(!actions(&tick).contains(&"red-ci".to_owned()), "{tick}");
-    assert_eq!(restarted_by(&case, &tick).len(), 1, "{tick}");
-    assert_eq!(case.launched(), ["ex-alpha", "ex-alpha"], "started once");
-    assert!(
-        case.deliveries().contains(&(
-            "ex-alpha".to_owned(),
-            format!("[REPORT alpha -] watch: {line}")
-        )),
-        "{:?}",
-        case.deliveries()
+    assert!(restarted_by(&case, &tick).is_empty(), "{tick}");
+    assert_eq!(case.launched(), ["ex-alpha"]);
+    assert_eq!(
+        kept_for_repo(&case, "alpha"),
+        [format!("[REPORT alpha -] watch: {line}")]
     );
+}
+
+/// A red `main` of a repository held for a person that `person.json` does not name yet (its
+/// controller stopped by the operator): `red-ci` says the hold, the line is kept, not dropped,
+/// and the repository is kept in `person.json`.
+#[test]
+fn a_red_main_of_a_held_repository_with_no_entry_is_kept() {
+    let case = Case::new("person-red-main-no-entry");
+    let id = waits_on(&case, PERSON_WAIT, true);
+    stop_alpha(&case);
+    let line = "CI red on main: alpha / check (run 9)";
+    let tick = case.tick(&[line]);
+    let red = case
+        .lines_of(&tick)
+        .into_iter()
+        .find(|written| written["event"] == "red-ci")
+        .expect("a red-ci line");
+    assert_eq!(red["reason"], json!(format!("{id} {PERSON_SAID}")), "{red}");
+    assert_eq!(case.launched(), ["ex-alpha"]);
+    assert_eq!(
+        kept_for_repo(&case, "alpha"),
+        [format!("[REPORT alpha -] watch: {line}")]
+    );
+    assert!(person_kept(&case).get("alpha").is_some());
 }
 
 /// A held dispatch cancelled leaves no open dispatch: the entry is dropped and nothing starts.
@@ -6152,7 +6387,7 @@ fn a_held_dispatch_cancelled_drops_its_entry() {
 #[test]
 fn a_delivery_refused_for_good_does_not_end_a_person_wait() {
     let case = Case::new("person-refused-for-good");
-    waits_on(&case, PERSON_WAIT, true);
+    let id = waits_on(&case, PERSON_WAIT, true);
     case.live("alpha", FIRST, false);
     answer_request(&case);
     write(&case.fake().join("unreachable/ex-alpha"), "");
@@ -6165,7 +6400,13 @@ fn a_delivery_refused_for_good_does_not_end_a_person_wait() {
         "{:?}",
         kept(&case)
     );
-    let gone = case.tick(&[&format!("session gone: ex-alpha {FIRST_SHORT}")]);
+    let (gone, said) = case.tick_said(&[&format!("session gone: ex-alpha {FIRST_SHORT}")]);
+    assert!(said.contains(&person_waits(&id)), "{said:?}");
+    assert!(
+        person_kept(&case).get("alpha").is_some(),
+        "{}",
+        person_kept(&case)
+    );
     let after = case.tick(&[]);
     assert!(restarted_by(&case, &gone).is_empty(), "{gone}");
     assert!(restarted_by(&case, &after).is_empty(), "{after}");

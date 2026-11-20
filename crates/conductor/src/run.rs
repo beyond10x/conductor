@@ -520,7 +520,7 @@ fn handle(
     if let Err(error) = handlers::disk_recovered(&mut tick) {
         tick.note("free disk back at disk_clear", &error);
     }
-    handlers::lift(&mut tick);
+    handlers::lift_again(&mut tick);
     if gc == Gc::Waited
         && let Err(error) = handlers::cleaned(&mut tick, true)
     {
@@ -619,6 +619,11 @@ pub struct Tick<'s, 'a> {
     /// What [`Tick::make_room`] stopped to give a start its place, as the `cycle` line says it
     /// (`story:idle-controller-yields-place`).
     pub yielded: Vec<String>,
+    /// The reason of each dispatch's newest `blocked` line in the dispatch log, by its id, read
+    /// once in the tick and only when a start asks ([`handlers::person_wait`]); dropped when the
+    /// tick writes or counts a `blocked` line.
+    newest_blocked:
+        std::cell::RefCell<Option<std::rc::Rc<std::collections::HashMap<String, String>>>>,
 }
 
 impl<'s, 'a> Tick<'s, 'a> {
@@ -644,6 +649,7 @@ impl<'s, 'a> Tick<'s, 'a> {
             lines_handled: 0,
             actions: Vec::new(),
             yielded: Vec::new(),
+            newest_blocked: std::cell::RefCell::new(None),
         })
     }
 
@@ -671,13 +677,47 @@ impl<'s, 'a> Tick<'s, 'a> {
     /// The line cannot be appended.
     pub fn write(&mut self, line: &DispatchLogLine) -> Result<()> {
         crate::records::append_dispatch(line)?;
-        self.actions.push(line.event);
+        self.wrote(line.event);
         Ok(())
     }
 
     /// Counts a line a command the tick ran wrote itself: a spawn's `sent`, a report's.
     pub fn wrote(&mut self, event: DispatchLogEvent) {
+        if event == DispatchLogEvent::Blocked {
+            self.newest_blocked.replace(None);
+        }
         self.actions.push(event);
+    }
+
+    /// The reason of each dispatch's newest `blocked` line in the dispatch log, by id: read once
+    /// in the tick, until the tick writes a `blocked` line.
+    ///
+    /// # Errors
+    ///
+    /// The dispatch log does not read.
+    pub fn newest_blocked(&self) -> Result<std::rc::Rc<std::collections::HashMap<String, String>>> {
+        if let Some(read) = self.newest_blocked.borrow().as_ref() {
+            return Ok(std::rc::Rc::clone(read));
+        }
+        let (lines, _) = crate::records::log_objects(
+            Path::new(&self.instance().records),
+            crate::records::DISPATCHES,
+        )?;
+        let mut newest = std::collections::HashMap::new();
+        for line in &lines {
+            if line.get("event").and_then(Value::as_str) == Some("blocked")
+                && let Some(id) = line.get("id").and_then(Value::as_str)
+            {
+                let reason = line
+                    .get("reason")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default();
+                newest.insert(id.to_owned(), reason.to_owned());
+            }
+        }
+        let read = std::rc::Rc::new(newest);
+        self.newest_blocked.replace(Some(std::rc::Rc::clone(&read)));
+        Ok(read)
     }
 
     /// Names on standard error what failed, and goes on.
@@ -1275,7 +1315,7 @@ impl<'s, 'a> Tick<'s, 'a> {
     /// (`story:loop-restarts-controller-at-handover`).
     ///
     /// A repository with a `Paused` controller is left as it is, before anything is stopped: one
-    /// journal line `<repo> is paused: <session> not restarted`, the session forgotten
+    /// journal line `<repo> is paused: <session> not restarted`, what is kept of the session kept
     /// (`story:person-wait-and-pause-hold-restarts`). A start refused because the repository is
     /// held for a person, or because its place is kept for a waiting unit of work, is no error:
     /// one journal line `<repo> waits: <why>`, the session forgotten.
