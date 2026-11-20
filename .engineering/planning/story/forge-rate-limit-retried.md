@@ -2,7 +2,7 @@
 format: aep.planning-md/3
 id: story:forge-rate-limit-retried
 kind: story
-status: active
+status: implemented
 title: A rate-limited forge read is retried, and a commit's diff is read once
 summary: One GitLab HTTP 429 failed the snapshot three times in an hour; the collectors re-read every commit's diff each cycle
 tags:
@@ -26,10 +26,11 @@ scope:
   path: crates/conductor/tests/collect_gitlab.rs
 - confidence: cited
   path: docs/design/conductor.md
-revision: 10
+revision: 11
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-20T08:50:44Z", actor: "human:unknown", revision: 8}
 - {from: "proposed", to: "active", at: "2026-11-20T08:50:44Z", actor: "human:unknown", revision: 9}
+- {from: "active", to: "implemented", at: "2026-11-20T12:39:51Z", actor: "human:unknown", revision: 11, decided_on: {"recorded":{"test_result":2}}}
 ---
 ## Why
 

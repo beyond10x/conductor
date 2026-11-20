@@ -537,3 +537,13 @@ instance whose placement opens a box (a `box.tools` directory that is missing, w
 in the box), which an onboarding run does not configure; its verdict and exit for an unboxed
 instance are unchanged. The release adds the config key `box` (`tools`, `env`, `egress` reserved)
 and a boxed runtime that starts and keeps its director from the profile the binary carries.
+
+## v1.20.1
+
+No onboarding run is due: 1.20.1 changes nothing onboarding runs. `SETUP.md`, `conductor setup`,
+the install path and the prerequisites are as in 1.20.0. `conductor doctor` gains rows only for an
+instance whose placement opens a box on `forge.route: gates` (a bot route file missing under the
+box's config directory, a `gates_policy` under no directory the box binds), which an onboarding run
+does not configure. The release retries a rate-limited forge read, keeps each GitLab commit's
+paths, runs the records commit with the instance's policy and the box's config directory, and
+words two supervisor routines.

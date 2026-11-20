@@ -2,7 +2,7 @@
 format: aep.planning-md/3
 id: story:box-records-commit-config-home
 kind: story
-status: active
+status: implemented
 title: A box's records commit reads the bot route's config from the box
 summary: The daily tick's records commit in a box ran b10x-gates against the daemon's ~/.config, which the box does not bind, and was refused
 tags:
@@ -31,10 +31,11 @@ scope:
   path: docs/design/architecture-next.md
 - confidence: cited
   path: website/docs/guides/run-isolated.md
-revision: 8
+revision: 9
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-20T08:50:44Z", actor: "human:unknown", revision: 6}
 - {from: "proposed", to: "active", at: "2026-11-20T08:50:45Z", actor: "human:unknown", revision: 7}
+- {from: "active", to: "implemented", at: "2026-11-20T12:39:53Z", actor: "human:unknown", revision: 9, decided_on: {"recorded":{"test_result":1}}}
 ---
 ## Why
 
