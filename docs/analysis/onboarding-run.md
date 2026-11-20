@@ -569,4 +569,5 @@ commands read `--input-json`.
 
 No onboarding run is due: 1.22.1 changes nothing onboarding runs. It builds on macOS again: the
 supervisor watch waits on inotify only on Linux and sleeps between its reads elsewhere. 1.22.0
-has no release archives, since its macOS builds failed.
+has no release archives, since its macOS builds failed. The release also holds back a controller
+whose dispatch waits only on persons, and a paused controller, from every restart the loop makes.

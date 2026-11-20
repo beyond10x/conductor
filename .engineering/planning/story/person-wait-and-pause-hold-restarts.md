@@ -2,7 +2,7 @@
 format: aep.planning-md/3
 id: story:person-wait-and-pause-hold-restarts
 kind: story
-status: active
+status: implemented
 title: A controller that waits only on persons, or is paused, is not restarted by the loop; the next input starts it
 summary: The loop starts no controller whose every open dispatch waits on a person, and none of a paused one; a delivery or a moved dispatch starts it again
 tags:
@@ -36,10 +36,11 @@ scope:
   path: website/docs/concepts/the-loop.md
 - confidence: cited
   path: website/docs/guides/start-conductor.md
-revision: 10
+revision: 11
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-20T17:01:41Z", actor: "human:unknown", revision: 5}
 - {from: "proposed", to: "active", at: "2026-11-20T17:01:41Z", actor: "human:unknown", revision: 6}
+- {from: "active", to: "implemented", at: "2026-11-20T18:39:23Z", actor: "human:unknown", revision: 11, decided_on: {"recorded":{"test_result":2}}}
 ---
 ## Why
 
