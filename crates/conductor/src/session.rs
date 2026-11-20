@@ -1404,9 +1404,11 @@ fn state_name(state: LeaseState) -> &'static str {
     }
 }
 
-/// The first prompt of a director's session (`session start --role director`), started by hand
-/// (`story:run-daemon`): `conductor run` runs the instance's loop, so the session schedules,
-/// watches and relays nothing.
+/// The first prompt of a director's session (`session start --role director`): started by hand
+/// (`story:run-daemon`), or in a box by the instance's runtime, which keeps it running
+/// (`story:box-runtime-starts-director`, [`crate::run::director`]). `conductor run` runs the
+/// instance's loop, so the session schedules, watches and relays nothing; its profile, the one the
+/// binary carries, lists what it reads at start.
 pub const DIRECTOR_PROMPT: &str = "Start of session. conductor run runs this instance's loop: \
 the cycle, the watch, hand-overs, resumes and relays. Read your profile's start-of-session list, \
 then answer the operator.";
@@ -1560,9 +1562,10 @@ fn request(instance: &Instance, role: &Role, cwd: &Path, home: &Path) -> Session
 
 /// The arguments the harness of `role` starts with before its first prompt: its name, its profile
 /// (`--append-system-prompt-file`: the role's own, else the one the binary carries, written into
-/// the state directory, [`profile_for`]) or else its agent (`--agent`, by default the role's old
-/// name: `conductor` for the director, which the binary carries no profile for; where the instance
-/// has standing rules, followed by the prompt file that holds them, story:instance-rules-text),
+/// the state directory, [`profile_for`]: for the director too, boxed or not,
+/// `story:box-runtime-starts-director`) or else its agent (`--agent`, the role's own, else, for a
+/// role the binary carries no profile for, the role's old name; where the instance has standing
+/// rules, followed by the prompt file that holds them, story:instance-rules-text),
 /// its model,
 /// the tools it never calls ([`denied_tools_argument`]), bypass permissions, no user settings
 /// (the `none` provider adds them for `claude --bg`, [`crate::confine::background_args`]), and
@@ -1777,11 +1780,21 @@ pub fn start(
         );
     }
     let name = role_session_name(instance, found);
+    let state_dir = crate::state::dir(state)?;
+    // Held from the check until the launch has registered the session
+    // (`story:box-runtime-starts-director`): the runtime's keeper and a start by hand are two
+    // processes, and neither starts a second session of the name beside the other's.
+    let _start = start_lock(&state_dir, &name).context("session start")?;
     if let Some((id, held)) = live_role_session(instance, found, &name).context("session start")? {
         return refuse(
             SessionStartRefusal::SessionRunning,
             format!("the live session {id} holds the session name {}", held.0),
         );
+    }
+    // A start of the director resumes it after a stop: the runtime's keeper starts it again
+    // whenever it ends from now on.
+    if host.is_none() && config::is_role(&found.role, BuiltInRole::Director) {
+        crate::run::director::release(&state_dir).context("session start")?;
     }
     let chosen = match confine::choose(providers, &crate::config::legacy(instance).confinement) {
         Ok(chosen) => chosen,
@@ -1801,7 +1814,6 @@ pub fn start(
             cwd.join(&file).display().to_string(),
         ));
     }
-    let state_dir = crate::state::dir(state)?;
     let settings = match (&found.settings, active.from_file) {
         (None, true) => Some(
             write_pinned(found, &instance.name.0, &state_dir, &name).context("session start")?,
@@ -1918,6 +1930,26 @@ pub fn start(
     }
 }
 
+/// The exclusive lock of a start of the session `name`, `<state>/sessions/<name>.start.lock`,
+/// waited for and held while the answer is (`story:box-runtime-starts-director`).
+///
+/// # Errors
+///
+/// The file cannot be created or locked.
+fn start_lock(state: &Path, name: &SessionName) -> Result<nix::fcntl::Flock<File>> {
+    let dir = state.join("sessions");
+    fs::create_dir_all(&dir).with_context(|| format!("create {}", dir.display()))?;
+    let path = dir.join(format!("{}.start.lock", name.0));
+    let file = File::options()
+        .create(true)
+        .truncate(false)
+        .write(true)
+        .open(&path)
+        .with_context(|| format!("open {}", path.display()))?;
+    nix::fcntl::Flock::lock(file, nix::fcntl::FlockArg::LockExclusive)
+        .map_err(|(_, errno)| anyhow!("lock {}: {errno}", path.display()))
+}
+
 /// Answers a refusal of the confinement ([`confine::Refusal`]) as its `SessionStartRefusal`.
 fn refuse_start(
     refuse: &dyn Fn(SessionStartRefusal, String) -> Result<ExitCode>,
@@ -1997,6 +2029,11 @@ pub fn stop(
         .stop(&session, &request)
         .with_context(|| format!("session stop: stop {} ({id})", name.0))?;
     confine::remove_measurement(&state_dir, &name).context("session stop")?;
+    // A director stopped by hand stays stopped: the runtime's keeper starts it again only once
+    // a start resumes it (`story:box-runtime-starts-director`).
+    if host.is_none() && config::is_role(&found.role, BuiltInRole::Director) {
+        crate::run::director::hold(&state_dir).context("session stop")?;
+    }
     crate::broker::unregister_session(&state_dir, &name).context("session stop")?;
     // story:token-pool: the token the session ran on is Available again.
     crate::token::release_for_stop(instance, &name.0).context("session stop")?;
@@ -2211,7 +2248,73 @@ mod delivery_bounds {
 
 #[cfg(test)]
 mod tests {
-    use super::DIRECTOR_PROMPT;
+    use std::path::Path;
+
+    use super::{DIRECTOR_PROMPT, harness_args, profile_for, role_session_name};
+    use crate::config::{self, BuiltInRole};
+
+    /// `story:box-runtime-starts-director`: at placement `none` a director started by hand starts
+    /// from the profile the binary carries, written into the state as
+    /// `<state>/sessions/<session>.profile.md` and appended with `--append-system-prompt-file`, and
+    /// no longer from `--agent conductor`, which no box and no host defines.
+    #[test]
+    fn an_unboxed_hand_start_of_the_director_starts_from_the_carried_profile() {
+        let dir = std::env::temp_dir().join(format!(
+            "conductor-session-director-profile-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        let text = format!(
+            "version: conductor.config/2\n\
+             instances:\n\
+             \x20 - name: example-org\n\
+             \x20   placement: none\n\
+             \x20   session_prefix: ex\n\
+             \x20   sources: [{{github: example-org}}]\n\
+             \x20   checkouts: {{root: {root:?}, trees: {trees:?}}}\n\
+             \x20   records: {records:?}\n\
+             \x20   state: {state:?}\n\
+             \x20   roles:\n\
+             \x20     - {{role: director, harness: claude, model: opus}}\n",
+            root = dir.join("checkouts"),
+            trees = dir.join("trees"),
+            records = dir.join("records"),
+            state = dir.join("state"),
+        );
+        let parsed = config::parse(&text, &dir).expect("the config parses");
+        let instance = &parsed.instances[0];
+        assert!(
+            !crate::placement::boxed(instance),
+            "placement none opens no box"
+        );
+        let role = instance
+            .roles
+            .iter()
+            .find(|role| config::is_role(&role.role, BuiltInRole::Director))
+            .expect("a director role");
+        let name = role_session_name(instance, role);
+        let state = dir.join("state");
+        let profile = profile_for(role, &state, &name, None)
+            .expect("the profile is written")
+            .expect("the director starts from a profile");
+        assert_eq!(
+            std::fs::read_to_string(&profile).expect("the written profile"),
+            include_str!("../roles/director.md"),
+            "the profile written is the binary's director profile"
+        );
+        assert_eq!(
+            Path::new(&profile),
+            state.join(format!("sessions/{}.profile.md", name.0))
+        );
+        let args = harness_args(role, &name, Some(profile.clone()), None);
+        let file = args
+            .iter()
+            .position(|arg| arg == "--append-system-prompt-file")
+            .expect("--append-system-prompt-file");
+        assert_eq!(args[file + 1], profile, "{args:?}");
+        assert!(!args.iter().any(|arg| arg == "--agent"), "{args:?}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     /// `story:run-daemon`: `conductor run` runs the loop, so a director's first prompt arms no
     /// timer, starts no watch and asks for no restart; and, as before

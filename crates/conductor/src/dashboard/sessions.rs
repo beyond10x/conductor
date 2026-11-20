@@ -9,7 +9,9 @@
 //!   other state is a row, and counted, while the session list shows its session live
 //!   (`story:dashboard-live-controllers-and-report-text`). A row of the session list joins the
 //!   record of its name, a live one before one that exited; a record no row joins is listed as
-//!   `not running`. Any other session is not the instance's and is not listed.
+//!   `not running`. Any other session is not the instance's and is not listed. The conductor's
+//!   row carries `director`, what the runtime's keeper of a boxed instance's director recorded
+//!   (`story:box-runtime-starts-director`, [`crate::run::director::shown`]), `null` when unboxed.
 //! - A controller's dispatch is the newest open one sent to it (its last event neither `done`,
 //!   `cancelled` nor `failed`), else its newest one, matched by its session name or its record's
 //!   repository, as `dispatch send` names a controller by either.

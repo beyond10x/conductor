@@ -11,20 +11,28 @@ refs:
 relations:
 - decomposes: epic:architecture-next
 scope:
-- confidence: inferred
+- confidence: cited
   path: AGENTS.md
-- confidence: inferred
+- confidence: cited
   path: crates/conductor-model
 - confidence: inferred
   path: crates/conductor/dashboard
-- confidence: inferred
+- confidence: cited
+  path: crates/conductor/dashboard/src/panels/SessionsPanel.vue
+- confidence: cited
+  path: crates/conductor/dashboard/src/types.ts
+- confidence: cited
+  path: crates/conductor/dashboard/tests/sessions.spec.ts
+- confidence: cited
   path: crates/conductor/http.yaml
-- confidence: inferred
+- confidence: cited
   path: crates/conductor/roles/director.md
 - confidence: cited
   path: crates/conductor/src/agent/claude_code.rs
 - confidence: cited
   path: crates/conductor/src/alert.rs
+- confidence: cited
+  path: crates/conductor/src/dashboard.rs
 - confidence: cited
   path: crates/conductor/src/dashboard/health.rs
 - confidence: cited
@@ -37,7 +45,7 @@ scope:
   path: crates/conductor/src/role.rs
 - confidence: cited
   path: crates/conductor/src/run.rs
-- confidence: inferred
+- confidence: cited
   path: crates/conductor/src/run/director.rs
 - confidence: cited
   path: crates/conductor/src/run/handlers.rs
@@ -46,16 +54,18 @@ scope:
 - confidence: cited
   path: crates/conductor/tests/box_session.rs
 - confidence: cited
+  path: crates/conductor/tests/confine.rs
+- confidence: cited
   path: crates/conductor/tests/dashboard_sessions.rs
 - confidence: cited
   path: crates/conductor/tests/doctor.rs
-- confidence: inferred
+- confidence: cited
   path: crates/conductor/tests/profiles.rs
-- confidence: inferred
+- confidence: cited
   path: crates/conductor/tests/roles.rs
-- confidence: inferred
+- confidence: cited
   path: crates/conductor/tests/runtime_loop.rs
-- confidence: inferred
+- confidence: cited
   path: docs/design/conductor-run.md
 - confidence: cited
   path: spec/domains/agent.yaml
@@ -65,15 +75,15 @@ scope:
   path: spec/domains/session.yaml
 - confidence: inferred
   path: website/data/status.json
-- confidence: inferred
+- confidence: cited
   path: website/docs/concepts/roles.md
-- confidence: inferred
+- confidence: cited
   path: website/docs/guides/run-isolated.md
 - confidence: inferred
   path: website/docs/reference
 - confidence: inferred
   path: website/docs/status.md
-revision: 10
+revision: 11
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-20T06:58:46Z", actor: "human:unknown", revision: 9}
 - {from: "proposed", to: "active", at: "2026-11-20T06:58:47Z", actor: "human:unknown", revision: 10}

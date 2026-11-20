@@ -1,5 +1,5 @@
 // generated from conductor v1
-// contract digest d350cd82050d0055f444f8dd5113015e8308a7c611d42a1bf018a90db75feb08
+// contract digest f211df78f7e86952af7f2c6b1430dbdc1ff3c13ace783e6872ec932be9a0f32b
 // do not edit: regenerate with `ess synthesize --layout crate`
 //! Every generated declaration, as JSON, in the renderings the published wire contracts fix.
 //!
@@ -6552,6 +6552,7 @@ pub fn encode_conductor_dispatch_dispatch_log_event(value: &crate::dispatch::Dis
         crate::dispatch::DispatchLogEvent::DoneHeld => json::push_text(out, "DoneHeld"),
         crate::dispatch::DispatchLogEvent::Reopened => json::push_text(out, "Reopened"),
         crate::dispatch::DispatchLogEvent::Alert => json::push_text(out, "Alert"),
+        crate::dispatch::DispatchLogEvent::DirectorStarted => json::push_text(out, "DirectorStarted"),
     }
 }
 
@@ -6561,7 +6562,7 @@ pub fn encode_conductor_dispatch_dispatch_log_event(value: &crate::dispatch::Dis
 ///
 /// [`json::DecodeError`] naming the path and what the declaration says belongs there.
 pub fn decode_conductor_dispatch_dispatch_log_event(value: &json::Value, at: &str) -> Result<crate::dispatch::DispatchLogEvent, json::DecodeError> {
-    Ok(match json::text_at(value, at, "one of `Sent`, `Started`, `Blocked`, `Unblocked`, `Done`, `Failed`, `Cancelled`, `Linked`, `MessageReceived`, `ResourceGranted`, `ResourceRefused`, `CharterRevised`, `Delivered`, `HandoverSent`, `Handover`, `ControllerRestarted`, `UsageLimit`, `Resumed`, `Relayed`, `RedCi`, `Stalled`, `Cleanup`, `DecisionSent`, `Cycle`, `RecordsCommitted`, `RecordsCommitRefused`, `StartRefused`, `Waiting`, `DoneHeld`, `Reopened`, `Alert`")? {
+    Ok(match json::text_at(value, at, "one of `Sent`, `Started`, `Blocked`, `Unblocked`, `Done`, `Failed`, `Cancelled`, `Linked`, `MessageReceived`, `ResourceGranted`, `ResourceRefused`, `CharterRevised`, `Delivered`, `HandoverSent`, `Handover`, `ControllerRestarted`, `UsageLimit`, `Resumed`, `Relayed`, `RedCi`, `Stalled`, `Cleanup`, `DecisionSent`, `Cycle`, `RecordsCommitted`, `RecordsCommitRefused`, `StartRefused`, `Waiting`, `DoneHeld`, `Reopened`, `Alert`, `DirectorStarted`")? {
         "Sent" => crate::dispatch::DispatchLogEvent::Sent,
         "Started" => crate::dispatch::DispatchLogEvent::Started,
         "Blocked" => crate::dispatch::DispatchLogEvent::Blocked,
@@ -6593,7 +6594,8 @@ pub fn decode_conductor_dispatch_dispatch_log_event(value: &json::Value, at: &st
         "DoneHeld" => crate::dispatch::DispatchLogEvent::DoneHeld,
         "Reopened" => crate::dispatch::DispatchLogEvent::Reopened,
         "Alert" => crate::dispatch::DispatchLogEvent::Alert,
-        other => return Err(json::DecodeError { at: at.to_owned(), expected: "one of `Sent`, `Started`, `Blocked`, `Unblocked`, `Done`, `Failed`, `Cancelled`, `Linked`, `MessageReceived`, `ResourceGranted`, `ResourceRefused`, `CharterRevised`, `Delivered`, `HandoverSent`, `Handover`, `ControllerRestarted`, `UsageLimit`, `Resumed`, `Relayed`, `RedCi`, `Stalled`, `Cleanup`, `DecisionSent`, `Cycle`, `RecordsCommitted`, `RecordsCommitRefused`, `StartRefused`, `Waiting`, `DoneHeld`, `Reopened`, `Alert`".to_owned(), found: format!("`{other}`") }),
+        "DirectorStarted" => crate::dispatch::DispatchLogEvent::DirectorStarted,
+        other => return Err(json::DecodeError { at: at.to_owned(), expected: "one of `Sent`, `Started`, `Blocked`, `Unblocked`, `Done`, `Failed`, `Cancelled`, `Linked`, `MessageReceived`, `ResourceGranted`, `ResourceRefused`, `CharterRevised`, `Delivered`, `HandoverSent`, `Handover`, `ControllerRestarted`, `UsageLimit`, `Resumed`, `Relayed`, `RedCi`, `Stalled`, `Cleanup`, `DecisionSent`, `Cycle`, `RecordsCommitted`, `RecordsCommitRefused`, `StartRefused`, `Waiting`, `DoneHeld`, `Reopened`, `Alert`, `DirectorStarted`".to_owned(), found: format!("`{other}`") }),
     })
 }
 
@@ -11564,6 +11566,109 @@ pub fn encode_conductor_session_delivery_id(value: &crate::session::DeliveryId, 
 /// [`json::DecodeError`] naming the path and what the declaration says belongs there.
 pub fn decode_conductor_session_delivery_id(value: &json::Value, at: &str) -> Result<crate::session::DeliveryId, json::DecodeError> {
     Ok(crate::session::DeliveryId(crate::primitives::Uuid(json::uuid_at(value, at, "a UUID")?.to_owned())))
+}
+
+/// Writes `conductor.session.DirectorKeep` as JSON.
+pub fn encode_conductor_session_director_keep(value: &crate::session::DirectorKeep, out: &mut String) {
+    out.push('{');
+    json::member(out, "session");
+    encode_conductor_config_session_name(&value.session, out);
+    json::member(out, "state");
+    encode_conductor_session_director_state(&value.state, out);
+    json::member(out, "attempts");
+    json::push_integer(out, value.attempts);
+    json::member(out, "failures");
+    json::push_integer(out, value.failures);
+    if let Some(held0) = &value.started_at {
+        json::member(out, "started_at");
+        json::push_text(out, &(*held0).0);
+    }
+    if let Some(held0) = &value.next_start_at {
+        json::member(out, "next_start_at");
+        json::push_text(out, &(*held0).0);
+    }
+    if let Some(held0) = &value.reason {
+        json::member(out, "reason");
+        json::push_text(out, &*held0);
+    }
+    out.push('}');
+}
+
+/// Reads `conductor.session.DirectorKeep` from JSON.
+///
+/// # Errors
+///
+/// [`json::DecodeError`] naming the path and what the declaration says belongs there.
+pub fn decode_conductor_session_director_keep(value: &json::Value, at: &str) -> Result<crate::session::DirectorKeep, json::DecodeError> {
+    json::closed_at(value, at, &["session", "state", "attempts", "failures", "started_at", "next_start_at", "reason"])?;
+    Ok(crate::session::DirectorKeep {
+        session: {
+            let at0 = json::nested(at, "session");
+            let member0 = json::member_at(value, at, "session")?;
+            decode_conductor_config_session_name(member0, &at0)?
+        },
+        state: {
+            let at1 = json::nested(at, "state");
+            let member1 = json::member_at(value, at, "state")?;
+            decode_conductor_session_director_state(member1, &at1)?
+        },
+        attempts: {
+            let at2 = json::nested(at, "attempts");
+            let member2 = json::member_at(value, at, "attempts")?;
+            json::integer_at(member2, &at2, "an integer")?
+        },
+        failures: {
+            let at3 = json::nested(at, "failures");
+            let member3 = json::member_at(value, at, "failures")?;
+            json::integer_at(member3, &at3, "an integer")?
+        },
+        started_at: match value.member("started_at") {
+            None | Some(json::Value::Null) => None,
+            Some(member4) => {
+                let at4 = json::nested(at, "started_at");
+                Some(crate::primitives::Timestamp(json::timestamp_at(member4, &at4, "an RFC 3339 instant")?.to_owned()))
+            }
+        },
+        next_start_at: match value.member("next_start_at") {
+            None | Some(json::Value::Null) => None,
+            Some(member5) => {
+                let at5 = json::nested(at, "next_start_at");
+                Some(crate::primitives::Timestamp(json::timestamp_at(member5, &at5, "an RFC 3339 instant")?.to_owned()))
+            }
+        },
+        reason: match value.member("reason") {
+            None | Some(json::Value::Null) => None,
+            Some(member6) => {
+                let at6 = json::nested(at, "reason");
+                Some(json::text_at(member6, &at6, "a string")?.to_owned())
+            }
+        },
+    })
+}
+
+/// Writes `conductor.session.DirectorState` as JSON.
+pub fn encode_conductor_session_director_state(value: &crate::session::DirectorState, out: &mut String) {
+    match value {
+        crate::session::DirectorState::Running => json::push_text(out, "Running"),
+        crate::session::DirectorState::Waiting => json::push_text(out, "Waiting"),
+        crate::session::DirectorState::Limited => json::push_text(out, "Limited"),
+        crate::session::DirectorState::Stopped => json::push_text(out, "Stopped"),
+    }
+}
+
+/// Reads `conductor.session.DirectorState` from JSON.
+///
+/// # Errors
+///
+/// [`json::DecodeError`] naming the path and what the declaration says belongs there.
+pub fn decode_conductor_session_director_state(value: &json::Value, at: &str) -> Result<crate::session::DirectorState, json::DecodeError> {
+    Ok(match json::text_at(value, at, "one of `Running`, `Waiting`, `Limited`, `Stopped`")? {
+        "Running" => crate::session::DirectorState::Running,
+        "Waiting" => crate::session::DirectorState::Waiting,
+        "Limited" => crate::session::DirectorState::Limited,
+        "Stopped" => crate::session::DirectorState::Stopped,
+        other => return Err(json::DecodeError { at: at.to_owned(), expected: "one of `Running`, `Waiting`, `Limited`, `Stopped`".to_owned(), found: format!("`{other}`") }),
+    })
 }
 
 /// Writes `conductor.session.EnvelopeMeasurement` as JSON.

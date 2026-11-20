@@ -14,7 +14,7 @@ Read the [security overview](../security/overview.md) first.
 |---|---|
 | conductord | your user, as the user unit `conductord.service`, or the system unit on a box with `daemon.loopback: false` |
 | an instance's runtime, `conductor instance serve` | a substrate box when `placement` names an adapter (`linux`, `systemd`), else a user unit with no box |
-| a session the runtime starts: the maintainer, a controller | in the runtime's box when the runtime runs in one, as `claude -p` with stream-json input ([the child launch](../security/sessions.md#in-a-box-the-child-launch)), else unboxed as your user through `claude --bg`, with `--permission-mode bypassPermissions` |
+| a session the runtime starts: the maintainer, a controller, the director | in the runtime's box when the runtime runs in one, as `claude -p` with stream-json input ([the child launch](../security/sessions.md#in-a-box-the-child-launch)), else unboxed as your user through `claude --bg`, with `--permission-mode bypassPermissions` |
 | a host role, a session you start by hand | unboxed, as your user |
 
 A runtime's box reads the config file, the directories of `conductor` and the harness, each

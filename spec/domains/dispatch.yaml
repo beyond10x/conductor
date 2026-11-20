@@ -268,7 +268,10 @@ types:
   # opened anew for an instance whose stored box substrate answered as gone whose start failed
   # as well (story:failing-start-recreates-box); `need-unroutable`, a `[NEED]` whose
   # `<other-repo>` field names no repository of the instance, its subject `<repo> <request-id>`
-  # (story:need-starts-unit-of-work).
+  # (story:need-starts-unit-of-work); `director-not-started`, a boxed instance's director whose
+  # start by the runtime failed three times in a row, its subject the instance's name
+  # (story:box-runtime-starts-director). `director-started`, the runtime of a boxed instance
+  # started the instance's director session in the box (story:box-runtime-starts-director).
   - name: conductor.dispatch.DispatchLogEvent
     kind: enum
     variants:
@@ -303,6 +306,7 @@ types:
       - DoneHeld
       - Reopened
       - Alert
+      - DirectorStarted
 
   # One line of `<records>/dispatches/YYYY-MM.jsonl`: a JSON object holding `at` (when it was
   # written, RFC 3339 UTC), `event`, `repo` (the repository; the key is `repo`, never
@@ -359,8 +363,10 @@ types:
   # - `records-commit-refused`: `reason` (`records check`, `repository`, `commit` or `push`), `line`
   #   (what `records check` printed, or the last line the bot route or git printed) and `commit`
   #   when the commit was made and its push refused;
-  # - `alert`: `condition` (`unit-left-to-operator`, `box-not-recreated`, `need-unroutable`),
-  #   `reason` (what the loop or the daemon cannot do, one line), and `id`, the subject when it is
+  # - `director-started`: `session` (the director's session name) and `reason` (`none ran`,
+  #   `gone`, or `failed: <line>`, the previous start's failure);
+  # - `alert`: `condition` (`unit-left-to-operator`, `box-not-recreated`, `need-unroutable`,
+  #   `director-not-started`), `reason` (what the loop or the daemon cannot do, one line), and `id`, the subject when it is
   #   no repository: the dispatch, or a need's `<repo> <request-id>`; `repo` is the repository, or
   #   the instance's name for a condition of the instance.
   # `conductor run --once --commit-records` writes its line with no `tick_id`: it runs no tick.

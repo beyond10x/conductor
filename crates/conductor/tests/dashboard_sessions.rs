@@ -781,3 +781,75 @@ fn adversary_a_restarted_controller_is_its_running_record_s_row_when_its_session
     assert_eq!(row(&data, "ex-eta")["state"], "exited", "{data:#}");
     assert_eq!(data["controllers"], 0, "no live session: {data:#}");
 }
+
+/// `story:box-runtime-starts-director`: the director's row (role `conductor`) carries `director`,
+/// what the runtime's keeper of a boxed instance's director recorded in `<state>/run/director.json`
+/// (its state, attempts, next start and the last start's failure), so the panel says why no
+/// director runs instead of a bare `not running`; for an unboxed instance it is `null`.
+#[test]
+fn the_director_row_names_why_no_director_runs_in_its_box() {
+    let case = Case::new("director-keeper");
+    // Boxed: the row's `director` is the keeper's record.
+    let boxed = case.dir.join("boxed.yaml");
+    write(
+        &boxed,
+        &format!(
+            "version: conductor.config/2\n\
+             instances:\n\
+             \x20 - name: example\n\
+             \x20   placement: systemd\n\
+             \x20   session_prefix: {PREFIX}\n\
+             \x20   sources: [{{github: example-org}}]\n\
+             \x20   checkouts: {{root: {root:?}, trees: {trees:?}}}\n\
+             \x20   records: {records:?}\n\
+             \x20   state: {state:?}\n",
+            root = case.home().join("example-org"),
+            trees = case.home().join("trees"),
+            records = case.records(),
+            state = case.state(),
+        ),
+    );
+    let text = fs::read_to_string(&boxed).expect("the boxed config");
+    let parsed = conductor_cli::config::parse(&text, &case.home()).expect("the config parses");
+    let instance = &parsed.instances[0];
+    assert_eq!(
+        conductor_cli::run::director::shown(instance, &case.state()),
+        json!({"state": null, "attempts": 0, "next_start_at": null, "reason": null}),
+        "before the runtime tried, the keeper recorded nothing"
+    );
+    assert!(
+        !case.state().join("run/director.json").exists(),
+        "the dashboard creates no director.json"
+    );
+    write(
+        &case.state().join("run/director.json"),
+        &json!({
+            "session": "ex-director", "state": "Waiting", "attempts": 2, "failures": 2,
+            "started_at": "2026-11-20T10:00:00Z", "next_start_at": "2026-11-20T10:05:00Z",
+            "reason": "session start: refused: LaunchFailed: role \"director\": no claude",
+        })
+        .to_string(),
+    );
+    assert_eq!(
+        conductor_cli::run::director::shown(instance, &case.state()),
+        json!({
+            "state": "Waiting", "attempts": 2, "next_start_at": "2026-11-20T10:05:00Z",
+            "reason": "session start: refused: LaunchFailed: role \"director\": no claude",
+        }),
+    );
+    let unboxed = text.replace("    placement: systemd\n", "    placement: none\n");
+    let parsed = conductor_cli::config::parse(&unboxed, &case.home()).expect("the config parses");
+    assert_eq!(
+        conductor_cli::run::director::shown(&parsed.instances[0], &case.state()),
+        Value::Null,
+        "an unboxed instance's row carries none, whatever its state holds"
+    );
+    // Served: the in-process server's instance opens no box, so its row's `director` is null.
+    let port = case.start();
+    let data = get(port, "/v1/instances/example-org/data.json");
+    assert_eq!(
+        row(&data, CONDUCTOR)["director"],
+        Value::Null,
+        "an unboxed instance's director row carries no keeper: {data:#}"
+    );
+}

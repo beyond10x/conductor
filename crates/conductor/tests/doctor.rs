@@ -2330,7 +2330,9 @@ fn doctor_names_a_disk_path_on_the_box_s_tmpfs() {
 
 /// Issue #220: doctor names, for each boxed instance with a director role, whether a director
 /// session runs in its box, under the director's own name `<session_prefix>-director`, read from
-/// the box's registry of child sessions; a missing one is reported, not a failure.
+/// the box's registry of child sessions; a missing one is reported, not a failure. Without the
+/// runtime's `director.json` it says the runtime has not tried yet
+/// (`story:box-runtime-starts-director`).
 #[test]
 fn doctor_names_a_boxed_instance_without_a_director_session() {
     let case = Case::new("box-director");
@@ -2394,8 +2396,8 @@ fn doctor_names_a_boxed_instance_without_a_director_session() {
     assert_eq!(
         director,
         [
-            "director alpha: no director session runs in its box (alpha-director); nothing \
-             starts one there yet, and session start --role director refuses outside the box",
+            "director alpha: no director session runs in its box (alpha-director); the runtime \
+             has not tried yet",
             "director beta: beta-director runs in its box",
         ],
         "{}",
@@ -2406,6 +2408,144 @@ fn doctor_names_a_boxed_instance_without_a_director_session() {
         !verdict.contains("director"),
         "not a failure: {}",
         shown(&output)
+    );
+}
+
+/// A config file of the boxed instances `names`, each with its checkouts, state, records and cache
+/// under the case's directory and the default roles, a director among them.
+fn boxed_config(case: &Case, names: &[&str]) -> PathBuf {
+    let mut text = format!(
+        "version: conductor.config/2\ndaemon: {{port: 7300, store: {:?}}}\ninstances:\n",
+        format!("sqlite:{}", case.dir.join("store/shared.sqlite").display())
+    );
+    for name in names {
+        let root = case.dir.join(name);
+        for sub in ["checkouts", "state", "records", "cache"] {
+            fs::create_dir_all(root.join(sub)).expect("an instance directory");
+        }
+        text.push_str(&format!(
+            "  - name: {name}\n    placement: systemd\n    session_prefix: {name}\n    \
+             sources: [{{github: example-org}}]\n    \
+             checkouts: {{root: {checkouts:?}, trees: {trees:?}}}\n    \
+             records: {records:?}\n    state: {state:?}\n    cache: {cache:?}\n",
+            checkouts = root.join("checkouts"),
+            trees = root.join("trees"),
+            records = root.join("records"),
+            state = root.join("state"),
+            cache = root.join("cache"),
+        ));
+    }
+    let file = case.dir.join("conductor.yaml");
+    fs::write(&file, text).expect("write the config file");
+    file
+}
+
+/// `story:box-runtime-starts-director`: with no director session in its box, doctor's line reads
+/// the runtime's keeper record, `<state>/run/director.json`: when it starts the director next and
+/// why the last start failed; for a director stopped by hand, that it starts again once resumed.
+/// Still a report line, not a failure.
+#[test]
+fn doctor_says_when_the_runtime_starts_the_missing_director() {
+    let case = Case::new("box-director-keeper");
+    case.programs_but(&[]);
+    let file = boxed_config(&case, &["alpha", "beta"]);
+    let keep = |name: &str, value: serde_json::Value| {
+        let path = case.dir.join(name).join("state/run/director.json");
+        fs::create_dir_all(path.parent().expect("a parent")).expect("the run directory");
+        fs::write(path, value.to_string()).expect("write the keeper's record");
+    };
+    keep(
+        "alpha",
+        serde_json::json!({
+            "session": "alpha-director", "state": "Waiting", "attempts": 3, "failures": 3,
+            "started_at": "2099-01-01T00:00:00Z", "next_start_at": "2099-01-01T00:10:00Z",
+            "reason": "read /opt/roles/director-settings.json: Permission denied",
+        }),
+    );
+    keep(
+        "beta",
+        serde_json::json!({
+            "session": "beta-director", "state": "Stopped", "attempts": 0, "failures": 0,
+        }),
+    );
+    let output = common::conductor(case.home())
+        .arg("doctor")
+        .current_dir(case.work())
+        .env_clear()
+        .env("HOME", case.home())
+        .env("PATH", case.bin())
+        .env("CONDUCTOR_CONFIG", &file)
+        .env(
+            conductor_cli::placement::SOCKET_VARIABLE,
+            case.dir.join("no.sock"),
+        )
+        .stdin(Stdio::null())
+        .output()
+        .expect("conductor runs");
+    let lines = stdout(&output);
+    let director: Vec<&String> = lines
+        .iter()
+        .filter(|line| line.starts_with("director "))
+        .collect();
+    assert_eq!(
+        director,
+        [
+            "director alpha: no director session runs in its box (alpha-director); the runtime \
+             starts it again at 2099-01-01T00:10:00Z: last start failed: read \
+             /opt/roles/director-settings.json: Permission denied",
+            "director beta: no director session runs in its box (beta-director); stopped, the \
+             runtime starts it again once it is resumed",
+        ],
+        "{}",
+        shown(&output)
+    );
+    assert!(
+        !lines
+            .iter()
+            .any(|line| line.contains("nothing starts one there yet")),
+        "{}",
+        shown(&output)
+    );
+    let verdict = lines.last().cloned().unwrap_or_default();
+    assert!(
+        !verdict.contains("director"),
+        "not a failure: {}",
+        shown(&output)
+    );
+}
+
+/// `story:box-runtime-starts-director`: the dashboard's health view takes doctor's rows through
+/// `doctor::check_in`, and they name a boxed instance with no director session too; reading them
+/// creates no `director.json` (rule 7).
+#[test]
+fn the_health_view_names_a_missing_director() {
+    let case = Case::new("health-director");
+    case.programs_but(&[]);
+    let file = boxed_config(&case, &["alpha"]);
+    config::set_active(Some(&file)).expect("the case's config loads");
+    let environment = config::Environment {
+        home: Some(case.home()),
+        cwd: case.work(),
+        config: Some(file.clone().into_os_string()),
+        instance: None,
+    };
+    let found = conductor_cli::doctor::check_in(
+        Some(&environment),
+        None,
+        &case.work(),
+        Some(case.bin().as_os_str()),
+    )
+    .expect("doctor's rows");
+    let lines = found.lines();
+    assert!(
+        lines.iter().any(|line| line
+            == "director alpha: no director session runs in its box (alpha-director); the \
+                runtime has not tried yet"),
+        "{lines:#?}"
+    );
+    assert!(
+        !case.dir.join("alpha/state/run/director.json").exists(),
+        "doctor creates no director.json"
     );
 }
 

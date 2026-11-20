@@ -1320,6 +1320,9 @@ pub struct Doctor {
     /// The `--config` doctor was given, which the command it prints under a root not activated
     /// passes on ([`setup_command`]).
     flag: Option<PathBuf>,
+    /// One line per boxed instance with a director role ([`director_lines`]), which the
+    /// dashboard's health view shows too (`story:box-runtime-starts-director`).
+    pub directors: Vec<String>,
 }
 
 impl Doctor {
@@ -1389,6 +1392,7 @@ impl Doctor {
         {
             out.extend(lines(row, its(row.program.as_str())).into_iter().skip(1));
         }
+        out.extend(self.directors.iter().cloned());
         out
     }
 
@@ -1573,6 +1577,7 @@ pub fn check_in(
     let notifier = helper(NOTIFIER.to_owned(), search, home.as_deref(), false);
     let machine = machine();
     let manager = manager(&machine.system, search);
+    let directors = director_lines(flag, environment);
     Ok(Doctor {
         machine,
         config_problems,
@@ -1586,6 +1591,7 @@ pub fn check_in(
         project,
         manager,
         flag: flag.map(Path::to_path_buf),
+        directors,
     })
 }
 
@@ -2530,33 +2536,41 @@ pub fn config_lines(flag: Option<&Path>) -> Vec<(String, Option<String>)> {
     lines.extend(pod_lines(flag));
     lines.extend(collect::checkouts::doctor_lines(flag));
     lines.extend(disk_low_lines(flag));
-    lines.extend(director_lines(flag));
     lines
 }
 
-/// One line per instance of the config file that runs in a substrate box and names a director
-/// role (issue #220), in the file's order: `director <instance>: <session> runs in its box`, or
-/// `director <instance>: no director session runs in its box (<session>)`, saying that nothing
-/// starts one there yet and that `session start` refuses it outside the box. Read from the box's
-/// registry of child sessions, the one this process names when it runs in the box
-/// ([`crate::confine::child::registry_here`]), else the box's as the host sees it. Reported, not
-/// a failure: the loop runs without a director, and a request its decider escalates waits for the
-/// operator.
-fn director_lines(flag: Option<&Path>) -> Vec<(String, Option<String>)> {
-    let Ok(environment) = config::Environment::from_process() else {
+/// One line per instance of the config file that runs in a substrate box
+/// ([`crate::run::director::boxed`]) and names a director role (issue #220), in the file's order,
+/// in the environment `environment` (this process's when none is given): `director <instance>:
+/// <session> runs in its box`, or `director <instance>: no director session runs in its box
+/// (<session>)` and what the runtime's keeper recorded in `<state>/run/director.json`: when it
+/// starts the director, why its last start failed, or that it has not tried yet
+/// ([`crate::run::director::doctor_line`], `story:box-runtime-starts-director`). The session is
+/// read from the box's registry of child sessions, the one this process names when it runs in the
+/// box ([`crate::confine::child::registry_here`]), else the box's as the host sees it; the record
+/// is only read, never created. Reported, not a failure: the loop runs without a director, and a
+/// request its decider escalates waits for the operator.
+fn director_lines(flag: Option<&Path>, environment: Option<&config::Environment>) -> Vec<String> {
+    let loaded = match environment {
+        Some(environment) => config::load(flag, environment),
+        None => config::Environment::from_process()
+            .and_then(|environment| config::load(flag, &environment)),
+    };
+    let Ok(loaded) = loaded else {
         return Vec::new();
     };
-    let Ok(loaded) = config::load(flag, &environment) else {
+    if !loaded.read {
         return Vec::new();
-    };
+    }
+    let now = time::OffsetDateTime::now_utc();
     loaded
         .config
         .instances
         .iter()
-        .filter(|instance| crate::placement::boxed(instance))
+        .filter(|instance| crate::run::director::boxed(instance))
         .filter_map(|instance| {
-            config::director(instance)?;
-            let name = config::conductor_session(instance, None).session_name?;
+            let role = config::director(instance)?;
+            let name = config::session_of_role(instance, role);
             let state = Path::new(&instance.state);
             let names = config::director_names(instance, &name.0);
             let live = names.iter().find(|candidate| {
@@ -2567,20 +2581,14 @@ fn director_lines(flag: Option<&Path>) -> Vec<(String, Option<String>)> {
                     }),
                 }
             });
-            Some(match live {
-                Some(held) => (
-                    format!("director {}: {held} runs in its box", instance.name.0),
-                    None,
-                ),
-                None => (
-                    format!(
-                        "director {}: no director session runs in its box ({}); nothing starts \
-                         one there yet, and session start --role director refuses outside the box",
-                        instance.name.0, name.0
-                    ),
-                    None,
-                ),
-            })
+            let keep = crate::run::director::read(state);
+            Some(crate::run::director::doctor_line(
+                instance,
+                &name.0,
+                live.map(String::as_str),
+                keep.as_ref(),
+                now,
+            ))
         })
         .collect()
 }

@@ -109,9 +109,9 @@ fn no_profile_arms_a_timer_watches_messages_by_send_message_or_restarts_conducto
     let profiles = shipped("crates/conductor/roles");
     assert_eq!(
         profiles.len(),
-        4,
-        "the profiles shipped: maintainer.md, controller.md and the host's supervisor.md and \
-         teacher.md"
+        5,
+        "the profiles shipped: maintainer.md, controller.md, director.md and the host's \
+         supervisor.md and teacher.md"
     );
     assert!(
         !root.join(".claude").exists(),
@@ -202,12 +202,15 @@ fn the_supervisor_starts_a_boxed_controller_through_a_cycle() {
 /// three-option prompt, and the rule that replaces them (refuse with `Escape`, then check the pane
 /// that the prompt is gone) is two wrapped lines longer. It rose to 463 with issue #218: a missing
 /// controller of a boxed instance is started through `conductor instance cycle`, since `spawn` on
-/// the host refuses it, and the host's CLI version is compared with each instance's binary.
+/// the host refuses it, and the host's CLI version is compared with each instance's binary. The
+/// director's, back for the boxed session the runtime starts (`story:box-runtime-starts-director`),
+/// is held at 60 lines.
 #[test]
 fn each_profile_stays_under_its_line_cap() {
     for (name, cap) in [
         ("controller.md", 120),
         ("maintainer.md", 60),
+        ("director.md", 60),
         ("supervisor.md", 463),
         ("teacher.md", 178),
     ] {
@@ -876,4 +879,29 @@ fn a_controller_keeps_a_report_s_first_line_to_300_characters() {
         text.contains("at most 300 characters"),
         "controller.md: the report form names the bound of its first line"
     );
+}
+
+/// `story:box-runtime-starts-director`: the director's profile covers only what the loop does not.
+/// At start it reads the Director section of `rules.md`, `NORTHSTAR.md`, `STATUS.md` and the newest
+/// hand-over under the records' `docs/handoff/`; it answers the operator and the host supervisor
+/// and decides within its grant; it names where it ships, and that the runtime of a boxed instance
+/// starts it and keeps it running, while `conductor run` schedules, watches and relays.
+#[test]
+fn the_director_profile_reads_its_start_list_and_leaves_the_loop_to_conductor_run() {
+    let text = profile("director.md");
+    for phrase in [
+        "the Director section of `rules.md`",
+        "`NORTHSTAR.md`",
+        "`STATUS.md`",
+        "the newest hand-over under `docs/handoff/`",
+        "the operator",
+        "the host supervisor",
+        "within its grant",
+        "`crates/conductor/roles/director.md`",
+        "`conductor role show --role director`",
+        "`conductor run`",
+        "starts it in the box and keeps it running",
+    ] {
+        assert!(text.contains(phrase), "director.md: holds {phrase:?}");
+    }
 }

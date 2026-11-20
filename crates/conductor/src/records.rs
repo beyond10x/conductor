@@ -163,11 +163,12 @@ pub const fn dispatch_event(event: DispatchLogEvent) -> &'static str {
         DispatchLogEvent::DoneHeld => "done-held",
         DispatchLogEvent::Reopened => "reopened",
         DispatchLogEvent::Alert => "alert",
+        DispatchLogEvent::DirectorStarted => "director-started",
     }
 }
 
 /// Every event of the dispatch log, in the specification's order.
-pub const DISPATCH_EVENTS: [DispatchLogEvent; 31] = [
+pub const DISPATCH_EVENTS: [DispatchLogEvent; 32] = [
     DispatchLogEvent::Sent,
     DispatchLogEvent::Started,
     DispatchLogEvent::Blocked,
@@ -199,6 +200,7 @@ pub const DISPATCH_EVENTS: [DispatchLogEvent; 31] = [
     DispatchLogEvent::DoneHeld,
     DispatchLogEvent::Reopened,
     DispatchLogEvent::Alert,
+    DispatchLogEvent::DirectorStarted,
 ];
 
 /// The dispatch log event `name` spells ([`dispatch_event`]), if any.

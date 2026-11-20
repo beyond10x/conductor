@@ -22,8 +22,9 @@ types:
   # declared as data.
   # The input of `conductor role show` (story:roles-in-the-binary). A role's profile is product
   # data compiled into the binary, one Markdown file per role under `crates/conductor/roles/`:
-  # `maintainer`, `supervisor`, `teacher` and `controller`, each also by its old name
-  # (`conductor.config.RoleName`: `conductor-dev`, `lead`). It prints that text byte for byte on
+  # `maintainer`, `supervisor`, `teacher`, `controller` and `director` (the boxed director's
+  # profile, story:box-runtime-starts-director), each also by its old name
+  # (`conductor.config.RoleName`: `conductor-dev`, `lead`, `conductor`). It prints that text byte for byte on
   # standard output and reads and writes nothing else, no config and no store. A role the binary
   # carries no profile for, or none given, is refused on one line of standard error naming it,
   # exit 1. The `claude-code` kind writes the text as the agent's appended system prompt,

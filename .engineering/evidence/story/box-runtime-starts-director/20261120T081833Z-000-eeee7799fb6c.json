@@ -1,0 +1,12 @@
+{
+  "at": "2026-11-20T08:18:33Z",
+  "actor": "human:unknown",
+  "artifact": "story:box-runtime-starts-director",
+  "kind": "story",
+  "revision": 11,
+  "change": {
+    "change": "evidence",
+    "kind": "test_result",
+    "source": "cargo test -p conductor-cli: lib run::director (8), session::tests (2), --test box_session 17/17, doctor 47/47, confine 22/22, roles 5/5, profiles 34/34, isolated_home 7/7; runtime_loop an_unboxed_runtime_starts_no_director ok (3 serve cases need CI: AF_UNIX refused); dashboard_sessions needs CI (AF_UNIX); clippy -D warnings clean; ess validate + 733/733 conformance; dashboard vitest/dist/ux-gate not run (npm registry unreachable)"
+  }
+}

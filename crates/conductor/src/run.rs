@@ -13,7 +13,9 @@
 //! **Ticks.** A watch tick, every `cadence.watch` from the end of the last: the watch pass
 //! ([`Watch::pass`], reading `main`'s CI every `cadence.ci`), then what earlier ticks left waiting
 //! ([`handlers::pending`]: sessions a usage limit stopped, hand-overs asked for, deliveries kept
-//! for a controller's next start), then a handler per line ([`handlers::handle`]), then the
+//! for a controller's next start), then, in a boxed instance's box, the keeper of its director
+//! ([`director::keep`], `story:box-runtime-starts-director`), then a handler per line
+//! ([`handlers::handle`]), then the
 //! mailbox ([`mailbox::read`]), then the end of a fall of free disk, which unblocks the dispatches
 //! it blocked ([`handlers::disk_recovered`]); in the loop, the `gc` a `disk low` line starts runs beside the
 //! ticks and a later watch tick writes its `cleanup` line ([`handlers`]). A cycle tick, every `cadence.cycle`, first at the start
@@ -41,6 +43,7 @@
 //! (`story:decide-model-adapter`, [`handle_request`]), the binary the cycle's steps run, and `gc`.
 //! A test gives its own.
 
+pub mod director;
 pub mod dispatch;
 pub mod handlers;
 pub mod mailbox;
@@ -511,6 +514,7 @@ fn handle(
 ) -> Result<Summary> {
     let mut tick = Tick::start(config_flag, state, TickKind::Watch, seams)?;
     handlers::pending(&mut tick);
+    director::keep(&mut tick);
     handlers::handle(&mut tick, lines);
     mailbox::read(&mut tick);
     if let Err(error) = handlers::disk_recovered(&mut tick) {

@@ -24,6 +24,9 @@ The objectives of the collection this repository moves, by id from `atlas/ROADMA
 
 - **`conductor run`**, a process and no session, runs one instance's loop
   ([`docs/design/conductor-run.md`](docs/design/conductor-run.md)); the conductor profile is retired.
+  In a boxed instance the runtime starts the director, the session that answers the operator, in
+  the box from [`crates/conductor/roles/director.md`](crates/conductor/roles/director.md) and keeps
+  it running.
 - **The conductor-dev session** (`task maintainer:start`). It develops conductor: code, specification,
   plan, design, profiles; it installs the binary and restarts the loop. Profile:
   [`crates/conductor/roles/maintainer.md`](crates/conductor/roles/maintainer.md), which the binary
@@ -53,7 +56,7 @@ A value a profile writes as `section.key`, such as `thresholds.build_slot`, is t
 | `crates/conductor-docs/` | the documentation generator: reference pages, status page, site provenance |
 | `website/` | the documentation site (Docusaurus on the shared Docs System); `website/docs/reference/**`, `website/docs/status.md` and `website/data/status.json` are generated |
 | `docs/waves/` | one page per wave: selection, units, outcome |
-| `crates/conductor/roles/` | the role profiles, compiled into the binary (`include_str!`): `maintainer.md`, `controller.md`, and the host's `supervisor.md` and `teacher.md`; `conductor role show --role <role>` prints one |
+| `crates/conductor/roles/` | the role profiles, compiled into the binary (`include_str!`): `maintainer.md`, `controller.md`, `director.md`, and the host's `supervisor.md` and `teacher.md`; `conductor role show --role <role>` prints one |
 | `crates/conductor/kinds/claude-code/` | the `claude-code` kind's packaging, compiled in: `conductor-settings.json` and `controller-settings.json`, the settings the director and each controller start with when their role names none; both wire the guard as a PreToolUse hook. At start the kind writes the settings and the role's profile into the agent's state (`<state>/sessions/<session name>.settings.json`, `.profile.md`) |
 | `conductor.example.yaml` | an example config file |
 | `Dockerfile` | the release's container image (§ Releases): the release's binary from the build context, the programs `conductor doctor` checks for an instance with a forge source, a user that is not root. `tests/release_image.rs` holds it and the workflow's `image` job to that |

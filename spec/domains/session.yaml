@@ -33,7 +33,10 @@ types:
   # `conductor-dev`, a role of the instance whose session is started under its `session_name`. A
   # controller is started by `conductor spawn` only. Conductor's session starts in the instance's
   # records directory, conductor-dev's in the working directory, the checkout `task dev:start`
-  # runs in.
+  # runs in. In an instance whose placement opens a box, the instance's runtime is the director's
+  # starter: each watch tick it starts the director in the box when none runs, and keeps it
+  # running (`conductor.session.DirectorKeep`, story:box-runtime-starts-director); a start by hand
+  # there is refused `SessionRunning` while the runtime's director runs.
   - name: conductor.session.StartSession
     kind: struct
     fields:
@@ -50,7 +53,11 @@ types:
   # anything is launched but the last two: `UnknownRole`, the role is not `conductor` or
   # `conductor-dev`, or the instance names no such role or a role on another harness than
   # `claude`; `SessionRunning`, a live session holds the role's session name in the session list
-  # (`claude agents --json`); `ProviderUnavailable`, `confinement.mode` is `strict` and the
+  # (`claude agents --json`), or for the director any of the instance's director names (the
+  # `<session_prefix>-director`, and the `<session_prefix>-conductor` alias unless a checkout is
+  # named `conductor`), checked under an exclusive lock on `<state>/sessions/<session
+  # name>.start.lock` held from the check until the launch has registered the session, so a start
+  # by hand and the runtime's start cannot both start one (story:box-runtime-starts-director); `ProviderUnavailable`, `confinement.mode` is `strict` and the
   # instance's provider is not available on this host, so nothing starts; `LaunchFailed`, the
   # provider's start, or the delivery of the first prompt, failed; `MeasurementShort`,
   # `confinement.mode` is `strict` and the box the provider measured at the session's boundary is
@@ -326,6 +333,42 @@ types:
       - {name: writable, type: Optional<String>}
       - {name: fence_missing, type: Optional<String>}
       - {name: unboxed, type: Optional<String>}
+
+
+  # What the runtime's keeper of a boxed instance's director finds
+  # (story:box-runtime-starts-director): `Running`, a live session holds one of the instance's
+  # director names, whoever started it; `Waiting`, none runs and the next start waits for the
+  # back-off; `Limited`, the director's session was stopped by a usage limit and the next start
+  # waits for that limit's reset; `Stopped`, the director was stopped by `session stop` or by a
+  # pause, and nothing starts it until it is resumed.
+  - name: conductor.session.DirectorState
+    kind: enum
+    variants:
+      - Running
+      - Waiting
+      - Limited
+      - Stopped
+
+  # The keeper's record of a boxed instance's director (story:box-runtime-starts-director),
+  # `<state>/run/director.json`, written by the runtime's keeper alone and read by doctor and the
+  # dashboard, which never create it. `session` is the director's session name; `attempts` counts
+  # the starts since the last session that lived at least an hour; the next start waits the loop's
+  # back-off of `attempts - 1` (none for the first two, then 5 minutes doubling to at most an hour)
+  # after `started_at`, the last start, or a usage limit's reset; `next_start_at` is that instant
+  # while one is pending; `failures` counts the starts in a row that no later tick saw running (a
+  # start that failed, or whose session was gone by the next tick), and at 3 the runtime raises
+  # the alert `director-not-started`; `reason` is the last start's failure line, absent after a
+  # start that succeeded.
+  - name: conductor.session.DirectorKeep
+    kind: struct
+    fields:
+      - {name: session, type: conductor.config.SessionName}
+      - {name: state, type: conductor.session.DirectorState}
+      - {name: attempts, type: Integer}
+      - {name: failures, type: Integer}
+      - {name: started_at, type: Optional<Timestamp>}
+      - {name: next_start_at, type: Optional<Timestamp>}
+      - {name: reason, type: Optional<String>}
 
 entities:
   # One per instance, keyed by the instance's name. `pid` is the process of the session that holds

@@ -943,8 +943,13 @@ fn stalled(tick: &mut Tick<'_, '_>, line: &str, name: &str) -> Result<bool> {
 
 /// A gone session: the instance's conductor-dev started again while its plan holds an active
 /// story ([`conductor_dev`]); a controller restarted when its repository has an open dispatch
-/// and no usage limit marked it.
+/// and no usage limit marked it; the director left to the keeper of a boxed instance's director
+/// ([`super::director`]).
 fn gone(tick: &mut Tick<'_, '_>, name: &str) -> Result<bool> {
+    // The director is the keeper's ([`super::director`]), in a box; started by hand elsewhere.
+    if is_director(tick, name) {
+        return Ok(false);
+    }
     if let Some(acted) = conductor_dev(tick, name)? {
         return Ok(acted);
     }
@@ -965,7 +970,7 @@ fn gone(tick: &mut Tick<'_, '_>, name: &str) -> Result<bool> {
 // conductor-dev
 // ---------------------------------------------------------------------------------------------
 
-/// How long `conductor session start --role maintainer` may take.
+/// How long `conductor session start --role <role>` may take ([`start_role`]).
 const START_BOUND: Duration = Duration::from_secs(120);
 
 /// The gone session `name` when it is the instance's conductor-dev, the maintainer role's
@@ -1053,12 +1058,33 @@ fn active_stories(checkout: &Path) -> Result<usize> {
     Ok(stories.len())
 }
 
-/// Runs `conductor session start --role maintainer` (this binary, the tick's `--config` and
-/// `--state-dir`) in `cwd`. In the runtime of a box whose instance's model token is a
-/// `subscription_token`, the token the runtime read from its sealed slot goes to that process as
-/// [`crate::token::OAUTH_VARIABLE`], which its start hands on to the harness
-/// (`story:box-subscription-token`).
+/// Whether `name` is one of the instance's director names ([`crate::config::director_names`]).
+fn is_director(tick: &Tick<'_, '_>, name: &str) -> bool {
+    let instance = tick.instance();
+    crate::config::director(instance).is_some_and(|role| {
+        let session = crate::config::session_of_role(instance, role);
+        crate::config::director_names(instance, &session.0)
+            .iter()
+            .any(|own| own == name)
+    })
+}
+
+/// Runs `conductor session start --role maintainer` in `cwd` ([`start_role`]).
 fn start_maintainer(tick: &Tick<'_, '_>, cwd: &Path) -> Result<()> {
+    start_role(tick, "maintainer", cwd)
+}
+
+/// Runs `conductor session start --role <role>` (this binary, the tick's `--config` and
+/// `--state-dir`, as the daemon) in `cwd`, within its bound: conductor-dev's start
+/// ([`start_maintainer`]) and the boxed director's ([`super::director`]). In the runtime of a box
+/// whose instance's model token is a `subscription_token`, the token the runtime read from its
+/// sealed slot goes to that process as [`crate::token::OAUTH_VARIABLE`], which its start hands
+/// on to the harness (`story:box-subscription-token`).
+///
+/// # Errors
+///
+/// The command does not run within its bound, or exits non-zero: its last words name why.
+pub fn start_role(tick: &Tick<'_, '_>, role: &str, cwd: &Path) -> Result<()> {
     let mut command = crate::instance::command(&tick.seams.program);
     if let Some(value) = crate::token::boxed_subscription_token(tick.instance()) {
         command.env(crate::token::OAUTH_VARIABLE, value);
@@ -1074,11 +1100,11 @@ fn start_maintainer(tick: &Tick<'_, '_>, cwd: &Path) -> Result<()> {
             .arg(std::path::absolute(state).unwrap_or_else(|_| state.to_owned()));
     }
     command
-        .args(["session", "start", "--role", "maintainer"])
+        .args(["session", "start", "--role", role])
         .env(crate::actor::DAEMON_VARIABLE, "1")
         .current_dir(cwd)
         .stdin(Stdio::null());
-    let shown = "conductor session start --role maintainer";
+    let shown = format!("conductor session start --role {role}");
     let output = crate::collect::run(&mut command, START_BOUND)
         .with_context(|| format!("run `{shown}` in {}", cwd.display()))?;
     if !output.status.success() {

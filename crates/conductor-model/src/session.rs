@@ -1,5 +1,5 @@
 // generated from conductor v1
-// contract digest d350cd82050d0055f444f8dd5113015e8308a7c611d42a1bf018a90db75feb08
+// contract digest f211df78f7e86952af7f2c6b1430dbdc1ff3c13ace783e6872ec932be9a0f32b
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! Session — `conductor.session`.
@@ -71,6 +71,38 @@ pub enum DeliveryState {
 /// DeliveryId — `conductor.session.DeliveryId`: a distinct wrapper around `Uuid`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DeliveryId(pub crate::primitives::Uuid);
+
+/// DirectorKeep — `conductor.session.DirectorKeep`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DirectorKeep {
+    /// `session` — `conductor.config.SessionName`.
+    pub session: crate::config::SessionName,
+    /// `state` — `conductor.session.DirectorState`.
+    pub state: DirectorState,
+    /// `attempts` — `Integer`.
+    pub attempts: i64,
+    /// `failures` — `Integer`.
+    pub failures: i64,
+    /// `started_at` — `Optional<Timestamp>`.
+    pub started_at: Option<crate::primitives::Timestamp>,
+    /// `next_start_at` — `Optional<Timestamp>`.
+    pub next_start_at: Option<crate::primitives::Timestamp>,
+    /// `reason` — `Optional<String>`.
+    pub reason: Option<String>,
+}
+
+/// DirectorState — `conductor.session.DirectorState`: one of a closed set of names.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DirectorState {
+    /// `Running`.
+    Running,
+    /// `Waiting`.
+    Waiting,
+    /// `Limited`.
+    Limited,
+    /// `Stopped`.
+    Stopped,
+}
 
 /// EnvelopeMeasurement — `conductor.session.EnvelopeMeasurement`.
 #[derive(Debug, Clone, PartialEq, Eq)]

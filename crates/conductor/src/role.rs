@@ -14,17 +14,20 @@ use conductor_model::agent::ShowRole;
 use crate::cli::RoleShowArgs;
 use crate::config::{self, BuiltInRole};
 
-/// Each role the binary carries a profile for, by its name, with the profile's text.
-pub const PROFILES: [(&str, &str); 4] = [
+/// Each role the binary carries a profile for, by its name, with the profile's text. The
+/// director's is the boxed director's (`story:box-runtime-starts-director`): the instance's runtime
+/// starts that session in its box, which reads no role file, so the profile comes with the binary.
+pub const PROFILES: [(&str, &str); 5] = [
     ("maintainer", include_str!("../roles/maintainer.md")),
     ("supervisor", include_str!("../roles/supervisor.md")),
     ("teacher", include_str!("../roles/teacher.md")),
     ("controller", include_str!("../roles/controller.md")),
+    ("director", include_str!("../roles/director.md")),
 ];
 
 /// The name of the profile `role` starts from: a profile's own name, or the role an old name of
-/// it names (`conductor-dev` the maintainer, `lead` the controller); `None` for a role the binary
-/// carries no profile for, such as `director`.
+/// it names (`conductor-dev` the maintainer, `lead` the controller, `conductor` the director);
+/// `None` for a role the binary carries no profile for.
 #[must_use]
 pub fn profile_name(role: &str) -> Option<&'static str> {
     if let Some((name, _)) = PROFILES.iter().find(|(name, _)| *name == role) {
@@ -33,7 +36,7 @@ pub fn profile_name(role: &str) -> Option<&'static str> {
     match config::role_name(role)? {
         BuiltInRole::Maintainer => Some("maintainer"),
         BuiltInRole::Lead => Some("controller"),
-        BuiltInRole::Director => None,
+        BuiltInRole::Director => Some("director"),
     }
 }
 

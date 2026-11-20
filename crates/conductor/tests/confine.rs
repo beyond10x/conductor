@@ -723,13 +723,21 @@ fn the_provider_is_given_the_role_s_request_and_first_prompt() {
          exit 2",
         "the binary's conductor settings, pinned: {pinned}"
     );
+    // The director starts from the profile the binary carries, written into the state
+    // (`story:box-runtime-starts-director`), and no longer from `--agent conductor`.
+    let profile = case.state().join("sessions/conductor.profile.md");
+    assert_eq!(
+        fs::read_to_string(&profile).expect("the written profile"),
+        fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("roles/director.md"))
+            .expect("the director profile"),
+    );
     assert_eq!(
         logged[0]["args"],
         json!([
             "-n",
             "conductor",
-            "--agent",
-            "conductor",
+            "--append-system-prompt-file",
+            profile.display().to_string(),
             "--model",
             "opus",
             // The tools the director never calls leave its first-turn context
@@ -797,14 +805,13 @@ fn the_provider_is_given_the_role_s_request_and_first_prompt() {
 }
 
 /// story:instance-rules-text: every session the instance starts reads its `standing_rules`. The
-/// director, which starts from an agent and with no prompt file, starts with one now beside its
-/// agent, `<state>/sessions/<session name>.profile.md`, that holds the rules alone under the
-/// heading line, in their frame; its other arguments are the ones it had. The maintainer, which
-/// starts from the binary's profile, starts with the rules and that profile after them, byte for
-/// byte. A session
+/// director and the maintainer, which start from the binary's profiles (the director's since
+/// `story:box-runtime-starts-director`), start with the rules under the heading line, in their
+/// frame, and that profile after them, byte for byte, in
+/// `<state>/sessions/<session name>.profile.md`. A session
 /// started after the mapping changed reads the new text. Without the member, both start as
-/// [`the_provider_is_given_the_role_s_request_and_first_prompt`] holds: no prompt file for the
-/// director, the binary's profile byte for byte for the maintainer.
+/// [`the_provider_is_given_the_role_s_request_and_first_prompt`] holds: the binary's profile byte
+/// for byte for each.
 #[test]
 fn the_director_and_the_maintainer_start_with_the_standing_rules_in_their_prompt_file() {
     let case = Case::new("standing-rules", STRICT);
@@ -829,8 +836,6 @@ fn the_director_and_the_maintainer_start_with_the_standing_rules_in_their_prompt
         json!([
             "-n",
             "conductor",
-            "--agent",
-            "conductor",
             "--append-system-prompt-file",
             prompt.display().to_string(),
             "--model",
@@ -847,9 +852,13 @@ fn the_director_and_the_maintainer_start_with_the_standing_rules_in_their_prompt
         ])
     );
     let (after, fence, inside) = framed(&fs::read_to_string(&prompt).expect("the prompt file"));
+    let director =
+        fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("roles/director.md"))
+            .expect("the director profile");
     assert_eq!(
-        after, "",
-        "the director's prompt file holds the rules alone"
+        after,
+        format!("\n{director}"),
+        "the director's prompt file holds the rules, then the profile the binary carries"
     );
     assert_eq!(inside, HOSTILE);
     assert!(fence > longest_run(HOSTILE), "a fence of {fence}");
@@ -1079,7 +1088,8 @@ fn director_and_conductor_start_the_same_role_the_old_name_with_a_note() {
 }
 
 /// `story:role-name-aliases`, item 3: a file that writes the new name `director` starts its
-/// session as `director`, with the agent `conductor` (the adapter's file name for this release);
+/// session as `director`, from the profile the binary carries
+/// (`story:box-runtime-starts-director`);
 /// while a session still named `conductor` lives, start refuses it as running, and `session stop
 /// --role director` and `--role conductor` stop that session as the director's.
 #[test]
@@ -1102,11 +1112,14 @@ fn a_director_finds_a_live_session_still_named_conductor() {
         .find(|call| call["call"] == "start")
         .expect("a start");
     let args = start["args"].as_array().expect("args");
-    let agent = args
-        .iter()
-        .position(|arg| arg == "--agent")
-        .expect("an --agent");
-    assert_eq!(args[agent + 1], "conductor", "{args:?}");
+    assert!(
+        !args.iter().any(|arg| arg == "--agent"),
+        "the director starts from the profile the binary carries: {args:?}"
+    );
+    assert!(
+        args.iter().any(|arg| arg == "--append-system-prompt-file"),
+        "{args:?}"
+    );
 
     for role in ["director", "conductor"] {
         let case = Case::new(&format!("director-stops-{role}"), STRICT);
