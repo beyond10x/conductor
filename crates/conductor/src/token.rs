@@ -1158,6 +1158,22 @@ fn dial_call(request: &Value) -> Option<Result<Value, String>> {
     Some(ask_pool(&address, &hello, request))
 }
 
+/// A pool call conductord closed before any answer: it refused the connection's greeting. One
+/// text however the close arrives, a reset (the request unread on its side) or an end of stream,
+/// so [`keep_probing`] says one refusal once.
+const CLOSED_UNANSWERED: &str = "the host's token pool: conductord closed the connection \
+                                 unanswered: this runtime's start is not the one it routes";
+
+/// Whether `error` is the peer's close of the connection: a reset, an abort or a broken pipe.
+fn closed_by_peer(error: &std::io::Error) -> bool {
+    matches!(
+        error.kind(),
+        std::io::ErrorKind::ConnectionReset
+            | std::io::ErrorKind::ConnectionAborted
+            | std::io::ErrorKind::BrokenPipe
+    )
+}
+
 /// One pool call: `hello`, then `request`, on a new connection to `address`; the answer.
 fn ask_pool(address: &str, hello: &str, request: &Value) -> Result<Value, String> {
     let mut stream = TcpStream::connect(address).map_err(|error| {
@@ -1168,17 +1184,25 @@ fn ask_pool(address: &str, hello: &str, request: &Value) -> Result<Value, String
     stream
         .write_all(hello.as_bytes())
         .and_then(|()| stream.write_all(format!("{request}\n").as_bytes()))
-        .map_err(|error| format!("the host's token pool: ask conductord: {error}"))?;
+        .map_err(|error| {
+            if closed_by_peer(&error) {
+                CLOSED_UNANSWERED.to_owned()
+            } else {
+                format!("the host's token pool: ask conductord: {error}")
+            }
+        })?;
     let mut line = String::new();
     BufReader::new(stream.take(DIAL_ANSWER_MAX))
         .read_line(&mut line)
-        .map_err(|error| format!("the host's token pool: read conductord's answer: {error}"))?;
+        .map_err(|error| {
+            if line.is_empty() && closed_by_peer(&error) {
+                CLOSED_UNANSWERED.to_owned()
+            } else {
+                format!("the host's token pool: read conductord's answer: {error}")
+            }
+        })?;
     if line.trim().is_empty() {
-        return Err(
-            "the host's token pool: conductord closed the connection unanswered: this runtime's \
-             start is not the one it routes"
-                .to_owned(),
-        );
+        return Err(CLOSED_UNANSWERED.to_owned());
     }
     serde_json::from_str(&line)
         .map_err(|_| "the host's token pool: conductord's answer is no JSON".to_owned())

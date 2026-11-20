@@ -2124,3 +2124,63 @@ fn no_value_of_the_host_pool_reaches_a_log_or_a_record() {
     }
     case.assert_nowhere(MARKER);
 }
+
+/// The text of a pool call conductord refused: it closed the connection before any answer.
+const CLOSED_UNANSWERED: &str = "the host's token pool: conductord closed the connection \
+                                 unanswered: this runtime's start is not the one it routes";
+
+/// A listener that takes one connection, reads its greeting line, and drops it: with the request
+/// line unread (`drain` false: it waits by `peek` until the request is in its buffer, so the
+/// close is a reset) or read (`drain` true: the close is an end of stream). Answers its address.
+fn refusing_listener(drain: bool) -> (String, thread::JoinHandle<()>) {
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
+    let address = listener.local_addr().expect("its address").to_string();
+    let handle = thread::spawn(move || {
+        let (mut stream, _) = listener.accept().expect("accept");
+        stream
+            .set_read_timeout(Some(Duration::from_secs(30)))
+            .expect("a read timeout");
+        let mut lines = if drain { 2 } else { 1 };
+        let mut byte = [0_u8; 1];
+        while lines > 0 {
+            stream.read_exact(&mut byte).expect("a byte");
+            if byte[0] == b'\n' {
+                lines -= 1;
+            }
+        }
+        if !drain {
+            let mut peeked = [0_u8; 1];
+            let until = Instant::now() + Duration::from_secs(30);
+            while stream.peek(&mut peeked).expect("peek") == 0 {
+                assert!(Instant::now() < until, "no request arrives");
+                thread::sleep(Duration::from_millis(5));
+            }
+        }
+        drop(stream);
+    });
+    (address, handle)
+}
+
+/// `story:instance-api-refusal-said-once-flake`: a pool call conductord refused reads the same
+/// whether its connection closed with the request unread (a reset) or read (an end of stream), so
+/// a runtime's log says one refusal one way. Fails before the story: the reset read `read
+/// conductord's answer: Connection reset by peer`.
+#[test]
+fn a_refused_pool_call_reads_the_same_whether_the_close_resets_or_ends() {
+    let _dialed = DIALED
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let mut errors = Vec::new();
+    for drain in [false, true] {
+        let (address, listener) = refusing_listener(drain);
+        token::hold_dial(&address, "alpha", ALPHA_START);
+        let answer = token::probe_pool("alpha-controller");
+        listener.join().expect("the listener");
+        match answer {
+            Some(Err(error)) => errors.push(error),
+            other => panic!("drain {drain}: {other:?}"),
+        }
+    }
+    assert_eq!(errors[0], errors[1], "{errors:?}");
+    assert_eq!(errors[0], CLOSED_UNANSWERED, "{errors:?}");
+}
