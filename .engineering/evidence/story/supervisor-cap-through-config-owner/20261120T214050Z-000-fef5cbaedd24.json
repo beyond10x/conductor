@@ -1,0 +1,13 @@
+{
+  "at": "2026-11-20T21:40:50Z",
+  "actor": "human:unknown",
+  "artifact": "story:supervisor-cap-through-config-owner",
+  "kind": "story",
+  "revision": 6,
+  "change": {
+    "change": "evidence",
+    "kind": "test_result",
+    "source": "cargo test -p conductor-cli --test profiles (38 passed; the new case failed first before the profile edit), --test roles (5 passed), --test no_organization (4 passed), cargo clippy -p conductor-cli --all-targets -D warnings clean",
+    "reference": "34edce1c2"
+  }
+}
