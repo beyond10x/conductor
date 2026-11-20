@@ -12,7 +12,8 @@
 //! `claude` is a stand-in first on `PATH`: `claude agents --json` prints the case's session list;
 //! any other call is a launch, which writes each argument to a file of its own under `launch/`
 //! (`1`, `2`, …), its physical working directory to `launch/cwd`, counts itself in `launches`,
-//! and prints a session id, or, when the case holds `fail`, exits 1. No real session starts.
+//! and prints a session id, or, when the case holds `fail`, exits 1; a `--resume` launch makes
+//! the case's `resumed.json`, when it holds one, the session list. No real session starts.
 //!
 //! `story:session-envelope-seam`: spawn starts the controller through a confinement provider. The
 //! cases that name a fake provider run the command over it ([`fake_provider`]); the others run
@@ -216,8 +217,12 @@ impl Case {
                  pwd -P > '{launch}/cwd'\n\
                  printf '%s' \"$TOOL_SOCKET\" > '{launch}/tool_socket'\n\
                  if [ -e '{fail}' ]; then echo 'Workspace not trusted' >&2; exit 1; fi\n\
+                 for arg; do\n\
+                 \x20 if [ \"$arg\" = --resume ] && [ -e '{resumed}' ]; then cp '{resumed}' '{agents}'; fi\n\
+                 done\n\
                  echo '{SESSION_ID}'\n",
                 agents = self.dir.join("agents.json").display(),
+                resumed = self.dir.join("resumed.json").display(),
                 launches = self.dir.join("launches").display(),
                 launch = self.launch().display(),
                 fail = self.dir.join("fail").display(),
@@ -1377,6 +1382,11 @@ fn the_none_provider_resumes_with_the_start_form() {
         .expect("a controller id")
         .to_owned();
     case.sessions(&json!([]));
+    // The resumed session is listed live once `claude --bg --resume` started it.
+    write(
+        &case.dir.join("resumed.json"),
+        &json!([{"id": SESSION_ID, "name": "ex-alpha", "pid": 4242}]).to_string(),
+    );
     for command in ["pause-controller", "resume-controller"] {
         let output = case.run(&["controller", command, "--controller-id", &controller]);
         assert_eq!(
@@ -1400,6 +1410,48 @@ fn the_none_provider_resumes_with_the_start_form() {
         "{argv:?}"
     );
     assert_eq!(case.controllers()[0]["state"], "Running");
+}
+
+/// Issue #226 (`story:resume-starts-gone-session`): a `claude --bg --resume` that exits 0 while
+/// the session list never shows the session live is no resume: `resume-controller` exits 1 naming
+/// it, prints no `resumed` line, and the controller stays `Paused`.
+#[test]
+fn a_none_resume_whose_session_never_lists_live_leaves_the_controller_paused() {
+    let case = Case::new("provider-none-resume-gone");
+    case.confine("{provider: none}");
+    let output = case.spawn();
+    assert!(output.status.success(), "spawn: {}", describe(&output));
+    let controller = case.controllers()[0]["controller_id"]
+        .as_str()
+        .expect("a controller id")
+        .to_owned();
+    case.sessions(&json!([]));
+    let paused = case.run(&[
+        "controller",
+        "pause-controller",
+        "--controller-id",
+        &controller,
+    ]);
+    assert_eq!(paused.status.code(), Some(0), "{}", describe(&paused));
+    let resumed = case.run(&[
+        "controller",
+        "resume-controller",
+        "--controller-id",
+        &controller,
+    ]);
+    assert_eq!(resumed.status.code(), Some(1), "{}", describe(&resumed));
+    let said = String::from_utf8_lossy(&resumed.stderr);
+    assert!(
+        said.contains("the controller stays paused") && said.contains("no live session"),
+        "{}",
+        describe(&resumed)
+    );
+    assert!(
+        !String::from_utf8_lossy(&resumed.stdout).contains("resumed"),
+        "{}",
+        describe(&resumed)
+    );
+    assert_eq!(case.controllers()[0]["state"], "Paused");
 }
 
 /// Under `strict`, a provider that is not available refuses the spawn before anything is

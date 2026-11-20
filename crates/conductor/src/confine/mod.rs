@@ -88,6 +88,10 @@ pub const BOUND: Duration = Duration::from_secs(120);
 /// How long a stopped session may stay in the session list with a pid.
 const STOP_WAIT: Duration = Duration::from_secs(30);
 
+/// How long the `none` provider waits, after `claude --bg --resume` exited 0, for the session
+/// list to show the resumed session live (issue #226).
+const RESUME_WAIT: Duration = Duration::from_secs(10);
+
 /// The setting source Claude Code keeps the bypass-permissions acceptance in.
 const USER_SOURCE: &str = "user";
 
@@ -194,11 +198,12 @@ pub trait Provider {
     fn stop(&mut self, session: &StartedSession, request: &SessionRequest) -> Result<()>;
 
     /// Starts `session` again from its transcript, for `launch`, with `first` its first input
-    /// (issue #202: the dispatch it holds now, [`crate::spawn::resumed_input`]).
+    /// (issue #202: the dispatch it holds now, [`crate::spawn::resumed_input`]). It returns only
+    /// once the resumed session is live (issue #226).
     ///
     /// # Errors
     ///
-    /// It did not start.
+    /// It did not start, or ended as it started.
     fn resume(
         &mut self,
         session: &StartedSession,
@@ -444,6 +449,20 @@ impl Provider for Unboxed {
         let output = run_launch(&mut Self::command(launch, &args))?;
         if !output.status.success() {
             bail!("{}", exited(&output));
+        }
+        // `claude --bg` exits 0 once it handed the session over; the session counts as resumed
+        // only once the session list shows it live (issue #226).
+        let name = &session.session_name.0;
+        let started = Instant::now();
+        while live_session(name)?.is_none() {
+            if started.elapsed() >= RESUME_WAIT {
+                bail!(
+                    "`{CLAUDE} --bg --resume {id}` exited 0, and the session list shows no live \
+                     session {name} within {} s: the resumed session ended as it started",
+                    RESUME_WAIT.as_secs()
+                );
+            }
+            thread::sleep(Duration::from_millis(200));
         }
         Ok(session.clone())
     }

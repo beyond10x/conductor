@@ -197,14 +197,16 @@ pub fn pause_controller(
 /// `conductor controller resume-controller`: the command `conductor.dispatch.ResumeController`.
 /// A paused controller's session is resumed first from its transcript through its instance's
 /// provider ([`crate::spawn::resume`]), and the command prints `resumed <session name> (<id>)`,
-/// with `in <unit>` under the `systemd` provider; a session no provider's measurement records, or
-/// one the session list shows live, is left as it is.
+/// with `in <unit>` under the `systemd` provider, once that session is live; a session no
+/// provider's measurement records, or one the session list shows live, is left as it is. A
+/// session that is not resumed, or ends as it starts, leaves the controller `Paused` (issue #226).
 ///
 /// # Errors
 ///
 /// A flag is missing or `--input-json` is given, the store does not open or keep the record, the
-/// session is not resumed, or the controller is unknown (`ControllerNotFound`) or not paused
-/// (`ControllerStateConflict`).
+/// session is not resumed or is not live after its resume, a boxed instance's session would
+/// resume outside its box (`OutsideBox`), or the controller is unknown (`ControllerNotFound`) or
+/// not paused (`ControllerStateConflict`).
 pub fn resume_controller(
     config_flag: Option<&Path>,
     state: Option<&Path>,

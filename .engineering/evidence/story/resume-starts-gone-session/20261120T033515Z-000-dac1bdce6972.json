@@ -1,0 +1,13 @@
+{
+  "at": "2026-11-20T03:35:15Z",
+  "actor": "human:unknown",
+  "artifact": "story:resume-starts-gone-session",
+  "kind": "story",
+  "revision": 5,
+  "change": {
+    "change": "evidence",
+    "kind": "test_result",
+    "source": "cargo test -p conductor-cli --test box_session (12 passed, 2 new failed on main first); spawn, controller, adv_cli, confine, run, run_handover, token_pool: same failure set as main in a box refusing Unix sockets, needs CI; clippy -D warnings clean; docs current",
+    "reference": "crates/conductor/tests/box_session.rs"
+  }
+}

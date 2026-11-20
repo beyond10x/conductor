@@ -589,13 +589,16 @@ pub fn end(
 /// runs `claude --bg --resume <id>`. The session's id is the one its measurement records.
 ///
 /// A session with no measurement, or one the session list shows live, is left as it is: there
-/// is nothing to resume.
+/// is nothing to resume. A session is answered resumed only once it is live: each provider's
+/// resume returns only then (issue #226, `story:resume-starts-gone-session`).
 ///
 /// Answers the session's name and id, and the unit it runs in now, when a session was resumed.
 ///
 /// # Errors
 ///
-/// The measurement or the session list cannot be read; the measurement records no id; the
+/// A boxed instance's session is resumed from outside its box (`refused: OutsideBox`,
+/// [`outside_box_to_resume`]); the measurement or the session list cannot be read; the
+/// measurement records no id; the
 /// checkout or the controller role no longer holds; under `strict` the provider is not
 /// available, or the resumed box measures short of the request and is stopped again; the
 /// provider's resume fails.
@@ -625,6 +628,10 @@ pub fn resume_leased(
     session_name: &SessionName,
     providers: &dyn Providers,
 ) -> Result<Option<(String, Option<crate::token::Lease>)>> {
+    let instance = &config::active().instance;
+    if let Some(detail) = outside_box_to_resume(instance) {
+        bail!("refused: OutsideBox: {detail}");
+    }
     let state_dir = crate::state::dir(state)?;
     let Some(session) = recorded_session(&state_dir, session_name)? else {
         return Ok(None);
@@ -639,7 +646,6 @@ pub fn resume_leased(
     if live_session(&session_name.0)?.is_some() {
         return Ok(None);
     }
-    let instance = &config::active().instance;
     let checkout = checkout(instance, repository).map_err(|detail| anyhow!("{detail}"))?;
     let (controller, profile, settings, model) =
         role(instance).map_err(|(_, detail)| anyhow!("{detail}"))?;
@@ -840,6 +846,26 @@ pub fn outside_box(instance: &Instance) -> Option<String> {
              ask it for a cycle now with CONDUCTOR_INSTANCE={} conductor instance cycle, then \
              check conductor controller controllers",
             instance.name.0, instance.placement.0, instance.name.0
+        )
+    })
+}
+
+/// Why a session of `instance` may not be resumed in this process (issue #226): as for a start
+/// ([`outside_box`]), the instance runs in a substrate box this process is not in, so the session
+/// would resume outside the box, where its transcript is not. A paused controller is resumed from
+/// the box, or stopped and spawned again by the runtime's next cycle. `None` where a start may
+/// run.
+#[must_use]
+pub fn outside_box_to_resume(instance: &Instance) -> Option<String> {
+    outside_box(instance).map(|_| {
+        format!(
+            "instance {name} runs in a substrate box (placement {placement}) and this process is \
+             not in it, so the session would resume outside the box, where its transcript is \
+             not; resume it from the box, or stop it with conductor controller stop-controller \
+             and ask the runtime for a cycle with CONDUCTOR_INSTANCE={name} conductor instance \
+             cycle, which spawns it again",
+            name = instance.name.0,
+            placement = instance.placement.0,
         )
     })
 }
