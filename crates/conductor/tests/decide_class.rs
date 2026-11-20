@@ -532,3 +532,136 @@ fn decision_handle_prints_the_rule_and_its_phrase_and_the_reason_names_it() {
     );
     fs::remove_dir_all(&dir).expect("remove the case's directory");
 }
+
+/// `story:secret-refresh-classified-credential` (issue #246): a request to refresh the
+/// organization's secrets, with two lettered options and a recommendation.
+const SECRET_REFRESH: &str = "[DECISION-REQUEST example-repo req-41] Ask a person to change the private policy repository and refresh the organization secrets?
+A: ask the operator to refresh them now (cost: one hand-over)
+B: wait for the next rotation (cost: the gate stays red a day)
+Recommendation: A";
+
+#[test]
+fn a_request_to_refresh_organization_secrets_is_credential() {
+    active::isolate();
+    let got = decide::classify(SECRET_REFRESH);
+    assert_eq!(
+        (got.class, got.rule, got.phrase.as_str()),
+        (
+            DecisionClass::H,
+            ClassificationRule::Credential,
+            "refresh the organization secrets"
+        )
+    );
+}
+
+#[test]
+fn each_added_credential_verb_on_a_secret_is_class_h() {
+    active::isolate();
+    let wrong: Vec<String> = [
+        "refresh", "update", "replace", "reissue", "re-issue", "upload",
+    ]
+    .iter()
+    .filter_map(|verb| {
+        let text = format!(
+            "[DECISION-REQUEST example-repo req-42] Should a person {verb} the deploy key?
+A: yes (cost: one hand-over)
+B: no (cost: the job stays red)
+Recommendation: A"
+        );
+        let got = decide::classify(&text);
+        ((got.class, got.rule) != (DecisionClass::H, ClassificationRule::Credential)).then(|| {
+            format!(
+                "{verb}: got class {:?} rule {} {:?}",
+                got.class,
+                rule_name(got.rule),
+                got.phrase
+            )
+        })
+    })
+    .collect();
+    assert!(wrong.is_empty(), "not credential:\n{}", wrong.join("\n"));
+}
+
+#[test]
+fn updating_a_token_budget_stays_class_c() {
+    active::isolate();
+    let text = "[DECISION-REQUEST example-repo req-43] Update the token budget of the nightly review to 200k?
+A: update it to 200k (cost: a larger bill)
+B: keep 100k (cost: reviews cut short)
+Recommendation: A";
+    let got = decide::classify(text);
+    assert_eq!(
+        (got.class, got.rule, got.phrase.as_str()),
+        (DecisionClass::C, ClassificationRule::None, "")
+    );
+}
+
+/// `decision handle --decider fake` escalates the secret refresh as class H, rule `credential`,
+/// and records no conductor decision: the decider answers none.
+#[test]
+fn decision_handle_escalates_a_secret_refresh_and_the_decider_answers_none() {
+    active::isolate();
+    let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR"))
+        .join("decide_class")
+        .join("secret-refresh");
+    if dir.exists() {
+        fs::remove_dir_all(&dir).expect("clear the case's directory");
+    }
+    fs::create_dir_all(dir.join("home")).expect("create the case's home");
+    let run = |args: &[&str]| {
+        common::conductor(dir.join("home"))
+            .current_dir(&dir)
+            .arg("--state-dir")
+            .arg(dir.join("state"))
+            .args(args)
+            .output()
+            .expect("the conductor binary runs")
+    };
+    let file = dir.join("request.md");
+    fs::write(&file, SECRET_REFRESH).expect("write the request");
+    let output = run(&[
+        "decision",
+        "handle",
+        "--request",
+        &file.display().to_string(),
+        "--decider",
+        "fake",
+    ]);
+    assert!(
+        output.status.success(),
+        "decision handle: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8(output.stdout).expect("UTF-8");
+    assert_eq!(
+        stdout.lines().next(),
+        Some("rule credential: \"refresh the organization secrets\""),
+        "{stdout}"
+    );
+    assert!(
+        stdout.contains("[ESCALATION req-41] H "),
+        "escalated as class H: {stdout}"
+    );
+
+    let requests = run(&["decision", "requests", "--format", "json"]);
+    let rows: Vec<Value> = serde_json::from_slice(&requests.stdout).expect("the requests as JSON");
+    let row = rows
+        .iter()
+        .find(|row| row["request_id"] == "req-41")
+        .expect("the request is raised");
+    assert_eq!(row["escalation_class"], "H", "{row}");
+    assert_eq!(row["classification_rule"], "credential", "{row}");
+    assert!(
+        row["decision_id"].is_null(),
+        "no decision answers it: {row}"
+    );
+
+    let decisions = run(&["decision", "decisions", "--format", "json"]);
+    let decisions: Vec<Value> =
+        serde_json::from_slice(&decisions.stdout).expect("the decisions as JSON");
+    assert!(
+        decisions.is_empty(),
+        "no conductor decision is recorded: {decisions:?}"
+    );
+    fs::remove_dir_all(&dir).expect("remove the case's directory");
+}
