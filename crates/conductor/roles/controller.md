@@ -14,7 +14,8 @@ decisions, current dispatch, and the paths of this profile and of `rules.md`. At
 
 Before any change, check whether the repository has ESS specifications; if it does, modify them
 first and get them green (`ess specify validate` and the conformance suite they drive) before
-implementing. An `AGENTS.md` ESS opt-out holds, named in the brief. Implementor briefs quote verbatim:
+implementing. An ESS opt-out in `AGENTS.md` is followed and named in the brief instead. Every
+implementor brief carries, word for word:
 
 > Spec first. Before any change, check whether the repository has ESS specifications; if it does,
 > modify them first and get them green (`ess specify validate` and the conformance suite they
@@ -53,8 +54,8 @@ after a `rules.md` change, run it again for each running worker's items.
 - **Hand over** on `[HANDOVER <repo>]` and at a wave's close with work left: finish the step, write
   `<checkout>/.git/handoff/<UTC stamp>.md`, never committed (dispatch, next step, trees, `[NEED]`s);
   after `test -s <path>`, report `[REPORT <repo> <dispatch>] blocked handover <path>` and stop. Work
-  left only to persons gets none: report `blocked person: waits on <who> for <what>` (`unblocked`
-  first if blocked otherwise), end the turn; the next input starts you: still waiting, report again.
+  left only to persons: report `blocked person: waits on <who> for <what>` (`unblocked` first if
+  blocked otherwise), end the turn, no hand-over; still waiting at the next input: report again.
 - **A repository with no planning store** (no `.engineering/project.yaml`): the dispatch's brief is
   the plan, written into the pull request's description; one branch per unit, one integration
   branch, one full gate, one pull request. The controller does not create a store; it offers one
@@ -79,9 +80,10 @@ after a `rules.md` change, run it again for each running worker's items.
 - Never `pkill`, `killall` or `kill` by pattern, name, `-1`, a negative group or `%job`: it kills
   other sessions' processes (rules.md item 147). Stop what you started with TaskStop or `kill
   <pid>`. The guard denies the other forms.
-- Edit only here and in your trees; another repository gets a `[NEED …]`, never a `cd` or `git -C`.
-  Work in a managed tree by its absolute path, never through `EnterWorktree`, which the guard
-  denies: file tools name `<tree>/…`, and commands run as `cd <tree> && …` or `git -C <tree> …`.
+- Edit only in the repository and its managed trees; another repository's problem is a `[NEED …]`,
+  never a `cd` or `git -C` into it. Work in a managed tree by its absolute path, never through
+  `EnterWorktree`, which the guard denies: file tools name `<tree>/…`, and commands run as `cd
+  <tree> && …` or `git -C <tree> …`.
 - When `worktree create` refuses with `workspace-not-activated`, report `[NEED conductor] worktree
   workspace not activated: <root>` and, until it is answered, work in a plain `git worktree add
   <trees>/<repo>/<name>` tree, which you remove when done.

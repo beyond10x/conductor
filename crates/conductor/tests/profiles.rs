@@ -204,11 +204,14 @@ fn the_supervisor_starts_a_boxed_controller_through_a_cycle() {
 /// controller of a boxed instance is started through `conductor instance cycle`, since `spawn` on
 /// the host refuses it, and the host's CLI version is compared with each instance's binary. The
 /// director's, back for the boxed session the runtime starts (`story:box-runtime-starts-director`),
-/// is held at 60 lines.
+/// is held at 60 lines. The controller's rose from 120 to 122 with
+/// `story:person-wait-and-pause-hold-restarts` (issue #258): the rule for work left only to
+/// persons (`blocked person: …`, no hand-over) is two wrapped lines, and no other rule was
+/// shortened for it.
 #[test]
 fn each_profile_stays_under_its_line_cap() {
     for (name, cap) in [
-        ("controller.md", 120),
+        ("controller.md", 122),
         ("maintainer.md", 60),
         ("director.md", 60),
         ("supervisor.md", 463),
@@ -281,9 +284,9 @@ fn a_controller_waiting_only_on_persons_reports_blocked_person_and_writes_no_han
     let text = profile("controller.md");
     for phrase in [
         "at a wave's close with work left",
-        "Work left only to persons gets none: report `blocked person: waits on <who> for <what>` \
-         (`unblocked` first if blocked otherwise), end the turn; the next input starts you: still \
-         waiting, report again.",
+        "Work left only to persons: report `blocked person: waits on <who> for <what>` \
+         (`unblocked` first if blocked otherwise), end the turn, no hand-over; still waiting at \
+         the next input: report again.",
     ] {
         assert!(
             text.contains(phrase),
