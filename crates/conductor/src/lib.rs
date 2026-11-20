@@ -59,6 +59,7 @@ pub mod spec_api;
 pub mod state;
 pub mod status;
 pub mod store;
+pub mod supervisor_watch;
 pub mod systemd;
 pub mod token;
 pub mod trust;

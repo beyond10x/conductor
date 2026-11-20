@@ -1,5 +1,5 @@
 // generated from conductor v1
-// contract digest f211df78f7e86952af7f2c6b1430dbdc1ff3c13ace783e6872ec932be9a0f32b
+// contract digest 990a21ced6fe27f2052a755ba5a22f383ffd50d9d3f92b3324424d62542ace75
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! JSON at this system's boundary: a reader, a writer, and the base64 codec `Bytes` needs.

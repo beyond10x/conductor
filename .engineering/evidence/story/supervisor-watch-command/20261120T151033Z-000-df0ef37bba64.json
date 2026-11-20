@@ -1,0 +1,13 @@
+{
+  "at": "2026-11-20T15:10:33Z",
+  "actor": "human:unknown",
+  "artifact": "story:supervisor-watch-command",
+  "kind": "story",
+  "revision": 11,
+  "change": {
+    "change": "evidence",
+    "kind": "test_result",
+    "source": "cargo test -p conductor-cli --test supervisor_watch --test profiles --test isolated_home (13+36+7 passed); cli_tree, config_globals, no_organization, roles, guard_rules passed; clippy -D warnings clean; ess specify validate and conformance 733/733",
+    "reference": "crates/conductor/tests/supervisor_watch.rs"
+  }
+}

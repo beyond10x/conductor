@@ -148,7 +148,8 @@ use conductor_model::config::{
     KubernetesResources, KubernetesVolume, Limits, LocalSource, ModelTokenKind, Network,
     OperatorGrant, OperatorRole, PlacementName, RepoCache, Report, RepositoryRule, Retention, Role,
     SecretSource, SecretSync, SecretsSource, SessionName, SessionPrefix, Source, SuggestedPrefix,
-    Thresholds, TimeOfDay, TlsListener, Tokens, UnitMerge, Usage, WorkspaceMember, Writable,
+    SupervisorWatch, Thresholds, TimeOfDay, TlsListener, Tokens, UnitMerge, Usage, WorkspaceMember,
+    Writable,
 };
 use conductor_model::decision::Decider;
 use conductor_model::direction::Activity;
@@ -925,7 +926,15 @@ const OPERATOR_KEYS: [&str; 3] = ["name", "role", "grants"];
 /// The keys of `globals`. `placement` is not one of them, by decision: an instance's placement is
 /// where its box runs, and stays per instance (`instances[].placement`); `globals.placement` is
 /// refused as an unknown key.
-const GLOBALS_KEYS: [&str; 5] = ["roles", "cadence", "thresholds", "limits", "tuning"];
+const GLOBALS_KEYS: [&str; 6] = [
+    "roles",
+    "cadence",
+    "thresholds",
+    "limits",
+    "tuning",
+    "supervisor",
+];
+const SUPERVISOR_KEYS: [&str; 2] = ["inbox", "outbox"];
 const TUNING_KEYS: [&str; 1] = ["keys"];
 const TUNABLE_KEYS: [&str; 3] = ["path", "min", "max"];
 /// How the file writes each `conductor.secret.Source`.
@@ -2441,6 +2450,7 @@ pub fn default_globals() -> Globals {
         thresholds: default_thresholds(),
         limits: no_limits(),
         tuning: TuningGrant { keys: Vec::new() },
+        supervisor: None,
     }
 }
 
@@ -3976,12 +3986,34 @@ impl Reader<'_> {
             Some(value) => self.tuning(value, &join(path, "tuning")),
             None => Some(defaults.tuning),
         };
+        let supervisor = match Self::get(map, "supervisor") {
+            Some(value) => Some(self.supervisor(value, &join(path, "supervisor"))?),
+            None => None,
+        };
         Some(Globals {
             roles: roles?,
             cadence: cadence?,
             thresholds: thresholds?,
             limits: limits?,
             tuning: tuning?,
+            supervisor,
+        })
+    }
+
+    /// `globals.supervisor` (`conductor.config.SupervisorWatch`,
+    /// story:supervisor-watch-command): `inbox` and `outbox`, each a path, absolute or under `~/`,
+    /// absent when not written.
+    fn supervisor(&mut self, value: &Value, path: &str) -> Option<SupervisorWatch> {
+        let map = self.mapping(value, path, &SUPERVISOR_KEYS)?;
+        let mut file = |name: &str| match Self::get(map, name) {
+            Some(value) => self.path(value, &join(path, name)).map(Some),
+            None => Some(None),
+        };
+        let inbox = file("inbox");
+        let outbox = file("outbox");
+        Some(SupervisorWatch {
+            inbox: inbox?,
+            outbox: outbox?,
         })
     }
 
@@ -7024,7 +7056,7 @@ fn kubernetes_document(kubernetes: &Kubernetes) -> Yaml {
 #[must_use]
 pub fn globals_document(globals: &Globals) -> Yaml {
     use shown::{limits, mapping, text};
-    mapping([
+    let mut document = mapping([
         (
             "roles",
             Yaml::Sequence(globals.roles.iter().map(shown::role).collect()),
@@ -7056,7 +7088,18 @@ pub fn globals_document(globals: &Globals) -> Yaml {
                 ),
             )]),
         ),
-    ])
+    ]);
+    // `globals.supervisor` (story:supervisor-watch-command), where the file writes it.
+    if let (Some(supervisor), Yaml::Mapping(map)) = (&globals.supervisor, &mut document) {
+        let mut shown = serde_yaml::Mapping::new();
+        for (key, file) in [("inbox", &supervisor.inbox), ("outbox", &supervisor.outbox)] {
+            if let Some(file) = file {
+                shown.insert(Yaml::from(key), text(file));
+            }
+        }
+        map.insert(Yaml::from("supervisor"), Yaml::Mapping(shown));
+    }
+    document
 }
 
 /// `document` as `path: value` lines, one per scalar and per empty list or mapping; a line break

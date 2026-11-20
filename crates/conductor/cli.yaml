@@ -227,6 +227,11 @@ callables:
     result: List<conductor.host.ReclaimStep>
     errors:
       floor-not-reached: conductor.host.ReclaimFellShort
+  supervisor-watch:
+    target: {kind: local, owner: conductor-cli, action: supervisor_watch}
+    input: conductor.host.WatchSupervisor
+    result: String
+    errors: {}
   broker-serve:
     target: {kind: local, owner: conductor-cli, action: broker_serve}
     input: null
@@ -604,6 +609,20 @@ commands:
     callable: gc-reclaim
     about: Free what needs no decision until free disk is back over the floor, printing each step with the bytes it freed; exit 1 listing what is left by path and size when the floor is not reached
     arguments:
+      - field: format
+        source: {kind: option, long: format}
+  - path: [supervisor, watch]
+    callable: supervisor-watch
+    about: Block until the first supervisor trigger fires on any instance of the config file (or each --instance) - a new mailbox file, a runtime log line, a lost runtime or operator upgrade, the operator inbox, low disk, an unpushed commit (also of each --checkout), an idle controller - then print one line per fired trigger, TRIGGER instance subject detail, or TIMEOUT after --timeout (20m); cursors persist under supervisor-watch/ of the host directory and move only after the lines are printed; exit 1 naming InvalidWatchTimeout, UnknownInstance, WatchStateUnwritable or SupervisorWatchRunning
+    arguments:
+      - field: instance
+        source: {kind: option, long: instance}
+      - field: checkout
+        source: {kind: option, long: checkout}
+      - field: timeout
+        source: {kind: option, long: timeout}
+      - field: hold
+        source: {kind: option, long: hold}
       - field: format
         source: {kind: option, long: format}
   - path: [broker, serve]

@@ -1,5 +1,5 @@
 // generated from conductor v1
-// contract digest f211df78f7e86952af7f2c6b1430dbdc1ff3c13ace783e6872ec932be9a0f32b
+// contract digest 990a21ced6fe27f2052a755ba5a22f383ffd50d9d3f92b3324424d62542ace75
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! Host — `conductor.host`.
@@ -184,6 +184,61 @@ pub enum ReleaseReason {
 /// ShowGrants — `conductor.host.ShowGrants`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ShowGrants {
+    /// `format` — `Optional<String>`.
+    pub format: Option<String>,
+}
+
+/// SupervisorTrigger — `conductor.host.SupervisorTrigger`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SupervisorTrigger {
+    /// `trigger` — `conductor.host.SupervisorTriggerKind`.
+    pub trigger: SupervisorTriggerKind,
+    /// `instance` — `String`.
+    pub instance: String,
+    /// `subject` — `String`.
+    pub subject: String,
+    /// `detail` — `String`.
+    pub detail: String,
+    /// `at` — `Timestamp`.
+    pub at: crate::primitives::Timestamp,
+}
+
+/// SupervisorTriggerKind — `conductor.host.SupervisorTriggerKind`: one of a closed set of names.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SupervisorTriggerKind {
+    /// `Mail`.
+    Mail,
+    /// `Log`.
+    Log,
+    /// `Daemon`.
+    Daemon,
+    /// `Inbox`.
+    Inbox,
+    /// `Disk`.
+    Disk,
+    /// `Unpushed`.
+    Unpushed,
+    /// `Green`.
+    Green,
+    /// `Idle`.
+    Idle,
+    /// `CiEnd`.
+    CiEnd,
+    /// `Timeout`.
+    Timeout,
+}
+
+/// WatchSupervisor — `conductor.host.WatchSupervisor`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WatchSupervisor {
+    /// `instance` — `List<String>`.
+    pub instance: Vec<String>,
+    /// `checkout` — `List<String>`.
+    pub checkout: Vec<String>,
+    /// `timeout` — `Optional<String>`.
+    pub timeout: Option<String>,
+    /// `hold` — `List<String>`.
+    pub hold: Vec<String>,
     /// `format` — `Optional<String>`.
     pub format: Option<String>,
 }
@@ -1235,6 +1290,15 @@ pub struct InvalidSize {
     pub bytes: i64,
 }
 
+/// The declared error `conductor.host.InvalidWatchTimeout`.
+///
+/// The watch's timeout is not a whole number of seconds, minutes or hours above 0.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InvalidWatchTimeout {
+    /// `timeout` — `String`.
+    pub timeout: String,
+}
+
 /// The declared error `conductor.host.NotADiskGrant`.
 ///
 /// The host grant is a slot, not a disk reservation; it runs no command.
@@ -1242,6 +1306,26 @@ pub struct InvalidSize {
 pub struct NotADiskGrant {
     /// `grant_id` — `conductor.host.GrantId`.
     pub grant_id: GrantId,
+}
+
+/// The declared error `conductor.host.SupervisorWatchRunning`.
+///
+/// Another supervisor watch runs on this host directory; this one read nothing.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SupervisorWatchRunning {
+    /// `pid` — `Integer`.
+    pub pid: i64,
+}
+
+/// The declared error `conductor.host.WatchStateUnwritable`.
+///
+/// The supervisor watch cannot write its directory under the host directory.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WatchStateUnwritable {
+    /// `path` — `String`.
+    pub path: String,
+    /// `detail` — `String`.
+    pub detail: String,
 }
 
 /// Host grants — one row of the view `conductor.host.Grants`.

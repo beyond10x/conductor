@@ -412,6 +412,41 @@ pub fn open_url(url: &str, instance: &str) -> Result<Store> {
     Store::opened(&state, location, instance, Mode::Create)
 }
 
+/// Opens, only to read, the store of the instance named `instance` whose state directory is
+/// `state` under a config file whose `daemon.store` is `written`
+/// (story:supervisor-watch-command): the database `written` names as that instance, else the
+/// state directory's own `<state>/store.sqlite`, as [`located`] finds either for the instance a
+/// process runs. Nothing is created: a database that is not there is refused.
+///
+/// # Errors
+///
+/// As [`open_reader`]; or `written` is no store URL.
+pub fn open_reader_of(state: &Path, instance: &str, written: Option<&str>) -> Result<Store> {
+    let (location, tenant) = match written {
+        Some(url) => (Location::parse(url)?, instance),
+        None => (Location::Sqlite(state.join(STORE_FILE)), CONDUCTOR),
+    };
+    if holds_tree(state) && matches!(&location, Location::Sqlite(path) if !is_file(path)) {
+        bail!(unmigrated_line(state));
+    }
+    Store::opened(state, location, tenant, Mode::Reader)
+}
+
+/// Opens, only to read, the store at `url` as `instance` when its database is there: the
+/// daemon's, read by `conductor supervisor watch` (story:supervisor-watch-command).
+///
+/// # Errors
+///
+/// `url` is no store URL, the database is not there, or it does not open.
+pub fn open_reader_url(url: &str, instance: &str) -> Result<Store> {
+    let location = Location::parse(url)?;
+    let state = match &location {
+        Location::Sqlite(path) => path.parent().map_or_else(PathBuf::new, Path::to_owned),
+        Location::Postgres(_) => env::current_dir().unwrap_or_default(),
+    };
+    Store::opened(&state, location, instance, Mode::Reader)
+}
+
 /// [`open`], [`open_existing`] or [`open_reader`], by `mode`.
 fn opened_on(state: &Path, mode: Mode) -> Result<Store> {
     let (location, instance) = located(state)?;
