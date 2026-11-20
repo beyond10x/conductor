@@ -1,5 +1,5 @@
 // generated from conductor v1
-// contract digest d350cd82050d0055f444f8dd5113015e8308a7c611d42a1bf018a90db75feb08
+// contract digest f211df78f7e86952af7f2c6b1430dbdc1ff3c13ace783e6872ec932be9a0f32b
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! conductor-instance — the `conductor-instance` component of `conductor` v1.

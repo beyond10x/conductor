@@ -2,8 +2,8 @@
   "provenance": {
     "system": "conductor",
     "specification_version": "v1",
-    "source_digest": "16e3a6c202a8ee8dc8d209d2f86ced77c188ae493feb6e63dd03da75b67316e9",
-    "contract_digest": "d350cd82050d0055f444f8dd5113015e8308a7c611d42a1bf018a90db75feb08"
+    "source_digest": "7d164cdb374457abb171b97537afcc8267924d0d3fb80e49a98a7f16de0c81b8",
+    "contract_digest": "f211df78f7e86952af7f2c6b1430dbdc1ff3c13ace783e6872ec932be9a0f32b"
   },
   "scope": {
     "profile": "component-skeletons",
@@ -2113,6 +2113,20 @@
     {
       "kind": "domain_type",
       "source": "conductor.session.DeliveryId",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.session.DirectorKeep",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.session.DirectorState",
       "disposition": {
         "disposition": "generated"
       }

@@ -17,12 +17,14 @@ fn root() -> PathBuf {
 }
 
 /// The roles the binary carries a profile for, each with a name it also answers to: the v0 name
-/// of the role (`conductor.config.RoleName`).
-const ROLES: [(&str, &str); 4] = [
+/// of the role (`conductor.config.RoleName`). The director's came back for the session the runtime
+/// of a boxed instance starts in its box (`story:box-runtime-starts-director`).
+const ROLES: [(&str, &str); 5] = [
     ("maintainer", "conductor-dev"),
     ("supervisor", "supervisor"),
     ("teacher", "teacher"),
     ("controller", "lead"),
+    ("director", "conductor"),
 ];
 
 /// A case directory under the target's temporary directory, empty.

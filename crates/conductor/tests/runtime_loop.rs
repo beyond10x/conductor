@@ -314,3 +314,50 @@ fn with_the_loop_off_the_runtime_serves_the_api_alone() {
         case.said()
     );
 }
+
+/// `story:box-runtime-starts-director`, its guard: the loop of an instance at placement `none`
+/// starts no director, whatever its roles name: one watch tick and one cycle tick write no
+/// `director.json`, no `director-started` line, and call no harness to start a session.
+#[test]
+fn an_unboxed_runtime_starts_no_director() {
+    let case = Case::new("unboxed-director");
+    let text = case
+        .text()
+        .replace("    placement: local\n", "    placement: none\n")
+        .replace(
+            "    cadence: {watch: 1s}\n",
+            "    cadence: {watch: 1s}\n    roles:\n      - {role: director, harness: claude, \
+             model: opus}\n",
+        );
+    fs::write(case.file(), text).expect("write the config file");
+    let log = case.dir.join("claude.log");
+    let claude = case.dir.join("b/claude");
+    fs::write(
+        &claude,
+        format!(
+            "#!/bin/sh\nprintf '%s\\n' \"$*\" >> '{}'\necho '[]'\n",
+            log.display()
+        ),
+    )
+    .expect("write the stand-in");
+    let output = case.conductor(&["run", "--once"]);
+    assert!(
+        !case.state().join("run/director.json").exists(),
+        "no director.json: {}",
+        describe(&output)
+    );
+    let lines = fs::read_dir(case.dir.join("r/dispatches"))
+        .expect("the dispatch log's directory")
+        .filter_map(Result::ok)
+        .map(|entry| fs::read_to_string(entry.path()).unwrap_or_default())
+        .collect::<String>();
+    assert!(
+        !lines.contains("director-started"),
+        "no director-started line: {lines}"
+    );
+    let calls = fs::read_to_string(&log).unwrap_or_default();
+    assert!(
+        calls.lines().all(|call| call.starts_with("agents")),
+        "the harness only lists sessions: {calls}"
+    );
+}

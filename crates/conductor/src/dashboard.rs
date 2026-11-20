@@ -1831,7 +1831,17 @@ fn collect(
         errors.push(error);
         sessions::Roster::default()
     });
-    let shown = sessions::shown(&listed.rows, &roster, &dispatches, now);
+    let mut shown = sessions::shown(&listed.rows, &roster, &dispatches, now);
+    // The director's row says why no director runs in a boxed instance's box
+    // (`story:box-runtime-starts-director`): the keeper's record, `null` when unboxed.
+    let director = crate::run::director::shown(&config::active().instance, &sources.health.state);
+    for row in &mut shown.rows {
+        if row["role"] == "conductor"
+            && let Value::Object(row) = row
+        {
+            row.insert("director".to_owned(), director.clone());
+        }
+    }
     let mut disk = disk(&sources.disk, &mut errors);
     if let (Value::Object(disk), Value::Object(waste)) = (&mut disk, waste) {
         disk.extend(waste);

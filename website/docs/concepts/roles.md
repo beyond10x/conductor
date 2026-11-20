@@ -3,7 +3,7 @@ title: Roles
 sidebar_position: 1
 description: The operator, conductor, the maintainer, one controller per repository with its workers, and the host roles supervisor and teacher; who owns what and who talks to whom.
 lede: Each role owns one part of the work, and every message between an instance's sessions runs through conductor.
-source: docs/design/conductor.md sections 2, 3, 11 and 12; docs/design/architecture-next.md section 10; crates/conductor/roles/maintainer.md, controller.md, supervisor.md, teacher.md; crates/conductor/src/role.rs, config.rs, controller.rs, daemon/host_roles.rs
+source: docs/design/conductor.md sections 2, 3, 11 and 12; docs/design/architecture-next.md section 10; crates/conductor/roles/maintainer.md, controller.md, director.md, supervisor.md, teacher.md; crates/conductor/src/role.rs, config.rs, controller.rs, run/director.rs, daemon/host_roles.rs
 ---
 
 ## The roles
@@ -73,12 +73,19 @@ Every session follows a generic profile the binary carries, compiled in from
 |---|---|
 | `maintainer.md` | the maintainer |
 | `controller.md` | every controller |
+| `director.md` | the director: the instance's session that answers the operator |
 | `supervisor.md`, `teacher.md` | the host's supervisor and teacher |
 | `rules.md`, in the records | every session, after its profile: the organization's rules, one section per role, each with its source |
 | `charters/<repo>.md`, in the records | one controller: its goal, boundaries, current dispatch and standing decisions |
 
-The binary carries no profile for `director`, which starts with the agent `conductor`. A role's
-`profile` in the config takes the place of the binary's text. The profiles name no organization: a
+The director starts from `director.md`, boxed or not: `conductor session start --role director`
+writes it into the state and appends it, with no `--agent`. In an instance whose `placement` opens a
+box, the instance's runtime starts the director in the box and keeps it running: a director that
+ends is started again, at once the first time and then after a wait of 5 minutes doubling to at
+most an hour, and one stopped with `conductor session stop --role director` stays stopped until it is
+started again. `conductor doctor` and the dashboard's Sessions page say when the runtime starts a
+missing director next and why its last start failed. At `placement: none` the director is started
+by hand. A role's `profile` or `agent` in the config takes the place of the binary's text. The profiles name no organization: a
 value that differs per instance is written `section.key`, such as `thresholds.disk_low`, and read
 from `conductor config show --format json`.
 

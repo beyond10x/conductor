@@ -1246,3 +1246,192 @@ fn the_director_s_name_is_never_a_repository_controller_s() {
         controller.session_id
     );
 }
+
+impl Case {
+    /// Makes the case's instance a boxed one whose runtime's loop runs `run --once` in its box
+    /// with no unit of work to start (`story:box-runtime-starts-director`): no charter, and forge
+    /// and planning stand-ins that list nothing.
+    fn make_boxed_for_the_keeper(&self) {
+        let port = TcpListener::bind("127.0.0.1:0")
+            .expect("bind a free port")
+            .local_addr()
+            .expect("its address")
+            .port();
+        self.make_boxed(port);
+        fs::remove_file(self.records().join("charters/alpha.md")).expect("remove the charter");
+        for (name, body) in [
+            ("gh", "echo '[]'"),
+            ("glab", "echo '[]'"),
+            ("aep", "echo '[]'"),
+        ] {
+            let file = self.dir.join("bin").join(name);
+            write(&file, &format!("#!/bin/sh\n{body}\n"));
+            fs::set_permissions(&file, fs::Permissions::from_mode(0o755))
+                .expect("make it runnable");
+        }
+    }
+
+    /// One watch tick and one cycle tick of the instance's loop, in its box.
+    fn tick_in_box(&self) -> Output {
+        self.run_at(Side::Box, &["run", "--once"], "")
+    }
+
+    /// The box's live entry of the director `ex-director`.
+    fn director(&self) -> Option<child::Entry> {
+        child::live_named(&self.box_registry(), "ex-director")
+    }
+
+    /// The dispatch log's `director-started` lines.
+    fn director_started(&self) -> Vec<Value> {
+        let Ok(read) = fs::read_dir(self.records().join("dispatches")) else {
+            return Vec::new();
+        };
+        read.filter_map(Result::ok)
+            .flat_map(|entry| {
+                fs::read_to_string(entry.path())
+                    .unwrap_or_default()
+                    .lines()
+                    .filter_map(|line| serde_json::from_str::<Value>(line).ok())
+                    .collect::<Vec<_>>()
+            })
+            .filter(|line| line["event"] == "director-started")
+            .collect()
+    }
+
+    /// The keeper's record, `<state>/run/director.json`.
+    fn keep(&self) -> Value {
+        serde_json::from_str(
+            &fs::read_to_string(self.state().join("run/director.json")).expect("director.json"),
+        )
+        .expect("director.json is JSON")
+    }
+
+    /// Ends the director's session as a crash would: `SIGKILL` to its process group, then waits
+    /// until its process is gone.
+    fn kill_director(&self) {
+        let pid = self
+            .director()
+            .and_then(|entry| entry.pid)
+            .expect("a live director");
+        // SAFETY: a signal to the process group the case's director session leads.
+        unsafe {
+            libc::kill(-i32::try_from(pid).expect("a pid"), libc::SIGKILL);
+        }
+        assert!(gone(pid), "the director's process {pid} ended");
+    }
+}
+
+/// `story:box-runtime-starts-director`, acceptance 1: a runtime in its instance's box (sockets
+/// refused, the box's `CLAUDE_CONFIG_DIR`) whose instance has a director role and no director
+/// session starts one within one watch tick: the box's registry holds a live `ex-director` whose
+/// working directory is the records directory, started from the profile the binary carries
+/// (`--append-system-prompt-file`, no `--agent`), and the dispatch log says `director-started`,
+/// `none ran`.
+#[test]
+fn a_boxed_runtime_starts_its_director_in_the_box() {
+    let case = Case::new("keeper-starts");
+    case.make_boxed_for_the_keeper();
+    let output = case.tick_in_box();
+    let entry = case
+        .director()
+        .unwrap_or_else(|| panic!("a live director in the box: {}", describe(&output)));
+    assert_eq!(
+        Path::new(&entry.cwd),
+        case.records(),
+        "it works in the records"
+    );
+    let start = case
+        .calls()
+        .into_iter()
+        .find(|call| call.starts_with("-p ") && call.contains("-n ex-director "))
+        .unwrap_or_else(|| panic!("the director's start: {:?}", case.calls()));
+    assert!(!start.contains("--agent"), "{start}");
+    let words: Vec<&str> = start.split(' ').collect();
+    let file = words
+        .iter()
+        .position(|word| *word == "--append-system-prompt-file")
+        .map(|at| words[at + 1])
+        .unwrap_or_else(|| panic!("--append-system-prompt-file: {start}"));
+    let shown = succeeded(
+        &case.run_at(Side::Host, &["role", "show", "--role", "director"], ""),
+        "role show",
+    );
+    assert_eq!(
+        fs::read(file).expect("the profile file"),
+        shown,
+        "the profile is the binary's"
+    );
+    let lines = case.director_started();
+    assert_eq!(lines.len(), 1, "{lines:?}");
+    assert_eq!(lines[0]["session"], "ex-director");
+    assert_eq!(lines[0]["reason"], "none ran");
+    assert_eq!(case.keep()["state"], "Running");
+}
+
+/// `story:box-runtime-starts-director`, acceptance 2: a director whose session ends is started
+/// again by the next tick, `gone`; after a second early end the keeper waits the loop's back-off,
+/// five minutes after the last start, and that tick starts none.
+#[test]
+fn a_boxed_runtime_starts_its_director_again_once_it_ends() {
+    let case = Case::new("keeper-restarts");
+    case.make_boxed_for_the_keeper();
+    let output = case.tick_in_box();
+    assert!(case.director().is_some(), "{}", describe(&output));
+    case.kill_director();
+    let output = case.tick_in_box();
+    assert!(
+        case.director().is_some(),
+        "started again: {}",
+        describe(&output)
+    );
+    let lines = case.director_started();
+    assert_eq!(lines.len(), 2, "{lines:?}");
+    assert_eq!(lines[1]["reason"], "gone");
+    case.kill_director();
+    let output = case.tick_in_box();
+    assert!(
+        case.director().is_none(),
+        "no third start in that tick: {}",
+        describe(&output)
+    );
+    assert_eq!(case.director_started().len(), 2);
+    let keep = case.keep();
+    assert_eq!(keep["state"], "Waiting", "{keep}");
+    assert_eq!(keep["attempts"], 2, "{keep}");
+    let at = |key: &str| {
+        time::OffsetDateTime::parse(
+            keep[key]
+                .as_str()
+                .unwrap_or_else(|| panic!("{key}: {keep}")),
+            &time::format_description::well_known::Rfc3339,
+        )
+        .expect("an RFC 3339 instant")
+    };
+    assert_eq!(
+        at("next_start_at") - at("started_at"),
+        time::Duration::minutes(5),
+        "{keep}"
+    );
+}
+
+/// `story:box-runtime-starts-director`: while the keeper's director runs, a start by hand in the
+/// box is refused `SessionRunning`, and the registry holds one director.
+#[test]
+fn a_hand_start_refuses_while_the_keepers_director_runs() {
+    let case = Case::new("keeper-hand-start");
+    case.make_boxed_for_the_keeper();
+    let output = case.tick_in_box();
+    assert!(case.director().is_some(), "{}", describe(&output));
+    let output = case.run_at(Side::Box, &["session", "start", "--role", "director"], "");
+    assert_eq!(output.status.code(), Some(1), "{}", describe(&output));
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("SessionRunning"),
+        "{}",
+        describe(&output)
+    );
+    let live = child::entries(&case.box_registry())
+        .into_iter()
+        .filter(|entry| entry.name == "ex-director" && entry.live_pid().is_some())
+        .count();
+    assert_eq!(live, 1, "one director");
+}

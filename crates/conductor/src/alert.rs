@@ -38,6 +38,11 @@ pub const BOX_NOT_RECREATED: &str = "box-not-recreated";
 /// (`story:need-starts-unit-of-work`); its subject is `<repo> <request-id>`.
 pub const NEED_UNROUTABLE: &str = "need-unroutable";
 
+/// The condition of a boxed instance's director whose start by the runtime failed
+/// [`crate::run::director::FAILURES_MOST`] times in a row (`story:box-runtime-starts-director`); its
+/// subject is the instance, and it holds until a tick sees a director run.
+pub const DIRECTOR_NOT_STARTED: &str = "director-not-started";
+
 /// How long the desktop notifier may run.
 const NOTIFY_BOUND: Duration = Duration::from_secs(10);
 

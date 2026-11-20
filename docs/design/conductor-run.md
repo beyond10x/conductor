@@ -171,7 +171,10 @@ itself over, to resume anyone, to free disk, or to relay a line: the daemon does
 controller profile keeps: read the charter and the repository's `AGENTS.md`, plan in the store,
 deliver in waves in managed trees, report with `conductor message send`, build with `conductor
 build run`, stop on `[HANDOVER]` after writing the hand-over file. The conductor profile is
-retired. The maintainer profile is at most 60 lines.
+retired. The maintainer profile is at most 60 lines. The director's profile is back
+(`story:box-runtime-starts-director`), at most 60 lines, for the session that answers the
+operator: the runtime of a boxed instance starts it in the box, which reads no role file, and
+keeps it running; it lists what the session reads at start and arms, watches and relays nothing.
 
 Isolation: `story:session-home-spike` starts one controller with `HOME`, `CLAUDE_CONFIG_DIR` and
 `TMPDIR` under `<instance>/home/` and records what the harness then lacks (plugins, trust, the
