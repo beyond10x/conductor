@@ -574,6 +574,91 @@ fn a_person_creates_reads_replaces_and_removes_one_instance() {
     assert_eq!(revisions[2].reason, "the tenant left");
 }
 
+/// story:config-put-touches-only-its-path: on a two-instance file with comments and a flow role
+/// item in each, a replace changes only that instance's item's lines, an add appends one item,
+/// and a remove takes that item's lines only; every other line, comments and blank lines
+/// included, is kept.
+#[test]
+fn each_instance_change_touches_only_its_own_item() {
+    let case = Case::new("styled");
+    let text = format!(
+        "# the host's instances, written by hand\nversion: conductor.config/2\ndaemon: \
+         {{store: {:?}}}\n\ninstances:\n  # alpha first\n{}    roles:\n      - {{role: director, \
+         harness: claude, model: opus}}   # the director\n\n  # beta second\n{}    roles:\n      \
+         - {{role: director, harness: claude, model: opus}}\n",
+        case.store(),
+        case.instance_yaml("alpha"),
+        case.instance_yaml("beta"),
+    );
+    fs::write(case.file(), &text).expect("write the config file");
+    case.assert_valid();
+    let identity = fake_identity();
+    let listener = serve_tls(&case, api(&case, Some(&identity)));
+    let send =
+        |method, target: &str, body: Option<&Value>| tls(&listener, method, target, &[OWNER], body);
+    let alpha = text.find("  - name: alpha").expect("alpha's item");
+    let after_alpha = text.find("   # the director\n").expect("alpha's last line") + 18;
+
+    // Replace alpha: the lines before its item and after its last line stay as they were.
+    let replaced = send(
+        "PUT",
+        "/v1/instances/alpha",
+        Some(&json!({"mapping": case.mapping("alpha", "alpha-two"), "reason": "a new prefix"})),
+    );
+    assert_eq!(replaced.status, 200, "{replaced:?}");
+    let new = case.text();
+    assert!(new.starts_with(&text[..alpha]), "{new}");
+    assert!(new.ends_with(&text[after_alpha..]), "{new}");
+    let item = &new[alpha..new.len() - (text.len() - after_alpha)];
+    assert!(item.starts_with("  - name: alpha\n"), "{new}");
+    assert!(item.contains("session_prefix: alpha-two"), "{new}");
+    assert!(!item.contains("# the director"), "{new}");
+    case.assert_valid();
+
+    // Add gamma: one item appended, every old line kept.
+    let before = case.text();
+    let created = send(
+        "POST",
+        "/v1/instances",
+        Some(&json!({"mapping": case.mapping("gamma", "gamma"), "reason": "a new tenant"})),
+    );
+    assert_eq!(created.status, 201, "{created:?}");
+    let new = case.text();
+    assert!(new.starts_with(&before), "{new}");
+    let added = &new[before.len()..];
+    assert!(added.starts_with("  - name: gamma\n"), "{new}");
+    assert_eq!(
+        added
+            .lines()
+            .filter(|line| line.starts_with("  - "))
+            .count(),
+        1,
+        "{new}"
+    );
+    case.assert_valid();
+
+    // Remove beta: its item's lines only, the comment before it and gamma after it kept.
+    let before = case.text();
+    let beta = before.find("  - name: beta").expect("beta's item");
+    let gamma = before.find("  - name: gamma").expect("gamma's item");
+    let removed = send(
+        "DELETE",
+        "/v1/instances/beta",
+        Some(&json!({"reason": "the tenant left"})),
+    );
+    assert_eq!(removed.status, 200, "{removed:?}");
+    assert_eq!(
+        case.text(),
+        format!("{}{}", &before[..beta], &before[gamma..])
+    );
+    assert!(
+        case.text().contains("\n  # beta second\n"),
+        "{}",
+        case.text()
+    );
+    case.assert_valid();
+}
+
 /// A bearer without the grant changes no instance: refused with the grant's name.
 #[test]
 fn a_person_without_the_grant_is_refused_by_its_name() {

@@ -5,8 +5,14 @@
 //! and `conductor config put` call. The daemon reconciles on its next tick: it reads the file's
 //! text changed (`ReconcileReason::ConfigChange`).
 //!
-//! The file is written whole, as YAML reads it back, so a comment of the file is not kept. A
-//! file in no git checkout, or one its checkout ignores, is written and not committed: its
+//! Only the text of the named path changes, in the style it stands in (`super::edit`,
+//! story:config-put-touches-only-its-path): the file's comments, key order, quoting and blank
+//! lines are kept. Where the text cannot be edited so (a shape the locator does not read on the
+//! path, or an edit that does not read back as the change), the file is written whole, as YAML
+//! writes the changed tree, and one line `config put: <yaml path>: <why>; the file is written
+//! whole` goes to standard error and into the commit's body. A change that leaves the text as it
+//! was writes and commits nothing; its revision is recorded with an empty `commit`. A file in no
+//! git checkout, or one its checkout ignores, is written and not committed: its
 //! revision's `commit` is empty. A commit that fails puts the old text back, when the file still
 //! holds this run's text, and nothing is recorded. One run at a time reads, writes, commits and
 //! records: each holds an exclusive lock on `.<name>.lock` beside the file.
@@ -30,7 +36,7 @@ use conductor_model::operator::{ActorKind, ActorNotHuman};
 use conductor_model::primitives::Uuid;
 use serde_yaml::{Mapping, Value as Yaml};
 
-use super::{Problem, VERSION_2, parse};
+use super::{Problem, VERSION_2, edit, parse};
 use crate::store::{Store, level_name};
 
 /// The key of an instance's standing rules (story:instance-rules-text), which no change of this
@@ -185,7 +191,8 @@ fn scope<'f>(
 }
 
 /// Sets (or, with no `value`, removes) the dotted `path` under `map`, making each mapping on the
-/// way; a refusal when a step is not a mapping.
+/// way for a value (a removal makes none: a key on no path is removed already); a refusal when a
+/// step is not a mapping.
 fn set(
     map: &mut Mapping,
     path: &str,
@@ -206,6 +213,9 @@ fn set(
     let mut walked = under.to_owned();
     for step in steps {
         walked = format!("{walked}.{step}");
+        if value.is_none() && !at.contains_key(step) {
+            return Ok(());
+        }
         let next = at
             .entry(Yaml::from(step))
             .or_insert_with(|| Yaml::Mapping(Mapping::new()));
@@ -363,6 +373,33 @@ pub fn put_config(
     store: &mut Store,
     input: &PutConfig,
 ) -> Result<Result<ConfigRevisionData, PutRefusal>> {
+    Ok(match put_config_written(file, home, store, input)? {
+        Ok(written) => Ok(written.revision),
+        Err(refusal) => Err(refusal),
+    })
+}
+
+/// What an accepted change wrote: its revision, and whether the file already held it, so that
+/// nothing was written or committed.
+#[derive(Debug, Clone)]
+pub struct Written {
+    /// The revision recorded.
+    pub revision: ConfigRevisionData,
+    /// The text was left as it was: nothing was written, nothing committed.
+    pub unchanged: bool,
+}
+
+/// [`put_config`], with whether the change left the file's text as it was.
+///
+/// # Errors
+///
+/// As [`put_config`].
+pub fn put_config_written(
+    file: &Path,
+    home: &Path,
+    store: &mut Store,
+    input: &PutConfig,
+) -> Result<Result<Written, PutRefusal>> {
     let fits = match input.level {
         Level::Default => false,
         Level::Global => input.instance.is_none() && input.role.is_none(),
@@ -417,6 +454,8 @@ pub fn put_config(
     let value = input.value.as_deref().map(|text| {
         serde_yaml::from_str::<Yaml>(text).unwrap_or_else(|_| Yaml::from(text.to_owned()))
     });
+    // A removal under a `globals` the file lacks leaves the file as it was: no empty `globals`.
+    let had_globals = yaml.get("globals").is_some();
     let under = match scope(&mut yaml, input) {
         Ok((under, map)) => {
             // A mapping renamed here would carry its standing rules to whichever instance takes
@@ -435,14 +474,34 @@ pub fn put_config(
                     RENAMED_WITH_RULES,
                 )));
             }
-            if let Err(refusal) = set(map, &input.path, value, &under, input) {
+            if let Err(refusal) = set(map, &input.path, value.clone(), &under, input) {
                 return Ok(Err(*refusal));
             }
             under
         }
         Err(refusal) => return Ok(Err(*refusal)),
     };
-    let new = serde_yaml::to_string(&yaml).context("write the changed config as YAML")?;
+    if !had_globals
+        && value.is_none()
+        && let Some(root) = yaml.as_mapping_mut()
+        && root
+            .get("globals")
+            .and_then(Yaml::as_mapping)
+            .is_some_and(Mapping::is_empty)
+    {
+        root.remove("globals");
+    }
+    // The text of the path alone, where the locator can edit it and the edit reads back as the
+    // changed tree; else the tree written whole, and why.
+    let instance = input.instance.as_ref().map_or("", |name| name.0.as_str());
+    let role = input.role.as_ref().map_or("", |role| role.0.as_str());
+    let at = match input.level {
+        Level::Global | Level::Default => edit::Scope::Global,
+        Level::Instance => edit::Scope::Instance(instance),
+        Level::Role => edit::Scope::Role(instance, role),
+    };
+    let edited = edit::put(&old, at, &input.path, value.as_ref());
+    let (new, whole) = edit::checked(edited, &yaml).context("write the changed config as YAML")?;
     let config = match parse(&new, home) {
         Ok(config) => config,
         Err(problems) => {
@@ -472,8 +531,26 @@ pub fn put_config(
         input.path,
         level_name(input.level).to_ascii_lowercase()
     );
-    let body = format!("{}\n\nActor: {who}", input.reason);
-    let committed = replace(file, &old, &new, &subject, &body)?;
+    let whole = whole.map(|why| {
+        format!(
+            "config put: {under}.{}: {why}; the file is written whole",
+            input.path
+        )
+    });
+    let body = match &whole {
+        Some(line) => format!("{}\n\n{line}\n\nActor: {who}", input.reason),
+        None => format!("{}\n\nActor: {who}", input.reason),
+    };
+    // A text the change leaves as it was is not written, and there is nothing to commit.
+    let unchanged = new == old;
+    let committed = if unchanged {
+        None
+    } else {
+        if let Some(line) = &whole {
+            eprintln!("{line}");
+        }
+        replace(file, &old, &new, &subject, &body)?
+    };
     let data = ConfigRevisionData {
         revision_id: RevisionId(Uuid(eventlog_core::new_event_id())),
         actor: input.actor.clone(),
@@ -493,7 +570,10 @@ pub fn put_config(
     store
         .check()
         .map_err(|error| anyhow!("record the config change: {error}"))?;
-    Ok(Ok(data))
+    Ok(Ok(Written {
+        revision: data,
+        unchanged,
+    }))
 }
 
 /// The `ConfigChanged` a revision publishes.

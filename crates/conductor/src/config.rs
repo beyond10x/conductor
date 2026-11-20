@@ -167,6 +167,7 @@ use crate::cli::{
 };
 
 pub mod convert;
+mod edit;
 pub mod effective;
 pub mod instance;
 pub mod pod;
@@ -7930,9 +7931,14 @@ pub fn put(config: Option<&Path>, args: &PutConfigArgs) -> Result<ExitCode> {
         reason,
         changed_at: crate::records::now().context(WHAT)?,
     };
-    match put::put_config(&file, home, &mut store, &input).context(WHAT)? {
-        Ok(revision) => {
-            let commit = if revision.commit.is_empty() {
+    match put::put_config_written(&file, home, &mut store, &input).context(WHAT)? {
+        Ok(put::Written {
+            revision,
+            unchanged,
+        }) => {
+            let commit = if unchanged {
+                "unchanged: the file already holds that value".to_owned()
+            } else if revision.commit.is_empty() {
                 format!("not committed: {} is in no git checkout", file.display())
             } else {
                 format!("committed {}", revision.commit)

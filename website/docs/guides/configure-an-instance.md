@@ -123,8 +123,11 @@ $ conductor config put --level instance --instance personal --path thresholds.si
 | `--value` | read as YAML. Without it the key is removed at that level, so the level below applies again |
 | `--reason` | written into the commit body and the revision. Required |
 
-It prints the revision id, the key, the level and the commit. The file is written whole, so its
-comments are lost, and a change that would not validate writes nothing. An agent's change is
+It prints the revision id, the key, the level and the commit, or `unchanged` when the file already
+holds that value. Only the key's text changes, in the file's own style, and its comments are kept;
+where a shape on the path prevents that (an anchor, alias or tag, a value over more than one line),
+the file is written whole and one line on standard error and in the commit says why. A change
+that would not validate writes nothing. An agent's change is
 refused `ActorNotHuman` unless `globals.tuning.keys` allows the key and value. With
 `--daemon <url>` the change goes to that daemon's `PUT /v1/config`
 ([remote daemon](./remote-daemon.md)).
