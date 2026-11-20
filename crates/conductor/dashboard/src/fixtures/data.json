@@ -62,7 +62,8 @@
       "cwd": "~/example-org/records",
       "started_at": "2026-10-13T06:30:00Z",
       "started_ago": "3h 0m",
-      "dispatch": null
+      "dispatch": null,
+      "director": null
     },
     {
       "name": "ex-alpha",
@@ -83,7 +84,8 @@
         "event": "started",
         "event_at": "2026-10-13T09:25:00Z",
         "event_ago": "5m"
-      }
+      },
+      "director": null
     },
     {
       "name": "ex-beta",
@@ -104,7 +106,8 @@
         "event": "done",
         "event_at": "2026-10-13T09:00:00Z",
         "event_ago": "30m"
-      }
+      },
+      "director": null
     }
   ],
   "watch": {

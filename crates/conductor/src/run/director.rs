@@ -700,7 +700,7 @@ mod tests {
         let registry = world.dir.join("registry");
         fs::create_dir_all(&registry).expect("a registry");
         let id = format!("d{}-limited", std::process::id());
-        let mut process = std::process::Command::new("sh")
+        let mut process = crate::instance::command("sh")
             .args(["-c", "sleep 60; :", &id])
             .spawn()
             .expect("a stand-in session");
