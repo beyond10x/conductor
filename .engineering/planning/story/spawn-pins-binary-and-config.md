@@ -6,8 +6,6 @@ status: active
 title: A spawned session's hooks run the spawning binary against the instance's config
 scope:
 - confidence: cited
-  path: crates/conductor/http.yaml
-- confidence: cited
   path: crates/conductor/src/config.rs
 - confidence: cited
   path: crates/conductor/src/session.rs
@@ -15,12 +13,6 @@ scope:
   path: crates/conductor/src/spawn.rs
 - confidence: cited
   path: crates/conductor/tests/confine.rs
-- confidence: cited
-  path: crates/conductor/tests/host_roles.rs
-- confidence: cited
-  path: crates/conductor/tests/instance_isolation.rs
-- confidence: cited
-  path: crates/conductor/tests/run.rs
 - confidence: cited
   path: crates/conductor/tests/spawn.rs
 - confidence: cited
@@ -30,8 +22,10 @@ scope:
 - confidence: cited
   path: spec/domains/session.yaml
 - confidence: cited
+  path: website/docs/reference/config.md
+- confidence: cited
   path: website/docs/security/sessions.md
-revision: 21
+revision: 22
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-10T00:18:00Z", actor: "human:timo", revision: 5}
 - {from: "proposed", to: "active", at: "2026-11-10T00:18:01Z", actor: "human:timo", revision: 6}

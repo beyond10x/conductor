@@ -271,11 +271,15 @@ types:
   # A settings file pins its instance (story:instance-isolation): its `env.CONDUCTOR_INSTANCE` is
   # the instance's name, and each of its hook commands that runs `conductor` names the instance
   # first, `CONDUCTOR_INSTANCE=<name> conductor guard …`, since the harness does not pass the
-  # environment its starter set on to a session it forks. A role's own settings file that pins
-  # no instance (no `env.CONDUCTOR_INSTANCE`, or a hook command that runs `conductor` without the
-  # prefix), as the binary's do, starts pinned: `session start` and `spawn` write its content
-  # with the pin set to `<state>/sessions/<session name>.settings.json` and start the session with
-  # that copy, and `config validate` reports it, by its `settings` path, as a note. A settings file
+  # environment its starter set on to a session it forks. Under a config file a session always
+  # starts with a copy of its role's settings (story:spawn-pins-binary-and-config): `session
+  # start` and `spawn` (and a resume) write its content to `<state>/sessions/<session
+  # name>.settings.json` with the pin's three parts set: `env.CONDUCTOR_INSTANCE` the instance's
+  # name, `env.CONDUCTOR_CONFIG` the config file's absolute path, and in each hook command that
+  # runs `conductor` the prefix and, as its program, the path of the binary that starts the
+  # session; the role's own file is not changed. A role's own settings file that pins no instance
+  # (no `env.CONDUCTOR_INSTANCE`, or a hook command that runs `conductor` without the prefix), as
+  # the binary's do, `config validate` reports, by its `settings` path, as a note. A settings file
   # that pins another instance, or cannot be read as JSON, is a problem `config validate` names by
   # its `settings` path, and `session start` and `spawn` refuse it (`InstanceNotPinned`). A role
   # that names none starts with its default written pinned (`conductor.session.SessionStartRefusal`).

@@ -1665,18 +1665,21 @@ fn profile_for(
 /// The settings a session of `role`, which names no settings file of its own, starts with under
 /// a config file (`story:instance-isolation`): the role's default ([`claude_code::settings`]: for
 /// the director the binary's `conductor-settings.json`, an empty one for every other role) pinned
-/// to `instance` ([`config::pinned`]), written to `<state>/sessions/<session name>.settings.json`,
-/// whose path it answers. The harness does not pass the environment it is started with on to the
-/// session it forks, so only the settings select the instance the session's hooks act for.
+/// to `instance`, the config file and this binary ([`config::Pin`], [`config::pinned`]), written
+/// to `<state>/sessions/<session name>.settings.json`, whose path it answers. The harness does not
+/// pass the environment it is started with on to the session it forks, so only the settings
+/// select the instance, the config file and the binary the session's hooks act with.
 ///
 /// # Errors
 ///
 /// The file cannot be written.
 fn write_pinned(role: &Role, instance: &str, state: &Path, name: &SessionName) -> Result<String> {
     let base = claude_code::settings_value(&role.role)?;
-    Ok(config::write_pinned(base, instance, state, &name.0)?
-        .display()
-        .to_string())
+    Ok(
+        config::write_pinned(base, &config::Pin::of(instance), state, &name.0)?
+            .display()
+            .to_string(),
+    )
 }
 
 /// Answers a refusal of `session start`: one line naming its `SessionStartRefusal`, and exit 1.
@@ -1722,7 +1725,7 @@ fn stop_refused(answer: &SessionStopRefused) -> Result<ExitCode> {
 /// process does not run in, as on the host, where it would start unboxed (`OutsideBox`, issue
 /// #220, [`crate::spawn::outside_box`]); under a config file, a role whose own settings
 /// file is not there, is no JSON or pins another instance (`InstanceNotPinned`,
-/// `story:instance-isolation`; one that pins no instance starts with a pinned copy,
+/// `story:instance-isolation`; any other starts with a pinned copy of it,
 /// [`config::session_settings`], and a role with none with its default written pinned,
 /// [`write_pinned`]); a live session holding the
 /// session name (`SessionRunning`); under `strict` a provider not available (`ProviderUnavailable`); a start
@@ -1804,14 +1807,23 @@ pub fn start(
     let cwd = host.as_ref().map_or(&environment.cwd, |host| &host.dir);
     let mut env = Vec::new();
     if active.from_file {
-        let (file, _) = config::locate(config_flag, &environment).context("session start")?;
+        // The file the settings copy pins ([`config::Pin`]), located from this process's working
+        // directory, not the host role's.
+        let file = match config::config_file() {
+            Some(file) => file.to_owned(),
+            None => environment.cwd.join(
+                config::locate(config_flag, &environment)
+                    .context("session start")?
+                    .0,
+            ),
+        };
         env.push((
             config::INSTANCE_VARIABLE.to_owned(),
             instance.name.0.clone(),
         ));
         env.push((
             config::CONFIG_VARIABLE.to_owned(),
-            cwd.join(&file).display().to_string(),
+            file.display().to_string(),
         ));
     }
     let settings = match (&found.settings, active.from_file) {
@@ -1819,8 +1831,13 @@ pub fn start(
             write_pinned(found, &instance.name.0, &state_dir, &name).context("session start")?,
         ),
         (Some(own), true) => Some(
-            config::session_settings(Path::new(&own.0), &instance.name.0, &state_dir, &name.0)
-                .context("session start")?,
+            config::session_settings(
+                Path::new(&own.0),
+                &config::Pin::of(&instance.name.0),
+                &state_dir,
+                &name.0,
+            )
+            .context("session start")?,
         ),
         (Some(own), false) => Some(own.0.clone()),
         (None, false) => claude_code::write_settings(&state_dir, &name.0, &found.role)

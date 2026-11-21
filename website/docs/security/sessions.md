@@ -34,9 +34,10 @@ claude --bg -n <session name> \
 ```
 
 A controller's first prompt is its charter, `<records>/charters/<repo>.md`. `spawn` prints the
-session id. With a config file the session gets `CONDUCTOR_INSTANCE` and the file's absolute path
-in `CONDUCTOR_CONFIG`. `TOOL_SOCKET` is its socket to the instance's tool broker, registered with
-the role's `grant` before the start.
+session id. With a config file the settings copy names the instance and the file's absolute path
+in its `env` ([the settings file](#the-settings-file)); the environment of the process that runs
+`claude --bg` does not reach the session. `TOOL_SOCKET` is its socket to the instance's tool
+broker, registered with the role's `grant` before the start.
 
 A stop is `claude stop <id>`, up to 30 s for the session list to drop it, then `claude rm <id>`. A
 resume is `claude --bg --resume <id>` with the same arguments. `conductor controller
@@ -89,12 +90,22 @@ configuration out, run sessions as an OS user whose user settings hold only the 
 | `maintainer`, `supervisor`, `teacher`, a custom role | an empty settings object: no guard |
 
 A role's own `settings` file takes their place. Make it wire the same hook
-([the guard](/docs/security/the-guard)). Under a config file a session starts with a copy pinned
-to its instance, `<state>/sessions/<session name>.settings.json`:
-`"env": {"CONDUCTOR_INSTANCE": "<name>"}`, and `CONDUCTOR_INSTANCE=<name>` before `conductor` in each hook command. The harness
-does not pass the starter's environment to the session, so only the pin selects the instance its
-hooks act for. A file that pins another instance, or is no JSON, is refused (`InstanceNotPinned`).
-`conductor config validate` names it by its `settings` path.
+([the guard](/docs/security/the-guard)). Under a config file a session always starts with a copy,
+`<state>/sessions/<session name>.settings.json`, written again at every start and resume; the
+role's own file is not changed. The copy pins three things:
+
+- the instance: `"env": {"CONDUCTOR_INSTANCE": "<name>"}`, and `CONDUCTOR_INSTANCE=<name>` before
+  each hook command that runs `conductor`;
+- the config file: `"env": {"CONDUCTOR_CONFIG": "<absolute path>"}`, over any value the file held;
+- the binary: in each such hook, a first word `conductor` or a path ending in `/conductor` becomes
+  the path of the binary that starts the session, so an older `conductor` first on the session's
+  `PATH` does not answer its hooks. A binary file of another name keeps the bare `conductor`.
+
+The harness does not pass the starter's environment to a `claude --bg` session, so only the
+copy's `env` and hook commands select the instance, the config and the binary its hooks act with.
+A session's own `conductor` calls from Bash still find `conductor` on its `PATH`, and read the
+pinned config file. A file that pins another instance, or is no JSON, is refused
+(`InstanceNotPinned`). `conductor config validate` names it by its `settings` path.
 
 When the host's token pool leases the session a token, the copy names no `apiKeyHelper`: the
 value is in the harness process's environment only
