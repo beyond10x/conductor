@@ -171,6 +171,7 @@ export const CHOICES: Record<string, string[]> = {
   'thresholds.repo_cache': ['on', 'off'],
   'authority.class_c': ['conductor', 'operator'],
   'authority.class_o': ['conductor', 'operator'],
+  'controllers.unit_merge': ['controller', 'human'],
 };
 
 function gib(text: string): number {

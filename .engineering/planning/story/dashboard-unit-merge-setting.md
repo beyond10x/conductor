@@ -10,7 +10,14 @@ refs:
   reference: beyond10x/conductor#207
 relations:
 - decomposes: epic:routine-duties-in-loop
-revision: 5
+scope:
+- confidence: cited
+  path: crates/conductor/dashboard/dist
+- confidence: cited
+  path: crates/conductor/dashboard/src/api/config.ts
+- confidence: cited
+  path: crates/conductor/dashboard/tests/config.spec.ts
+revision: 6
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-20T04:41:04Z", actor: "human:unknown", revision: 3}
 - {from: "proposed", to: "active", at: "2026-11-20T04:41:04Z", actor: "human:unknown", revision: 4}
