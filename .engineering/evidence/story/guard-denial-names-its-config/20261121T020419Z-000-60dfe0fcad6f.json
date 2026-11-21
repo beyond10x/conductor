@@ -1,0 +1,13 @@
+{
+  "at": "2026-11-21T02:04:19Z",
+  "actor": "human:unknown",
+  "artifact": "story:guard-denial-names-its-config",
+  "kind": "story",
+  "revision": 7,
+  "change": {
+    "change": "evidence",
+    "kind": "test_result",
+    "source": "cargo test -p conductor-cli --test guard_rules --test guard_hook --test doctor --test adv_w51_doctor_guard --test forge_access_anonymous --test forge_access_anonymous_leaks (all pass; the 4 new guard_rules cases and the changed doctor case failed on the base first); clippy -D warnings clean",
+    "reference": "commit 1dba3acfd"
+  }
+}
