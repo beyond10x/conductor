@@ -33,6 +33,21 @@ export interface Session {
   started_at: string | null;
   started_ago: string | null;
   dispatch: Dispatch | null;
+  /**
+   * The director's row only: what the runtime's keeper of a boxed instance's director recorded
+   * (story:box-runtime-starts-director); null for an unboxed instance.
+   */
+  director?: DirectorKeep | null;
+}
+
+/** The keeper's record of a boxed instance's director, `<state>/run/director.json`. */
+export interface DirectorKeep {
+  /** `Running`, `Waiting`, `Limited` or `Stopped`; null before the runtime tried. */
+  state: 'Running' | 'Waiting' | 'Limited' | 'Stopped' | null;
+  attempts: number;
+  next_start_at: string | null;
+  /** The last start's failure line; null after a start that succeeded. */
+  reason: string | null;
 }
 
 /** A usage limit in force: its text, when it resets, and the sessions it was found in. */

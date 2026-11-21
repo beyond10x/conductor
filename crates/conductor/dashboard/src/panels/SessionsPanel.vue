@@ -12,8 +12,34 @@ const props = defineProps<{ data: DashboardData }>();
 const running = computed(() => props.data.sessions.filter((session) => !session.exited).length);
 const stopped = computed(() => props.data.sessions.length - running.value);
 
+/**
+ * Why no director runs in a boxed instance's box, from the runtime's keeper
+ * (story:box-runtime-starts-director): when it starts the director next, and why its last start
+ * failed; null where the row runs or carries no keeper.
+ */
+function directorWhy(session: Session): string | null {
+  const keep = session.director;
+  if (!session.exited || keep === undefined || keep === null) {
+    return null;
+  }
+  if (keep.state === null) {
+    return 'not running: the runtime has not tried yet';
+  }
+  if (keep.state === 'Stopped') {
+    return 'not running: stopped, the runtime starts it again once it is resumed';
+  }
+  const when = keep.next_start_at === null ? 'at once' : `at ${keep.next_start_at}`;
+  const limited = keep.state === 'Limited' ? ' after its usage limit' : '';
+  const failed = keep.reason === null ? '' : `; last start failed: ${keep.reason}`;
+  return `not running: the runtime starts it ${when}${limited}${failed}`;
+}
+
 /** The status and the state when they differ, `status (state)`, else the one there is. */
 function state(session: Session): string {
+  const why = directorWhy(session);
+  if (why !== null) {
+    return why;
+  }
   const { status, state } = session;
   if (status !== null && state !== null && status !== state) {
     return `${status} (${state})`;
