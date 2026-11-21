@@ -1,0 +1,13 @@
+{
+  "at": "2026-11-21T02:04:41Z",
+  "actor": "human:unknown",
+  "artifact": "story:spawn-pins-binary-and-config",
+  "kind": "story",
+  "revision": 22,
+  "change": {
+    "change": "evidence",
+    "kind": "test_result",
+    "source": "cargo test -p conductor-cli --lib config::tests (6 passed), --test confine (22 passed), --test host_roles (8 passed), --test isolated_home, public_text, roles, no_organization green; clippy -D warnings clean; --test spawn: 15 pass locally, the cases that launch through the none provider need CI (this box refuses AF_UNIX, so spawn falls back to the child provider)",
+    "reference": "branch w74/u2-spawn-pins-binary-and-config at 1771b9800"
+  }
+}
