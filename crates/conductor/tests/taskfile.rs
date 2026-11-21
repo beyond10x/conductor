@@ -576,7 +576,9 @@ fn dev_start_appends_the_binary_s_maintainer_profile_with_settings_pinned_to_its
 }
 
 /// The role conductor-dev's `settings` and `profile` reach its start command: the profile in
-/// place of `--agent`.
+/// place of `--agent`, and the role's settings as the pinned copy under the instance's state,
+/// which names the config file; the role's own file is read, never changed
+/// (`story:spawn-pins-binary-and-config`).
 #[test]
 fn dev_start_takes_the_settings_and_profile_of_the_role_conductor_dev() {
     let Some(case) = Case::new("w02-dev-start-role") else {
@@ -585,6 +587,7 @@ fn dev_start_takes_the_settings_and_profile_of_the_role_conductor_dev() {
     let profile = w02_profile(&case, "conductor-dev.md");
     let settings = case.dir.join("home/dev-settings.json");
     case.pin(&settings);
+    let written = fs::read_to_string(&settings).expect("the role's settings");
     let config = w02_config(
         &case,
         "",
@@ -607,11 +610,28 @@ fn dev_start_takes_the_settings_and_profile_of_the_role_conductor_dev() {
              Artifact,ScheduleWakeup,AskUserQuestion,ReportFindings,ShareOnboardingGuide \
              --permission-mode bypassPermissions {SETTING_SOURCES} --settings {} Start of session.",
             profile.display(),
-            settings.display()
+            case.pinned_default("conductor-dev").display()
         )),
         "{args}"
     );
     assert!(!args.contains("--agent"), "{args}");
+    assert_eq!(
+        fs::read_to_string(&settings).expect("the role's settings"),
+        written,
+        "the role's own settings file is not changed"
+    );
+    let copy: Value = serde_json::from_str(
+        &fs::read_to_string(case.pinned_default("conductor-dev")).expect("the pinned copy"),
+    )
+    .expect("the copy is JSON");
+    assert_eq!(copy["env"]["CONDUCTOR_INSTANCE"], "alpha", "{copy}");
+    assert!(
+        copy["env"]["CONDUCTOR_CONFIG"]
+            .as_str()
+            .is_some_and(|path| path == config.display().to_string()),
+        "the copy names the config file {}: {copy}",
+        config.display()
+    );
 }
 
 /// A conductor-dev profile that is not a file is refused before anything starts.
