@@ -108,10 +108,12 @@ impl Case {
                 dev_settings = case.dev_settings().display(),
             ),
         );
-        // `story:instance-isolation`: conductor-dev's own settings pin the instance; conductor names
-        // none, and starts with the settings the binary carries, which pin none, written pinned
-        // under the state directory (`story:roles-in-the-binary`). A settings file of the working
-        // directory is not read: the one written here is not what conductor starts with.
+        // `story:instance-isolation`: conductor-dev's own settings pin the instance, and it starts
+        // with a pinned copy of them all the same (`story:spawn-pins-binary-and-config`);
+        // conductor names none, and starts with the settings the binary carries, which pin none,
+        // written pinned under the state directory (`story:roles-in-the-binary`). A settings file
+        // of the working directory is not read: the one written here is not what conductor
+        // starts with.
         write(&case.conductor_settings(), SHIPPED);
         write(&case.dev_settings(), &pinned("alpha"));
         case.agents(&json!([]));
@@ -234,6 +236,27 @@ fn pinned(instance: &str) -> String {
         }]}]},
     })
     .to_string()
+}
+
+/// The program word a settings copy this suite's starts write runs conductor by
+/// (`story:spawn-pins-binary-and-config`): the starts run in this test binary over the fake
+/// providers, so it is the word [`config::binary_word`] makes of this binary, the bare
+/// `conductor` for a file of another name.
+fn program() -> String {
+    config::binary_word(&std::env::current_exe().expect("this test binary"))
+}
+
+/// The pin's `env` a start under the case's config file writes into the copy.
+fn assert_pins_config(case: &Case, pinned: &Value, what: &str) {
+    assert_eq!(
+        pinned["env"]["CONDUCTOR_INSTANCE"], "alpha",
+        "{what}: {pinned}"
+    );
+    assert_eq!(
+        pinned["env"]["CONDUCTOR_CONFIG"],
+        case.config().display().to_string(),
+        "{what}: {pinned}"
+    );
 }
 
 fn describe(output: &Output) -> String {
@@ -494,8 +517,9 @@ fn a_role_whose_settings_pin_another_instance_is_refused() {
 /// binary's `kinds/claude-code/conductor-settings.json` does, starts with a copy of it pinned
 /// to the role's instance, `<state>/sessions/<session name>.settings.json`: every other key kept,
 /// `env.CONDUCTOR_INSTANCE` set and each hook command that runs `conductor` prefixed
-/// `CONDUCTOR_INSTANCE=alpha `. The file itself is not changed. A file that pins the instance
-/// already starts as it is.
+/// `CONDUCTOR_INSTANCE=alpha `, and `env.CONDUCTOR_CONFIG` the config file. The file itself is not
+/// changed. A file that pins the instance already starts with such a copy too
+/// (`story:spawn-pins-binary-and-config`).
 #[test]
 fn a_role_whose_settings_pin_no_instance_starts_with_a_pinned_copy() {
     let shipped = fs::read_to_string(
@@ -537,10 +561,7 @@ fn a_role_whose_settings_pin_no_instance_starts_with_a_pinned_copy() {
         let pinned: Value =
             serde_json::from_str(&fs::read_to_string(&copy).expect("the pinned copy"))
                 .expect("JSON");
-        assert_eq!(
-            pinned["env"]["CONDUCTOR_INSTANCE"], "alpha",
-            "{name}: {pinned}"
-        );
+        assert_pins_config(&case, &pinned, name);
         for (key, value) in original.as_object().expect("an object") {
             if key == "env" || key == "hooks" {
                 continue;
@@ -563,7 +584,7 @@ fn a_role_whose_settings_pin_no_instance_starts_with_a_pinned_copy() {
                 for hook in matcher["hooks"].as_array().expect("hooks") {
                     let command = hook["command"].as_str().expect("a command");
                     assert!(
-                        command.starts_with("CONDUCTOR_INSTANCE=alpha conductor "),
+                        command.starts_with(&format!("CONDUCTOR_INSTANCE=alpha {} ", program())),
                         "{name}: {command}"
                     );
                 }
@@ -576,24 +597,28 @@ fn a_role_whose_settings_pin_no_instance_starts_with_a_pinned_copy() {
         );
     }
 
-    // Pinned already: it starts with the file itself, and no copy is written.
+    // Pinned already: it starts with a copy all the same, which adds the config file and the
+    // binary (`story:spawn-pins-binary-and-config`); the file itself is not changed.
     let case = Case::new("pinned-own", STRICT);
     let own = case.dir.join("settings/conductor.json");
     case.own_settings(&own);
     write(&own, &pinned("alpha"));
     let output = case.start("conductor");
     assert_eq!(output.status.code(), Some(0), "{}", describe(&output));
+    let copy = case.state().join("sessions/conductor.settings.json");
     let args = &calls(&case.fake())[0]["args"];
     assert_eq!(
         args.as_array().and_then(|args| args.last()),
-        Some(&json!(own.display().to_string())),
+        Some(&json!(copy.display().to_string())),
         "{args}"
     );
-    assert!(
-        !case
-            .state()
-            .join("sessions/conductor.settings.json")
-            .exists()
+    let written: Value =
+        serde_json::from_str(&fs::read_to_string(&copy).expect("the pinned copy")).expect("JSON");
+    assert_pins_config(&case, &written, "pinned-own");
+    assert_eq!(
+        fs::read_to_string(&own).expect("the own settings"),
+        pinned("alpha"),
+        "the role's own file is not changed"
     );
 }
 
@@ -710,17 +735,23 @@ fn the_provider_is_given_the_role_s_request_and_first_prompt() {
     let pinned: Value =
         serde_json::from_str(&fs::read_to_string(&settings).expect("the pinned settings"))
             .expect("JSON");
-    assert_eq!(pinned["env"]["CONDUCTOR_INSTANCE"], "alpha", "{pinned}");
+    assert_pins_config(&case, &pinned, "the director");
     assert_eq!(
         pinned["hooks"]["PreToolUse"][0]["hooks"][0]["command"],
-        "CONDUCTOR_INSTANCE=alpha conductor guard record-guard-decision --from-pre-tool-use --pid \
-         \"$PPID\" || exit 2",
+        format!(
+            "CONDUCTOR_INSTANCE=alpha {} guard record-guard-decision --from-pre-tool-use --pid \
+             \"$PPID\" || exit 2",
+            program()
+        ),
         "{pinned}"
     );
     assert_eq!(
         pinned["hooks"]["SessionStart"][0]["hooks"][0]["command"],
-        "CONDUCTOR_INSTANCE=alpha conductor session claim --from-session-start --pid \"$PPID\" || \
-         exit 2",
+        format!(
+            "CONDUCTOR_INSTANCE=alpha {} session claim --from-session-start --pid \"$PPID\" || \
+             exit 2",
+            program()
+        ),
         "the binary's conductor settings, pinned: {pinned}"
     );
     // The director starts from the profile the binary carries, written into the state
@@ -785,9 +816,18 @@ fn the_provider_is_given_the_role_s_request_and_first_prompt() {
             "--setting-sources",
             "project,local",
             "--settings",
-            case.dev_settings().display().to_string(),
+            case.state()
+                .join("sessions/conductor-dev.settings.json")
+                .display()
+                .to_string(),
         ])
     );
+    let dev_copy: Value = serde_json::from_str(
+        &fs::read_to_string(case.state().join("sessions/conductor-dev.settings.json"))
+            .expect("conductor-dev's copy"),
+    )
+    .expect("JSON");
+    assert_pins_config(&case, &dev_copy, "conductor-dev");
     // `story:roles-in-the-binary`: conductor-dev names no profile, so it starts from the
     // maintainer profile the binary carries, written into its state.
     assert_eq!(

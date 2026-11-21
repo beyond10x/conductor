@@ -27,12 +27,17 @@
 //!
 //! The session name is the instance's for the repository ([`config::session_name`]); profile,
 //! model and settings are the instance's `controller` role's; the charter is the text of
-//! `<records>/charters/<repository>.md`, one argument. With a config file the session also gets
-//! the instance's name and the config file's absolute path in `CONDUCTOR_INSTANCE` and
-//! `CONDUCTOR_CONFIG`, so the controller and its guard run as the instance that started it. The
-//! settings must not pin another instance (`InstanceNotPinned`, `story:instance-isolation`); ones
-//! that pin none, as the binary's `controller-settings.json` does, are passed as a copy
-//! pinned to the instance, `<state>/sessions/<session name>.settings.json`. A role that names no
+//! `<records>/charters/<repository>.md`, one argument. The settings must not pin another instance
+//! (`InstanceNotPinned`, `story:instance-isolation`). With a config file the session starts with
+//! a copy of them, `<state>/sessions/<session name>.settings.json`, written at every spawn and
+//! resume, whose pin has three parts (`story:spawn-pins-binary-and-config`, [`config::Pin`]):
+//! `env.CONDUCTOR_INSTANCE`, the instance's name; `env.CONDUCTOR_CONFIG`, the config file's
+//! absolute path; and each hook command that runs `conductor` prefixed with the instance and
+//! running this binary by its path. So the controller and its guard run as the instance that
+//! started it, with the binary that started it, whatever `conductor` comes first on the
+//! session's `PATH`. The launch's own `CONDUCTOR_INSTANCE` and `CONDUCTOR_CONFIG` reach a
+//! provider's start but not a `claude --bg` session: the harness does not pass the environment
+//! of the process that starts it on; the settings' `env` does. A role that names no
 //! profile or no settings starts with the ones the binary carries for a controller, written into
 //! the state directory by the `claude-code` kind (`story:roles-in-the-binary`):
 //! `<state>/sessions/<session name>.profile.md` and `.settings.json`.
@@ -486,15 +491,22 @@ fn controller_launch(
     )];
     if active.from_file {
         // Absolute, as the guard resolves it: the session runs in the checkout, where a relative
-        // path would name a file of the repository.
-        let (file, _) = config::locate(config_flag, environment).context(COMMAND)?;
+        // path would name a file of the repository. The same file the settings copy pins
+        // ([`config::Pin`]); this environment reaches the provider's launch, not a `claude --bg`
+        // session, whose hooks read the copy's `env`.
+        let file = match config::config_file() {
+            Some(file) => file.to_owned(),
+            None => environment
+                .cwd
+                .join(config::locate(config_flag, environment).context(COMMAND)?.0),
+        };
         env.push((
             config::INSTANCE_VARIABLE.to_owned(),
             instance.name.0.clone(),
         ));
         env.push((
             config::CONFIG_VARIABLE.to_owned(),
-            environment.cwd.join(file).display().to_string(),
+            file.display().to_string(),
         ));
     }
     Ok(Launch {
@@ -1267,9 +1279,10 @@ fn role(instance: &Instance) -> Result<ControllerFiles<'_>, (SpawnRefusal, Strin
     Ok((role, profile, settings, model.0.clone()))
 }
 
-/// The settings the controller session `session_name` starts with (`story:instance-isolation`):
-/// under a config file, the role's `settings` when they pin the instance, else a copy of them
-/// pinned to it under the state directory ([`config::session_settings`]); without one, the
+/// The settings the controller session `session_name` starts with (`story:instance-isolation`,
+/// `story:spawn-pins-binary-and-config`): under a config file, a copy of the role's `settings`
+/// pinned to the instance, its config file and this binary under the state directory
+/// ([`config::session_settings`]), written again at every spawn and resume; without one, the
 /// role's `settings` as they are. A role that names none starts with the settings the binary
 /// carries for a controller ([`claude_code::CONTROLLER_SETTINGS`]), written under the state
 /// directory as the copy, pinned under a config file.
@@ -1284,7 +1297,7 @@ fn pinned_settings(
         let file = if from_file {
             config::write_pinned(
                 claude_code::settings_value(config::CONTROLLER)?,
-                &instance.name.0,
+                &config::Pin::of(&instance.name.0),
                 state_dir,
                 &session_name.0,
             )
@@ -1299,7 +1312,7 @@ fn pinned_settings(
     }
     config::session_settings(
         Path::new(&settings),
-        &instance.name.0,
+        &config::Pin::of(&instance.name.0),
         state_dir,
         &session_name.0,
     )

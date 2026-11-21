@@ -1713,59 +1713,122 @@ pub fn pinned_copy(state: &Path, session: &str) -> PathBuf {
         .join(format!("{session}.settings.json"))
 }
 
-/// Writes `settings` pinned to `instance` ([`pinned`]) to the session's pinned copy
-/// ([`pinned_copy`]) and answers its path.
+/// What a session's settings copy pins (`story:instance-isolation`,
+/// `story:spawn-pins-binary-and-config`): the instance its hooks and commands act for, the config
+/// file they read, and the binary its hooks run. The harness does not pass the environment of the
+/// process that starts `claude --bg` on to the session, so only the settings carry them.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Pin {
+    /// The instance's name: `env.CONDUCTOR_INSTANCE` and each conductor hook's prefix.
+    pub instance: String,
+    /// The config file, absolute: `env.CONDUCTOR_CONFIG`. `None` sets no `CONDUCTOR_CONFIG`.
+    pub config: Option<PathBuf>,
+    /// The program word each hook that runs `conductor` starts with ([`binary_word`]).
+    pub binary: String,
+}
+
+impl Pin {
+    /// The pin of a session of `instance` this process starts: the config file [`set_active`]
+    /// located ([`config_file`]) and this process's binary ([`binary_word`]).
+    #[must_use]
+    pub fn of(instance: &str) -> Self {
+        Self {
+            instance: instance.to_owned(),
+            config: config_file().map(Path::to_owned),
+            binary: env::current_exe()
+                .map_or_else(|_| CONDUCTOR.to_owned(), |exe| binary_word(&exe)),
+        }
+    }
+}
+
+/// The program name a hook command runs conductor by.
+const CONDUCTOR: &str = "conductor";
+
+/// The word a pinned hook runs the binary `exe` by (`story:spawn-pins-binary-and-config`): its
+/// path without the ` (deleted)` Linux appends to `/proc/self/exe` once an install replaced the
+/// file (the path then names the new binary), single-quoted when it holds whitespace or a shell
+/// metacharacter; the bare `conductor` when its file name is not `conductor`, so
+/// [`runs_conductor`] still finds the hook (a test binary, a renamed copy).
+#[must_use]
+pub fn binary_word(exe: &Path) -> String {
+    let shown = exe.display().to_string();
+    let path = shown.strip_suffix(" (deleted)").unwrap_or(&shown);
+    if Path::new(path).file_name().and_then(|name| name.to_str()) != Some(CONDUCTOR) {
+        return CONDUCTOR.to_owned();
+    }
+    let plain = path
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || "/._-+,:@%=".contains(c));
+    if plain {
+        path.to_owned()
+    } else {
+        format!("'{}'", path.replace('\'', r"'\''"))
+    }
+}
+
+/// The first shell word of `text` and what follows it: a single-quoted word ends at the quote
+/// that whitespace or the end follows ([`binary_word`] writes such a word).
+fn first_word(text: &str) -> (&str, &str) {
+    let end = if text.starts_with('\'') {
+        text.char_indices()
+            .skip(1)
+            .find(|&(at, c)| {
+                c == '\''
+                    && text[at + 1..]
+                        .chars()
+                        .next()
+                        .is_none_or(char::is_whitespace)
+            })
+            .map(|(at, _)| at + 1)
+    } else {
+        text.find(char::is_whitespace)
+    };
+    text.split_at(end.unwrap_or(text.len()))
+}
+
+/// Writes `settings` pinned ([`pinned`]) to the session's pinned copy ([`pinned_copy`]) and
+/// answers its path.
 ///
 /// # Errors
 ///
 /// The directory or the file cannot be written.
-pub fn write_pinned(
-    settings: Value,
-    instance: &str,
-    state: &Path,
-    session: &str,
-) -> Result<PathBuf> {
+pub fn write_pinned(settings: Value, pin: &Pin, state: &Path, session: &str) -> Result<PathBuf> {
     let file = pinned_copy(state, session);
     if let Some(dir) = file.parent() {
         fs::create_dir_all(dir).with_context(|| format!("create {}", dir.display()))?;
     }
-    let text = serde_json::to_string_pretty(&pinned(settings, instance))
+    let text = serde_json::to_string_pretty(&pinned(settings, pin))
         .context("write the pinned settings")?;
     fs::write(&file, format!("{text}\n")).with_context(|| format!("write {}", file.display()))?;
     Ok(file)
 }
 
-/// The settings file a session `session` of the instance `instance` starts with when its role
-/// names `file` (`story:instance-isolation`): `file` itself when it pins the instance
-/// ([`pin_problem`] finds none), else a copy of its content pinned to the instance
-/// ([`write_pinned`]), so a role may name a settings file that pins no instance, as the shipped
-/// ones do. The caller has refused a file [`pin_refusal`] names.
+/// The settings file a session `session` starts with when its role names `file`
+/// (`story:instance-isolation`, `story:spawn-pins-binary-and-config`): always a copy of its
+/// content pinned ([`write_pinned`]), whether or not `file` pins the instance itself, since only
+/// the copy names the config file and the binary; `file` is never changed. The caller has refused
+/// a file [`pin_refusal`] names.
 ///
 /// # Errors
 ///
 /// The file cannot be read or is no JSON, or the copy cannot be written.
-pub fn session_settings(
-    file: &Path,
-    instance: &str,
-    state: &Path,
-    session: &str,
-) -> Result<String> {
-    if pin_problem(file, instance).is_none() {
-        return Ok(file.display().to_string());
-    }
+pub fn session_settings(file: &Path, pin: &Pin, state: &Path, session: &str) -> Result<String> {
     let settings = read_settings(file)
         .map_err(|reason| anyhow!("the settings {} {reason}", file.display()))?;
-    Ok(write_pinned(settings, instance, state, session)?
+    Ok(write_pinned(settings, pin, state, session)?
         .display()
         .to_string())
 }
 
-/// `settings` pinned to `instance` (`story:instance-isolation`): its `env.CONDUCTOR_INSTANCE`
-/// set to `instance`, and each hook command that runs `conductor` started with
-/// `CONDUCTOR_INSTANCE=<instance> ` in place of any instance it named, so [`pin_problem`] finds
-/// none. Settings that are no JSON object become one holding only the pin.
+/// `settings` pinned by `pin` (`story:instance-isolation`, `story:spawn-pins-binary-and-config`):
+/// its `env.CONDUCTOR_INSTANCE` set to the instance and its `env.CONDUCTOR_CONFIG` to the config
+/// file, replacing what they held; each hook command that runs `conductor` started with
+/// `CONDUCTOR_INSTANCE=<instance> ` in place of any instance it named, and, when the rest then
+/// starts with `conductor` or a path ending `/conductor`, that word replaced by the pin's binary.
+/// [`pin_problem`] finds none in it, and pinning its own output again changes nothing. Settings
+/// that are no JSON object become one holding only the pin.
 #[must_use]
-pub fn pinned(mut settings: Value, instance: &str) -> Value {
+pub fn pinned(mut settings: Value, pin: &Pin) -> Value {
     if !settings.is_object() {
         settings = Value::Object(Map::new());
     }
@@ -1773,7 +1836,10 @@ pub fn pinned(mut settings: Value, instance: &str) -> Value {
     if !env.is_object() {
         *env = Value::Object(Map::new());
     }
-    env[INSTANCE_VARIABLE] = Value::String(instance.to_owned());
+    env[INSTANCE_VARIABLE] = Value::String(pin.instance.clone());
+    if let Some(config) = &pin.config {
+        env[CONFIG_VARIABLE] = Value::String(config.display().to_string());
+    }
     let prefix = format!("{INSTANCE_VARIABLE}=");
     // `get_mut`, not `settings["hooks"]`: serde_json's `IndexMut` inserts `null` for a missing
     // key, and Claude Code stops on `"hooks": null` (#85).
@@ -1796,7 +1862,14 @@ pub fn pinned(mut settings: Value, instance: &str) -> Value {
                             .split_once(char::is_whitespace)
                             .map_or("", |(_, more)| more.trim_start());
                     }
-                    hook["command"] = Value::String(format!("{prefix}{instance} {rest}"));
+                    let (word, after) = first_word(rest);
+                    let program = if is_conductor(word) && pin.binary != CONDUCTOR {
+                        pin.binary.as_str()
+                    } else {
+                        word
+                    };
+                    hook["command"] =
+                        Value::String(format!("{prefix}{} {program}{after}", pin.instance));
                 }
             }
         }
@@ -1820,10 +1893,13 @@ fn hook_commands(settings: &Value) -> Vec<&str> {
 
 /// Whether `command` runs the `conductor` binary: one of its words is `conductor` or a path to it.
 fn runs_conductor(command: &str) -> bool {
-    command.split_whitespace().any(|word| {
-        let word = word.trim_matches(|c| c == '"' || c == '\'');
-        word == "conductor" || word.ends_with("/conductor")
-    })
+    command.split_whitespace().any(is_conductor)
+}
+
+/// Whether the shell word `word`, its quotes trimmed, is `conductor` or a path to it.
+fn is_conductor(word: &str) -> bool {
+    let word = word.trim_matches(|c| c == '"' || c == '\'');
+    word == CONDUCTOR || word.ends_with("/conductor")
 }
 
 /// The roles of `config` whose settings file is there and does not pin its instance, each by its
@@ -8437,10 +8513,12 @@ mod tests {
     /// dialog when `hooks` is `null`, so pinning adds no key its input did not hold.
     #[test]
     fn pinning_adds_no_hooks_key_the_settings_did_not_hold() {
-        let pinned_empty = pinned(serde_json::json!({"outputStyle": "x"}), "alpha");
+        let pinned_empty = pinned(serde_json::json!({"outputStyle": "x"}), &pin());
         assert_eq!(
             pinned_empty,
-            serde_json::json!({"outputStyle": "x", "env": {"CONDUCTOR_INSTANCE": "alpha"}})
+            serde_json::json!({"outputStyle": "x", "env": {
+                "CONDUCTOR_INSTANCE": "alpha", "CONDUCTOR_CONFIG": "/etc/conductor.yaml"
+            }})
         );
 
         let pinned_hooks = pinned(
@@ -8448,13 +8526,120 @@ mod tests {
                 {"matcher": "Bash"},
                 {"matcher": "*", "hooks": [{"type": "command", "command": "conductor guard"}]}
             ]}}),
-            "alpha",
+            &pin(),
         );
         let matchers = &pinned_hooks["hooks"]["PreToolUse"];
         assert_eq!(matchers[0], serde_json::json!({"matcher": "Bash"}));
         assert_eq!(
             matchers[1]["hooks"][0]["command"],
-            "CONDUCTOR_INSTANCE=alpha conductor guard"
+            "CONDUCTOR_INSTANCE=alpha /opt/b/conductor guard"
+        );
+    }
+
+    /// The pin of the instance `alpha` under `/etc/conductor.yaml`, run by `/opt/b/conductor`.
+    fn pin() -> Pin {
+        Pin {
+            instance: "alpha".to_owned(),
+            config: Some(PathBuf::from("/etc/conductor.yaml")),
+            binary: "/opt/b/conductor".to_owned(),
+        }
+    }
+
+    /// The commands of the `PreToolUse` hooks of `settings`, in order.
+    fn commands(settings: &Value) -> Vec<String> {
+        hook_commands(settings)
+            .into_iter()
+            .map(str::to_owned)
+            .collect()
+    }
+
+    /// `story:spawn-pins-binary-and-config`: the pin replaces the program word `conductor` or a
+    /// path ending `/conductor` with its binary, keeps a hook whose rest starts with another
+    /// program, sets `env.CONDUCTOR_CONFIG` over the value there, and changes nothing when it
+    /// pins its own output again.
+    #[test]
+    fn the_pin_names_the_binary_and_the_config_file() {
+        let input = serde_json::json!({
+            "env": {"CONDUCTOR_CONFIG": "/old/conductor.yaml", "KEPT": "1"},
+            "hooks": {"PreToolUse": [{"matcher": "*", "hooks": [
+                {"type": "command", "command": "conductor guard record-guard-decision || exit 2"},
+                {"type": "command",
+                 "command": "CONDUCTOR_INSTANCE=beta /old/conductor session claim"},
+                {"type": "command", "command": "test -x x && conductor doctor"},
+                {"type": "command", "command": "echo unrelated"}
+            ]}]}
+        });
+        let once = pinned(input, &pin());
+        assert_eq!(once["env"]["CONDUCTOR_CONFIG"], "/etc/conductor.yaml");
+        assert_eq!(once["env"]["CONDUCTOR_INSTANCE"], "alpha");
+        assert_eq!(once["env"]["KEPT"], "1");
+        assert_eq!(
+            commands(&once),
+            [
+                "CONDUCTOR_INSTANCE=alpha /opt/b/conductor guard record-guard-decision || exit 2",
+                "CONDUCTOR_INSTANCE=alpha /opt/b/conductor session claim",
+                "CONDUCTOR_INSTANCE=alpha test -x x && conductor doctor",
+                "echo unrelated",
+            ]
+        );
+        assert_eq!(pinned(once.clone(), &pin()), once, "idempotent");
+
+        let spaced = Pin {
+            binary: binary_word(Path::new("/opt/my tools/conductor")),
+            ..pin()
+        };
+        let quoted = pinned(once.clone(), &spaced);
+        assert_eq!(
+            commands(&quoted)[0],
+            "CONDUCTOR_INSTANCE=alpha '/opt/my tools/conductor' guard record-guard-decision || \
+             exit 2"
+        );
+        assert_eq!(
+            pinned(quoted.clone(), &spaced),
+            quoted,
+            "idempotent, quoted"
+        );
+        assert_eq!(
+            commands(&pinned(quoted, &pin()))[0],
+            commands(&once)[0],
+            "a quoted binary is replaced whole"
+        );
+        assert!(pin_problem_of(&once).is_none());
+    }
+
+    /// Whether `settings` pins `alpha` ([`foreign_pin`], [`unpinned`]).
+    fn pin_problem_of(settings: &Value) -> Option<String> {
+        foreign_pin(settings, "alpha").or_else(|| unpinned(settings, "alpha"))
+    }
+
+    /// `story:spawn-pins-binary-and-config`: the binary's word drops the ` (deleted)` of a
+    /// replaced file, quotes a path with a space or a shell metacharacter, and is the bare
+    /// `conductor` for a file of another name.
+    #[test]
+    fn the_binary_word_is_the_path_a_shell_runs() {
+        assert_eq!(
+            binary_word(Path::new("/usr/local/bin/conductor (deleted)")),
+            "/usr/local/bin/conductor"
+        );
+        assert_eq!(
+            binary_word(Path::new("/usr/local/cargo/bin/conductor")),
+            "/usr/local/cargo/bin/conductor"
+        );
+        assert_eq!(
+            binary_word(Path::new("/opt/my tools/conductor")),
+            "'/opt/my tools/conductor'"
+        );
+        assert_eq!(
+            binary_word(Path::new("/opt/it's$/conductor")),
+            r"'/opt/it'\''s$/conductor'"
+        );
+        assert_eq!(
+            binary_word(Path::new("/target/debug/deps/conductor_cli-0123")),
+            "conductor"
+        );
+        assert_eq!(
+            binary_word(Path::new("/usr/bin/conductor-old")),
+            "conductor"
         );
     }
 

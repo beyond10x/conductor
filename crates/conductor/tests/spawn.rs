@@ -163,6 +163,18 @@ impl Case {
         self.dir.join("launch")
     }
 
+    /// The settings copy a session starts with under a config file
+    /// (`story:spawn-pins-binary-and-config`): `<state>/sessions/<session name>.settings.json`.
+    fn copy(&self) -> PathBuf {
+        self.state().join("sessions/ex-alpha.settings.json")
+    }
+
+    /// The settings copy as JSON.
+    fn copied(&self) -> Value {
+        serde_json::from_str(&fs::read_to_string(self.copy()).expect("the settings copy"))
+            .expect("JSON")
+    }
+
     /// Writes the config file; `controller` is the controller role's entry of `roles`.
     fn write_config(&self, controller: &str) {
         write(
@@ -433,6 +445,16 @@ fn pinned(instance: &str) -> String {
     .to_string()
 }
 
+/// The binary under test by its physical path, as the pinned copy's hooks name it
+/// (`story:spawn-pins-binary-and-config`).
+fn binary() -> String {
+    Path::new(common::conductor(std::env::temp_dir()).get_program())
+        .canonicalize()
+        .expect("the binary under test")
+        .display()
+        .to_string()
+}
+
 fn describe(output: &Output) -> String {
     format!(
         "exit {:?}, stdout {:?}, stderr {:?}",
@@ -459,7 +481,7 @@ fn start_form(case: &Case) -> Vec<String> {
         "--setting-sources",
         "user,project,local",
         "--settings",
-        &case.settings().display().to_string(),
+        &case.copy().display().to_string(),
         CHARTER,
     ]
     .map(str::to_owned)
@@ -760,8 +782,11 @@ fn spawn_without_a_profile_or_settings_starts_from_the_binary_s() {
             .expect("JSON");
     assert_eq!(
         pinned["hooks"]["PreToolUse"][0]["hooks"][0]["command"],
-        "CONDUCTOR_INSTANCE=example-org conductor guard record-guard-decision \
-         --from-pre-tool-use || exit 2",
+        format!(
+            "CONDUCTOR_INSTANCE=example-org {} guard record-guard-decision \
+             --from-pre-tool-use || exit 2",
+            binary()
+        ),
         "the binary's controller settings, pinned: {pinned}"
     );
     assert!(
@@ -926,7 +951,8 @@ fn spawn_starts_unpinned_settings_with_a_pinned_copy() {
         assert_eq!(
             pinned["hooks"]["PreToolUse"][0]["hooks"][0]["command"]
                 .as_str()
-                .map(|command| command.starts_with("CONDUCTOR_INSTANCE=example-org conductor ")),
+                .map(|command| command
+                    .starts_with(&format!("CONDUCTOR_INSTANCE=example-org {} ", binary()))),
             Some(true),
             "{name}: {pinned}"
         );
@@ -941,6 +967,188 @@ fn spawn_starts_unpinned_settings_with_a_pinned_copy() {
             "{name}: the role's own file is not changed"
         );
     }
+}
+
+/// `story:spawn-pins-binary-and-config`: the copy a controller starts with names the config file
+/// in its `env` and runs the spawning binary by its path in its hooks, so a `conductor` first on
+/// the session's `PATH` (an older install) is not what its guard runs: the hook, run as the
+/// harness runs it with only the copy's `env`, denies a `gh pr merge` as the instance's guard and
+/// records the denial in the instance's state.
+#[test]
+fn a_spawned_session_s_hook_runs_the_spawning_binary_against_the_config_file() {
+    let case = Case::new("pins-binary");
+    let marker = case.dir.join("stub-ran");
+    let stub = case.dir.join("bin/conductor");
+    write(
+        &stub,
+        &format!("#!/bin/sh\ntouch '{}'\nexit 0\n", marker.display()),
+    );
+    fs::set_permissions(&stub, fs::Permissions::from_mode(0o755)).expect("make it executable");
+    let output = case.spawn();
+    assert!(output.status.success(), "spawn: {}", describe(&output));
+    let argv = case.argv();
+    let at = argv
+        .iter()
+        .position(|arg| arg == "--settings")
+        .expect("a --settings argument");
+    let settings: Value =
+        serde_json::from_str(&fs::read_to_string(&argv[at + 1]).expect("the settings"))
+            .expect("JSON");
+    assert_eq!(
+        settings["env"]["CONDUCTOR_CONFIG"],
+        case.config().display().to_string(),
+        "{settings}"
+    );
+    let command = settings["hooks"]["PreToolUse"][0]["hooks"][0]["command"]
+        .as_str()
+        .expect("a hook command")
+        .to_owned();
+    assert_eq!(
+        command.split_whitespace().nth(1),
+        Some(binary().as_str()),
+        "the hook runs the binary under test: {command}"
+    );
+
+    let mut payload: Value = serde_json::from_str(
+        &fs::read_to_string(
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/guard/bash.json"),
+        )
+        .expect("the recorded payload"),
+    )
+    .expect("JSON");
+    payload["cwd"] = Value::String(case.checkout().display().to_string());
+    payload["tool_input"]["command"] = Value::String("gh pr merge 3".to_owned());
+    let mut hook = std::process::Command::new("sh");
+    hook.arg("-c")
+        .arg(&command)
+        .env_clear()
+        .env("HOME", case.home())
+        .env(
+            "PATH",
+            format!("{}:/usr/bin:/bin", case.dir.join("bin").display()),
+        )
+        .current_dir(case.checkout())
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    for (name, value) in settings["env"].as_object().expect("an env") {
+        hook.env(name, value.as_str().expect("a string"));
+    }
+    let mut child = hook.spawn().expect("the hook runs");
+    std::io::Write::write_all(
+        &mut child.stdin.take().expect("its standard input"),
+        &serde_json::to_vec(&payload).expect("JSON"),
+    )
+    .expect("write the payload");
+    let answered = child.wait_with_output().expect("the hook ends");
+    assert_eq!(answered.status.code(), Some(2), "{}", describe(&answered));
+    assert!(!marker.exists(), "the conductor first on PATH did not run");
+
+    let config = case.config().display().to_string();
+    let listed = case.run(&[
+        "guard",
+        "guard-decisions",
+        "--config",
+        &config,
+        "--format",
+        "json",
+    ]);
+    assert!(listed.status.success(), "{}", describe(&listed));
+    let rows: Value = serde_json::from_slice(&listed.stdout).expect("JSON");
+    assert!(
+        rows.as_array().is_some_and(|rows| rows
+            .iter()
+            .any(|row| row.to_string().contains("gh pr merge 3"))),
+        "the instance's guard recorded the denial: {rows:#}"
+    );
+}
+
+/// `story:spawn-pins-binary-and-config`: a role whose own settings already pin the instance starts
+/// with the copy too, which adds the config file and the binary; the role's file is not changed.
+#[test]
+fn a_role_s_own_pinned_settings_start_as_the_copy() {
+    let case = Case::new("pins-own-pinned");
+    let output = case.spawn();
+    assert!(output.status.success(), "spawn: {}", describe(&output));
+    assert_eq!(
+        case.argv(),
+        start_form(&case),
+        "the controller starts with the copy"
+    );
+    let copy = case.copied();
+    assert_eq!(copy["env"]["CONDUCTOR_INSTANCE"], "example-org", "{copy}");
+    assert_eq!(
+        copy["env"]["CONDUCTOR_CONFIG"],
+        case.config().display().to_string(),
+        "{copy}"
+    );
+    assert_eq!(
+        copy["hooks"]["PreToolUse"][0]["hooks"][0]["command"],
+        format!(
+            "CONDUCTOR_INSTANCE=example-org {} guard record-guard-decision --from-pre-tool-use \
+             || exit 2",
+            binary()
+        ),
+        "{copy}"
+    );
+    assert_eq!(
+        fs::read_to_string(case.settings()).expect("the role's settings"),
+        pinned("example-org"),
+        "the role's own file is not changed"
+    );
+}
+
+/// `story:spawn-pins-binary-and-config`: a resume writes the copy again, with the resuming binary
+/// and the config file.
+#[test]
+fn a_resume_rewrites_the_copy_with_the_resuming_binary_and_the_config_file() {
+    let case = Case::new("pins-resume");
+    case.confine("{provider: none}");
+    let output = case.spawn();
+    assert!(output.status.success(), "spawn: {}", describe(&output));
+    let controller = case.controllers()[0]["controller_id"]
+        .as_str()
+        .expect("a controller id")
+        .to_owned();
+    case.sessions(&json!([]));
+    write(
+        &case.dir.join("resumed.json"),
+        &json!([{"id": SESSION_ID, "name": "ex-alpha", "pid": 4242}]).to_string(),
+    );
+    let paused = case.run(&[
+        "controller",
+        "pause-controller",
+        "--controller-id",
+        &controller,
+    ]);
+    assert_eq!(paused.status.code(), Some(0), "{}", describe(&paused));
+    write(&case.copy(), &pinned("example-org"));
+    let resumed = case.run(&[
+        "controller",
+        "resume-controller",
+        "--controller-id",
+        &controller,
+    ]);
+    assert_eq!(resumed.status.code(), Some(0), "{}", describe(&resumed));
+    let argv = case.argv();
+    let at = argv
+        .iter()
+        .position(|arg| arg == "--settings")
+        .expect("a --settings argument");
+    assert_eq!(argv[at + 1], case.copy().display().to_string(), "{argv:?}");
+    let copy = case.copied();
+    assert_eq!(
+        copy["env"]["CONDUCTOR_CONFIG"],
+        case.config().display().to_string(),
+        "{copy}"
+    );
+    assert_eq!(
+        copy["hooks"]["PreToolUse"][0]["hooks"][0]["command"]
+            .as_str()
+            .and_then(|command| command.split_whitespace().nth(1)),
+        Some(binary().as_str()),
+        "{copy}"
+    );
 }
 
 #[test]
