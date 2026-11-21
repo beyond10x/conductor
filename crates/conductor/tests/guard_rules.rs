@@ -6375,6 +6375,18 @@ fn forge_layout(
     widget_origin: &str,
     records_origin: &str,
 ) -> (Places, PathBuf, PathBuf) {
+    forge_layout_with(home, forge, None, widget_origin, records_origin)
+}
+
+/// [`forge_layout`], the instance also naming `gates_policy` when `policy` is one
+/// (story:guard-denial-names-its-config).
+fn forge_layout_with(
+    home: &Path,
+    forge: Option<&str>,
+    policy: Option<&str>,
+    widget_origin: &str,
+    records_origin: &str,
+) -> (Places, PathBuf, PathBuf) {
     let case = home.parent().expect("the case's directory");
     let (root, trees, records) = (case.join("root"), case.join("trees"), case.join("records"));
     let widget = root.join("widget");
@@ -6392,6 +6404,9 @@ fn forge_layout(
     let mut text = config_text(&root, &trees, &records);
     if let Some(route) = forge {
         text.push_str(&format!("\x20   forge: {{route: {route}}}\n"));
+    }
+    if let Some(policy) = policy {
+        text.push_str(&format!("\x20   gates_policy: {policy}\n"));
     }
     (places_from_file(home, &text), widget, records)
 }
@@ -6551,6 +6566,128 @@ fn under_the_direct_route_a_controller_writes_its_own_merge_requests_with_glab()
             &bash_by(&home, &places, &widget, command),
             Verdict::Deny,
             because,
+        );
+    }
+}
+
+// story:guard-denial-names-its-config: a forge write denied under `forge.route: gates` names the
+// instance, its config file, the route, whether a gates_policy is set, and the fix that applies to
+// the forge: a `gh` write the bot route (with a policy) or `forge.route: direct`, a `glab` write
+// only `forge.route: direct`, since the bot route writes to GitHub only.
+
+/// The reason the guard denies `command` with from the controller's checkout of an instance on
+/// `forge.route: gates` whose `gates_policy` is `policy`, the checkout's `origin` `origin`; and the
+/// config file it names.
+fn gates_denial(case: &str, policy: Option<&str>, origin: &str, command: &str) -> (String, String) {
+    let home = home(case);
+    let (places, widget, _) = forge_layout_with(
+        &home,
+        Some("gates"),
+        policy,
+        origin,
+        "https://github.com/example-org/records.git",
+    );
+    let decision = bash_by(&home, &places, &widget, command);
+    assert_eq!(decision.verdict, Verdict::Deny, "{command}: {decision:#?}");
+    assert!(
+        !decision.reason.contains('\n'),
+        "{command}: the reason is one line: {:?}",
+        decision.reason
+    );
+    (decision.reason, file_beside(&home).display().to_string())
+}
+
+#[test]
+fn a_gh_write_on_gates_with_no_policy_names_the_instance_its_file_and_both_fixes() {
+    let (reason, file) = gates_denial(
+        "denial-gh-no-policy",
+        None,
+        "https://github.com/example-org/widget.git",
+        "gh pr merge 3 -R example-org/widget",
+    );
+    for because in [
+        "GitHub write: gh here only reads",
+        "instance `fixture`",
+        &format!("(`{file}`)"),
+        "`forge.route: gates`",
+        "no gates_policy",
+        "set `gates_policy`",
+        "writes go through the bot route",
+        "`forge.route: direct`",
+    ] {
+        assert!(reason.contains(because), "{reason:?} names {because:?}");
+    }
+}
+
+#[test]
+fn a_gh_write_on_gates_with_a_policy_names_the_bot_route_and_the_direct_route() {
+    let (reason, file) = gates_denial(
+        "denial-gh-policy",
+        Some("/etc/example-org/gates-policy.json"),
+        "https://github.com/example-org/widget.git",
+        "gh pr merge 3 -R example-org/widget",
+    );
+    for because in [
+        "instance `fixture`",
+        &format!("(`{file}`)"),
+        "`forge.route: gates` with a gates_policy",
+        "writes go through the bot route (`b10x-gates gh`, `b10x-gates api`)",
+        "`forge.route: direct`",
+    ] {
+        assert!(reason.contains(because), "{reason:?} names {because:?}");
+    }
+    assert!(
+        !reason.contains("no gates_policy"),
+        "{reason:?}: the policy is set"
+    );
+}
+
+#[test]
+fn a_glab_write_on_gates_names_github_only_and_the_direct_route_with_or_without_a_policy() {
+    for (case, policy, state) in [
+        ("denial-glab-no-policy", None, "gates_policy not set"),
+        (
+            "denial-glab-policy",
+            Some("/etc/example-org/gates-policy.json"),
+            "gates_policy set",
+        ),
+    ] {
+        let (reason, file) = gates_denial(
+            case,
+            policy,
+            "git@gitlab.example.com:example-group/widget.git",
+            "glab mr create -R example-group/widget --fill",
+        );
+        for because in [
+            "GitLab write: glab here only reads",
+            "instance `fixture`",
+            &format!("(`{file}`)"),
+            "`forge.route: gates`",
+            state,
+            "GitHub only",
+            "set `forge.route: direct`",
+        ] {
+            assert!(reason.contains(because), "{reason:?} names {because:?}");
+        }
+        assert!(
+            !reason.contains("go through the bot route"),
+            "{reason:?}: no bot route writes to GitLab"
+        );
+    }
+}
+
+#[test]
+fn a_forge_write_with_no_config_file_names_the_built_in_instance_and_the_direct_route() {
+    let home = home("denial-built-in");
+    for command in ["gh pr merge 3", "glab mr create --fill"] {
+        let decision = bash(&home, PROBE, command);
+        for because in ["no config file", "`forge.route: direct`"] {
+            assert_verdict(&decision, Verdict::Deny, because);
+        }
+        assert!(
+            !decision.reason.contains('\n'),
+            "{command}: the reason is one line: {:?}",
+            decision.reason
         );
     }
 }

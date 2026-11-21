@@ -1425,7 +1425,11 @@ fn doctor_is_not_ready_when_the_guard_denies_the_controller_s_forge_write() {
     let line = the_line(&lines, "guard controller: ", &output);
     assert!(
         line.starts_with("guard controller: denied by `glab mr create` is a GitLab write")
-            && line.ends_with("writes go through the bot route; checkouts denied: alpha"),
+            && line.ends_with(
+                "the bot route writes to GitHub only: set `forge.route: direct` there; \
+                 checkouts denied: alpha"
+            )
+            && !line.contains("go through the bot route"),
         "the line carries the guard's reason: {}",
         shown(&output)
     );
