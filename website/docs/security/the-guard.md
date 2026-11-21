@@ -155,6 +155,14 @@ header line or `glab-resolved` other than `base`, and every remote in it names t
 repository (`glab` prefers `upstream` to `origin`). The global git config is not read. Anything
 else is denied, and the denial asks for `-R <repository>`.
 
+A forge write denied under `forge.route: gates` names, on one line, the instance by its name,
+the config file the hook read, the route, whether the instance sets a `gates_policy`, and the
+fix. For a `gh` write that is the bot route, which needs a `gates_policy` to write under, or
+`forge.route: direct`. For a `glab` write it is `forge.route: direct` only: the bot route writes
+to GitHub only, so no policy helps. Without a config file the denial says so, names the built-in
+instance, and asks for a config file whose instance sets the fix. A hook that read another config
+file than the session's shows it on the denial line.
+
 A credential write is class H under every route: `gh secret`, `auth`, `ssh-key`, `gpg-key`, and
 `glab variable`, `auth`, `ssh-key`, `gpg-key`, `deploy-key`, `token`, `config`, `securefile`.
 The denial hands the operator the command, prefixed with `!`. A call inside `python -c "…"` or

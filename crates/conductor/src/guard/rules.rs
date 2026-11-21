@@ -181,6 +181,9 @@ pub struct Places {
     /// The instance's `forge.route` (`story:forge-route`): under `direct` a session's own pull or
     /// merge requests are written with `gh` or `glab` ([`Session::direct_denial`]).
     forge_route: ForgeRoute,
+    /// Whether the instance names a `gates_policy` (story:guard-denial-names-its-config): read only
+    /// by the denial of a forge write under `gates` ([`Places::gates_denial`]), which names it.
+    gates_policy: bool,
     /// Whether the instance names `forge_access: anonymous` (story:forge-access-anonymous): every
     /// forge write of its sessions is denied, by any route ([`anonymous_write`]).
     anonymous: bool,
@@ -275,6 +278,7 @@ impl Places {
             }),
             daemon_port: config::DAEMON_PORT,
             forge_route: instance.forge.route,
+            gates_policy: instance.gates_policy.is_some(),
             anonymous: instance.forge_access == Some(ForgeAccess::Anonymous),
         }
     }
@@ -407,6 +411,50 @@ impl Places {
     pub fn with_config_file(mut self, file: &Path) -> Self {
         self.config = file.to_path_buf();
         self
+    }
+
+    /// What a `forge` write denied under `forge.route: gates` asks for, on one line
+    /// (story:guard-denial-names-its-config): the instance by its name and the config file the
+    /// process read, or that there is none; the route; whether a `gates_policy` is set; and the fix
+    /// for the forge. A `gh` write goes through the bot route, which writes under the policy, or
+    /// the route is set `direct`; a `glab` write has only `direct`, since the bot route writes to
+    /// GitHub only.
+    fn gates_denial(&self, forge: Forge) -> String {
+        let bot_route = "writes go through the bot route (`b10x-gates gh`, `b10x-gates api`)";
+        if self.records.is_none() {
+            let state = "no config file: the built-in instance is on `forge.route: gates` with no \
+                         gates_policy";
+            return match forge {
+                Forge::GitHub => format!(
+                    "{state}, so the bot route has no policy to write under: write a config file \
+                     whose instance sets `gates_policy`, and {bot_route}, or sets \
+                     `forge.route: direct`"
+                ),
+                Forge::GitLab => format!(
+                    "{state}, and the bot route writes to GitHub only: write a config file whose \
+                     instance sets `forge.route: direct`"
+                ),
+            };
+        }
+        let instance = format!(
+            "instance `{}` (`{}`) is on `forge.route: gates`",
+            self.instance,
+            self.config.display()
+        );
+        match (forge, self.gates_policy) {
+            (Forge::GitHub, true) => format!(
+                "{instance} with a gates_policy: {bot_route}, or set `forge.route: direct` there"
+            ),
+            (Forge::GitHub, false) => format!(
+                "{instance} with no gates_policy, so the bot route has no policy to write under: \
+                 set `gates_policy` there and {bot_route}, or set `forge.route: direct`"
+            ),
+            (Forge::GitLab, policy) => format!(
+                "{instance} (gates_policy {}), and the bot route writes to GitHub only: set \
+                 `forge.route: direct` there",
+                if policy { "set" } else { "not set" }
+            ),
+        }
     }
 
     /// Conductor's records, as the config writes them: the instance's `records`, or without a
@@ -1590,11 +1638,11 @@ impl Session<'_> {
                 return (
                     Verdict::Deny,
                     format!(
-                        "`{write}` is a {} write: {} here only reads ({}); writes go through the \
-                         bot route",
+                        "`{write}` is a {} write: {} here only reads ({}); {}",
                         forge.name(),
                         forge.program(),
-                        forge.reads()
+                        forge.reads(),
+                        self.places.gates_denial(forge)
                     ),
                 );
             }
