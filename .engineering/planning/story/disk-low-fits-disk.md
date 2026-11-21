@@ -2,7 +2,7 @@
 format: aep.planning-md/3
 id: story:disk-low-fits-disk
 kind: story
-status: active
+status: implemented
 title: One disk floor for reclaim and the supervisor; doctor names a disk_low the disk cannot meet
 summary: reclaim floor disk_admit+5G is the check; doctor warns on disk_low above half the filesystem
 refs:
@@ -23,10 +23,11 @@ scope:
   path: spec/domains/config.yaml
 - confidence: cited
   path: spec/domains/host.yaml
-revision: 5
+revision: 6
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-19T18:31:59Z", actor: "human:unknown", revision: 4}
 - {from: "proposed", to: "active", at: "2026-11-19T18:31:59Z", actor: "human:unknown", revision: 5}
+- {from: "active", to: "implemented", at: "2026-11-21T01:32:34Z", actor: "human:unknown", revision: 6, decided_on: {"recorded":{"test_result":2}}}
 ---
 ## Why
 

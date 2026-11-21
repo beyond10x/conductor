@@ -1,0 +1,13 @@
+{
+  "at": "2026-11-21T01:32:33Z",
+  "actor": "human:unknown",
+  "artifact": "story:director-boxed-start",
+  "kind": "story",
+  "revision": 4,
+  "change": {
+    "change": "evidence",
+    "kind": "test_result",
+    "source": "triage 2026-11-21 against main 5d0e5f85b (v1.22.2, task check green on PR #266): delivered by 85000844a; tests: tests/box_session.rs::on_the_host_a_boxed_instance_starts_no_session_outside_its_box, tests/doctor.rs::doctor_names_a_boxed_instance_without_a_director_session",
+    "reference": "85000844a"
+  }
+}

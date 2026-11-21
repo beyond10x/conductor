@@ -1,0 +1,13 @@
+{
+  "at": "2026-11-21T01:32:38Z",
+  "actor": "human:unknown",
+  "artifact": "story:box-runtime-dials-conductord",
+  "kind": "story",
+  "revision": 18,
+  "change": {
+    "change": "evidence",
+    "kind": "test_result",
+    "source": "triage 2026-11-21 against main 5d0e5f85b (v1.22.2, task check green on PR #266): delivered by 73e86d90d; tests: tests/placement.rs::a_local_box_dials_its_api_out_to_conductord_while_the_dial_port_is_set; tests/instance_api.rs::instance_serve_dials_its_api_out_to_the_daemon_and_answers_over_it, ::the_dial_in_listener_closes_a_connection_without_the_instances_token, ::instance_serve_refuses_to_dial_without_the_daemons_token",
+    "reference": "73e86d90d"
+  }
+}

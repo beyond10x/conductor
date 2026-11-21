@@ -2,7 +2,7 @@
 format: aep.planning-md/3
 id: story:box-forge-work
 kind: story
-status: active
+status: implemented
 title: A boxed runtime and its controllers do forge work
 summary: Forge apertures per host, writable checkouts and trees, git config and persistent Claude state with trust in the box
 relations:
@@ -55,10 +55,11 @@ scope:
   path: website/docs/guides/troubleshoot.md
 - confidence: cited
   path: website/docs/security/sessions.md
-revision: 5
+revision: 6
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-15T09:47:14Z", actor: "human:agent", revision: 2, executor: "human:timo"}
 - {from: "proposed", to: "active", at: "2026-11-15T09:47:14Z", actor: "human:agent", revision: 3, executor: "human:timo"}
+- {from: "active", to: "implemented", at: "2026-11-21T01:32:38Z", actor: "human:unknown", revision: 6, decided_on: {"recorded":{"test_result":2}}}
 ---
 ## Why
 

@@ -1,0 +1,13 @@
+{
+  "at": "2026-11-21T01:32:38Z",
+  "actor": "human:unknown",
+  "artifact": "story:box-session-without-bg",
+  "kind": "story",
+  "revision": 4,
+  "change": {
+    "change": "evidence",
+    "kind": "test_result",
+    "source": "triage 2026-11-21 against main 5d0e5f85b (v1.22.2, task check green on PR #266): delivered by 42d5ff0ad; tests: tests/box_session.rs::a_controller_runs_through_spawn_deliver_stop_and_resume_without_a_unix_socket, ::a_delivery_to_no_running_session_is_refused; src/confine/child.rs unit tests",
+    "reference": "42d5ff0ad"
+  }
+}

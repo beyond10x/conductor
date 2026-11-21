@@ -2,7 +2,7 @@
 format: aep.planning-md/3
 id: story:dispatch-v1-once-per-goal
 kind: story
-status: active
+status: implemented
 title: Dispatch v1 sends a goal to a repository once, and takes waiting repositories oldest first
 summary: A done dispatch per repository and goal ends that repository's part; places go to the repository that has waited longest, not the first by name
 tags:
@@ -20,10 +20,11 @@ scope:
   path: crates/conductor/src/run/dispatch.rs
 - confidence: cited
   path: crates/conductor/tests/run.rs
-revision: 6
+revision: 7
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-19T18:21:30Z", actor: "human:unknown", revision: 3}
 - {from: "proposed", to: "active", at: "2026-11-19T18:21:30Z", actor: "human:unknown", revision: 4}
+- {from: "active", to: "implemented", at: "2026-11-21T01:32:34Z", actor: "human:unknown", revision: 7, decided_on: {"recorded":{"test_result":2}}}
 ---
 ## Why
 

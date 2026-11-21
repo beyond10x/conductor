@@ -2,7 +2,7 @@
 format: aep.planning-md/3
 id: story:limit-mark-expires-mailbox-kept
 kind: story
-status: active
+status: implemented
 title: A stopped limit mark with no reset ahead waits no more; no banner, no limit mark; the mailbox keeps every handled name
 summary: waiting_at_limit expires marks, exited resumes, mailbox.handled whole, cycle line in the runtime log
 refs:
@@ -19,10 +19,11 @@ scope:
   path: crates/conductor/src/run/mailbox.rs
 - confidence: cited
   path: crates/conductor/tests/run.rs
-revision: 4
+revision: 5
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-19T18:40:01Z", actor: "human:unknown", revision: 2}
 - {from: "proposed", to: "active", at: "2026-11-19T18:40:01Z", actor: "human:unknown", revision: 3}
+- {from: "active", to: "implemented", at: "2026-11-21T01:32:36Z", actor: "human:unknown", revision: 5, decided_on: {"recorded":{"test_result":2}}}
 ---
 ## Why
 

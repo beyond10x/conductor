@@ -1,0 +1,13 @@
+{
+  "at": "2026-11-21T01:32:35Z",
+  "actor": "human:unknown",
+  "artifact": "story:host-role-session-unprefixed",
+  "kind": "story",
+  "revision": 5,
+  "change": {
+    "change": "evidence",
+    "kind": "test_result",
+    "source": "triage 2026-11-21 against main 5d0e5f85b (v1.22.2, task check green on PR #266): delivered by 1b720ccf7; tests: tests/config.rs::the_host_maintainer_s_session_carries_no_instance_prefix, tests/taskfile.rs::the_start_tasks_name_the_session_from_config_show",
+    "reference": "1b720ccf7"
+  }
+}

@@ -2,7 +2,7 @@
 format: aep.planning-md/3
 id: story:daily-tick-logged
 kind: story
-status: active
+status: implemented
 title: The loop logs each daily tick, a skipped one with its cause, and a refused records commit with the check's findings
 summary: runtime.log says why a daily tick is missing or its commit refused
 refs:
@@ -21,10 +21,11 @@ scope:
   path: crates/conductor/tests/run_records.rs
 - confidence: cited
   path: spec/domains/session.yaml
-revision: 5
+revision: 6
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-19T18:32:00Z", actor: "human:unknown", revision: 4}
 - {from: "proposed", to: "active", at: "2026-11-19T18:32:00Z", actor: "human:unknown", revision: 5}
+- {from: "active", to: "implemented", at: "2026-11-21T01:32:39Z", actor: "human:unknown", revision: 6, decided_on: {"recorded":{"test_result":2}}}
 ---
 ## Why
 

@@ -1,0 +1,13 @@
+{
+  "at": "2026-11-21T01:32:33Z",
+  "actor": "human:unknown",
+  "artifact": "story:disk-low-fits-disk",
+  "kind": "story",
+  "revision": 5,
+  "change": {
+    "change": "evidence",
+    "kind": "test_result",
+    "source": "triage 2026-11-21 against main 5d0e5f85b (v1.22.2, task check green on PR #266): delivered by c0e6ddcf6; tests: tests/doctor.rs::doctor_names_a_disk_low_above_half_the_filesystem; roles/supervisor.md and roles/teacher.md check disk_admit+5G",
+    "reference": "c0e6ddcf6"
+  }
+}

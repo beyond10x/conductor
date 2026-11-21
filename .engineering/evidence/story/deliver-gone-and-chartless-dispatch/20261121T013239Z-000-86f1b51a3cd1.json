@@ -1,0 +1,13 @@
+{
+  "at": "2026-11-21T01:32:39Z",
+  "actor": "human:unknown",
+  "artifact": "story:deliver-gone-and-chartless-dispatch",
+  "kind": "story",
+  "revision": 4,
+  "change": {
+    "change": "evidence",
+    "kind": "test_result",
+    "source": "triage 2026-11-21 against main 5d0e5f85b (v1.22.2, task check green on PR #266): delivered by 85000844a; tests: tests/box_session.rs::a_delivery_to_a_gone_child_session_names_it_gone, ::the_unwritten_deliver_message_leaf_is_not_in_the_help; tests/run.rs::a_gone_session_without_a_charter_fails_its_open_dispatch",
+    "reference": "85000844a"
+  }
+}

@@ -2,7 +2,7 @@
 format: aep.planning-md/3
 id: story:dispatch-waiting-reason
 kind: story
-status: active
+status: implemented
 title: An open dispatch that gets no controller says why, on the dispatch and in the cycle line
 summary: 'No snapshot, Inactive, no charter, cap reached or start refused: written once per change as a waiting line and shown by dispatch dispatches'
 tags:
@@ -47,10 +47,11 @@ scope:
   path: website/docs/concepts/the-loop.md
 - confidence: cited
   path: website/docs/guides/start-conductor.md
-revision: 10
+revision: 11
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-19T18:21:30Z", actor: "human:unknown", revision: 4}
 - {from: "proposed", to: "active", at: "2026-11-19T18:21:30Z", actor: "human:unknown", revision: 5}
+- {from: "active", to: "implemented", at: "2026-11-21T01:32:34Z", actor: "human:unknown", revision: 11, decided_on: {"recorded":{"test_result":2}}}
 ---
 ## Why
 

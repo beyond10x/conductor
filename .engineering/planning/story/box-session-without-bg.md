@@ -2,7 +2,7 @@
 format: aep.planning-md/3
 id: story:box-session-without-bg
 kind: story
-status: active
+status: implemented
 title: A boxed runtime's sessions run without claude --bg
 summary: A child provider runs claude -p with stream-json input as a child process, needing no Unix socket
 relations:
@@ -45,10 +45,11 @@ scope:
   path: website/docs/guides/run-isolated.md
 - confidence: cited
   path: website/docs/security/sessions.md
-revision: 4
+revision: 5
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-15T12:13:22Z", actor: "human:agent", revision: 2, executor: "human:timo"}
 - {from: "proposed", to: "active", at: "2026-11-15T12:13:22Z", actor: "human:agent", revision: 3, executor: "human:timo"}
+- {from: "active", to: "implemented", at: "2026-11-21T01:32:38Z", actor: "human:unknown", revision: 5, decided_on: {"recorded":{"test_result":2}}}
 ---
 ## Why
 

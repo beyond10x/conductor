@@ -2,7 +2,7 @@
 format: aep.planning-md/3
 id: story:host-role-session-unprefixed
 kind: story
-status: active
+status: implemented
 title: The host's maintainer session carries no instance prefix
 summary: host.roles and the instance's maintainer role are named <role>; maintainer:start uses it
 refs:
@@ -29,10 +29,11 @@ scope:
   path: website/docs/concepts/roles.md
 - confidence: cited
   path: website/docs/develop/how-we-work.md
-revision: 5
+revision: 6
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-19T18:26:22Z", actor: "human:unknown", revision: 4}
 - {from: "proposed", to: "active", at: "2026-11-19T18:26:23Z", actor: "human:unknown", revision: 5}
+- {from: "active", to: "implemented", at: "2026-11-21T01:32:35Z", actor: "human:unknown", revision: 6, decided_on: {"recorded":{"test_result":2}}}
 ---
 ## Why
 

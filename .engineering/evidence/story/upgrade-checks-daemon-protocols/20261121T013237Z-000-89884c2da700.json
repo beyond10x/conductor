@@ -1,0 +1,13 @@
+{
+  "at": "2026-11-21T01:32:37Z",
+  "actor": "human:unknown",
+  "artifact": "story:upgrade-checks-daemon-protocols",
+  "kind": "story",
+  "revision": 4,
+  "change": {
+    "change": "evidence",
+    "kind": "test_result",
+    "source": "triage 2026-11-21 against main 5d0e5f85b (v1.22.2, task check green on PR #266): delivered by 383b2a1aa; tests: tests/instance_upgrade.rs::instance_upgrade_refuses_a_release_whose_runtime_needs_a_protocol_the_daemon_lacks, ::instance_upgrade_reads_the_protocols_the_daemon_names; tests/box_upgrade.rs::an_upgraded_boxed_runtime_answers_only_once_its_start_reached_the_token_pool, ::an_upgraded_boxed_runtime_that_never_reaches_the_token_pool_is_rolled_back",
+    "reference": "383b2a1aa"
+  }
+}

@@ -2,7 +2,7 @@
 format: aep.planning-md/3
 id: story:started-report-after-restart
 kind: story
-status: active
+status: implemented
 title: A restarted controller's second started report on its dispatch is accepted
 scope:
 - confidence: inferred
@@ -15,10 +15,11 @@ scope:
   path: crates/conductor/tests/run.rs
 - confidence: inferred
   path: docs/design/conductor-run.md
-revision: 14
+revision: 15
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-10T00:18:03Z", actor: "human:timo", revision: 5}
 - {from: "proposed", to: "active", at: "2026-11-10T00:18:04Z", actor: "human:timo", revision: 6}
+- {from: "active", to: "implemented", at: "2026-11-21T01:32:37Z", actor: "human:unknown", revision: 15, decided_on: {"recorded":{"test_result":1}}}
 ---
 ## Why
 

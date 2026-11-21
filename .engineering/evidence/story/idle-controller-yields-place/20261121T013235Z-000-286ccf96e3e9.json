@@ -1,0 +1,13 @@
+{
+  "at": "2026-11-21T01:32:35Z",
+  "actor": "human:unknown",
+  "artifact": "story:idle-controller-yields-place",
+  "kind": "story",
+  "revision": 7,
+  "change": {
+    "change": "evidence",
+    "kind": "test_result",
+    "source": "triage 2026-11-21 against main 5d0e5f85b (v1.22.2, task check green on PR #266): delivered by a8f9e34f2; tests: tests/run.rs::a_start_at_max_working_stops_an_idle_controller_with_no_open_dispatch_first, ::a_controller_with_an_open_dispatch_keeps_its_place_at_max_working, ::a_working_session_with_no_open_dispatch_keeps_its_place",
+    "reference": "a8f9e34f2"
+  }
+}

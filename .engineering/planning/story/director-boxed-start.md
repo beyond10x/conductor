@@ -2,7 +2,7 @@
 format: aep.planning-md/3
 id: story:director-boxed-start
 kind: story
-status: active
+status: implemented
 title: A boxed instance's director never starts unboxed, and doctor names a missing one
 summary: session start --role director refuses OutsideBox outside the box; doctor has a director row
 refs:
@@ -23,10 +23,11 @@ scope:
   path: crates/conductor/tests/doctor.rs
 - confidence: cited
   path: spec/domains/session.yaml
-revision: 4
+revision: 5
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-19T18:33:49Z", actor: "human:unknown", revision: 2}
 - {from: "proposed", to: "active", at: "2026-11-19T18:33:49Z", actor: "human:unknown", revision: 3}
+- {from: "active", to: "implemented", at: "2026-11-21T01:32:33Z", actor: "human:unknown", revision: 5, decided_on: {"recorded":{"test_result":3}}}
 ---
 ## Why
 

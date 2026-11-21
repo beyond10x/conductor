@@ -1,0 +1,13 @@
+{
+  "at": "2026-11-21T01:32:39Z",
+  "actor": "human:unknown",
+  "artifact": "story:daily-tick-logged",
+  "kind": "story",
+  "revision": 5,
+  "change": {
+    "change": "evidence",
+    "kind": "test_result",
+    "source": "triage 2026-11-21 against main 5d0e5f85b (v1.22.2, task check green on PR #266): delivered by 909028603; tests: tests/run_records.rs::a_daily_tick_s_refused_commit_logs_the_check_s_findings, ::a_skipped_daily_tick_is_logged_with_its_cause",
+    "reference": "909028603"
+  }
+}

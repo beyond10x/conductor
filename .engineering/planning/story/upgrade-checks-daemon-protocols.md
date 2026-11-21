@@ -2,7 +2,7 @@
 format: aep.planning-md/3
 id: story:upgrade-checks-daemon-protocols
 kind: story
-status: active
+status: implemented
 title: instance upgrade refuses a release whose runtime needs a protocol the running conductord lacks, and a boxed upgrade answers only once its start reached the token pool
 summary: GET /v1/version names protocols; upgrade refuses on a missing one; a boxed runtime probes the pool
 refs:
@@ -31,10 +31,11 @@ scope:
   path: crates/conductor/tests/instance_upgrade.rs
 - confidence: cited
   path: spec/domains/store.yaml
-revision: 4
+revision: 5
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-19T18:40:00Z", actor: "human:unknown", revision: 2}
 - {from: "proposed", to: "active", at: "2026-11-19T18:40:01Z", actor: "human:unknown", revision: 3}
+- {from: "active", to: "implemented", at: "2026-11-21T01:32:37Z", actor: "human:unknown", revision: 5, decided_on: {"recorded":{"test_result":2}}}
 ---
 ## Why
 

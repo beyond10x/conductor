@@ -1,0 +1,13 @@
+{
+  "at": "2026-11-21T01:32:37Z",
+  "actor": "human:unknown",
+  "artifact": "story:box-forge-work",
+  "kind": "story",
+  "revision": 5,
+  "change": {
+    "change": "evidence",
+    "kind": "test_result",
+    "source": "triage 2026-11-21 against main 5d0e5f85b (v1.22.2, task check green on PR #266): delivered by 0caa7b610; tests: tests/placement.rs::a_forge_aperture_is_named_for_its_host, ::a_box_reaches_each_forge_host_through_a_declared_aperture, ::more_forge_hosts_than_a_start_names_are_refused_at_validate, ::a_box_writes_its_checkouts_and_trees_and_trusts_them_for_its_harness, ::doctor_names_the_forge_aperture_the_git_identity_and_the_trust_of_a_box; tests/trust.rs::trust_marks_a_boxed_instance_in_the_state_of_its_harness",
+    "reference": "0caa7b610"
+  }
+}

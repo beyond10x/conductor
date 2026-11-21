@@ -1,0 +1,13 @@
+{
+  "at": "2026-11-21T01:32:36Z",
+  "actor": "human:unknown",
+  "artifact": "story:started-report-after-restart",
+  "kind": "story",
+  "revision": 14,
+  "change": {
+    "change": "evidence",
+    "kind": "test_result",
+    "source": "triage 2026-11-21 against main 5d0e5f85b (v1.22.2, task check green on PR #266): delivered by 5a60a385c; tests: tests/run.rs::a_repeated_started_or_blocked_report_after_a_restart_is_progress; tests/broker.rs::broker_serve_records_a_team_message_and_a_leads_report_moves_its_dispatch",
+    "reference": "5a60a385c"
+  }
+}

@@ -2,7 +2,7 @@
 format: aep.planning-md/3
 id: story:forge-route
 kind: story
-status: active
+status: implemented
 title: An instance names its forge-write route; direct writes its own requests with gh or glab and git
 relations:
 - decomposes: epic:forge-neutral
@@ -31,10 +31,11 @@ scope:
   path: crates/conductor/tests/guard_rules.rs
 - confidence: cited
   path: crates/conductor/tests/run_records.rs
-revision: 5
+revision: 6
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-07T13:11:41Z", actor: "human:timo", revision: 2}
 - {from: "proposed", to: "active", at: "2026-11-07T13:11:41Z", actor: "human:timo", revision: 3}
+- {from: "active", to: "implemented", at: "2026-11-21T01:32:35Z", actor: "human:unknown", revision: 6, decided_on: {"recorded":{"test_result":1}}}
 ---
 ## Why
 

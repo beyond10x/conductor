@@ -1,0 +1,13 @@
+{
+  "at": "2026-11-21T01:32:34Z",
+  "actor": "human:unknown",
+  "artifact": "story:forge-route",
+  "kind": "story",
+  "revision": 5,
+  "change": {
+    "change": "evidence",
+    "kind": "test_result",
+    "source": "triage 2026-11-21 against main 5d0e5f85b (v1.22.2, task check green on PR #266): delivered by 683123ea0; tests: tests/config.rs::the_forge_route_is_gates_when_absent_and_another_word_is_refused; tests/guard_rules.rs under_the_direct_route_* and ::under_the_gates_route_and_by_default_every_gh_and_glab_write_is_denied; tests/run_records.rs::under_the_direct_route_the_records_are_committed_and_pushed_with_git",
+    "reference": "683123ea0"
+  }
+}

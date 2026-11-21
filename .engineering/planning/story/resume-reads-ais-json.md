@@ -2,7 +2,7 @@
 format: aep.planning-md/3
 id: story:resume-reads-ais-json
 kind: story
-status: active
+status: archived
 title: The loop resumes after a usage limit while one ais account is exhausted
 summary: Read the headroom from the JSON ais prints whatever its exit; only missing or unparsable output is an error
 relations:
@@ -14,10 +14,11 @@ scope:
   path: crates/conductor/src/run/handlers.rs
 - confidence: inferred
   path: crates/conductor/tests/run.rs
-revision: 6
+revision: 7
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-08T01:00:37Z", actor: "human:timo", revision: 3}
 - {from: "proposed", to: "active", at: "2026-11-08T01:00:37Z", actor: "human:timo", revision: 4}
+- {from: "active", to: "archived", at: "2026-11-21T01:32:40Z", actor: "human:unknown", revision: 7, decided_on: {"recorded":{"test_result":1}}}
 ---
 ## Why
 

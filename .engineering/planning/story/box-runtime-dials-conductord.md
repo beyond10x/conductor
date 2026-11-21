@@ -2,7 +2,7 @@
 format: aep.planning-md/3
 id: story:box-runtime-dials-conductord
 kind: story
-status: active
+status: implemented
 title: A runtime in a local box dials its instance API out to conductord
 relations:
 - decomposes: epic:architecture-next
@@ -35,10 +35,11 @@ scope:
   path: spec/domains/config.yaml
 - confidence: cited
   path: website/docs/concepts/the-host.md
-revision: 18
+revision: 19
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-14T20:52:23Z", actor: "human:agent", revision: 3, executor: "human:timo"}
 - {from: "proposed", to: "active", at: "2026-11-14T20:52:23Z", actor: "human:agent", revision: 4, executor: "human:timo"}
+- {from: "active", to: "implemented", at: "2026-11-21T01:32:38Z", actor: "human:unknown", revision: 19, decided_on: {"recorded":{"test_result":2}}}
 ---
 ## Why
 

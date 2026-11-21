@@ -1,0 +1,13 @@
+{
+  "at": "2026-11-21T01:32:37Z",
+  "actor": "human:unknown",
+  "artifact": "story:supervisor-boxed-controller-start",
+  "kind": "story",
+  "revision": 4,
+  "change": {
+    "change": "evidence",
+    "kind": "test_result",
+    "source": "triage 2026-11-21 against main 5d0e5f85b (v1.22.2, task check green on PR #266): delivered by 1f94ea9e6; tests: tests/profiles.rs::the_supervisor_starts_a_boxed_controller_through_a_cycle, ::each_profile_stays_under_its_line_cap",
+    "reference": "1f94ea9e6"
+  }
+}

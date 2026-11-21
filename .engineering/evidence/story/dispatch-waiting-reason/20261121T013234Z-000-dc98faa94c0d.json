@@ -1,0 +1,13 @@
+{
+  "at": "2026-11-21T01:32:34Z",
+  "actor": "human:unknown",
+  "artifact": "story:dispatch-waiting-reason",
+  "kind": "story",
+  "revision": 10,
+  "change": {
+    "change": "evidence",
+    "kind": "test_result",
+    "source": "triage 2026-11-21 against main 5d0e5f85b (v1.22.2, task check green on PR #266): delivered by 437222a33; tests: tests/run.rs::an_open_dispatch_with_no_complete_snapshot_says_why_no_controller_started, ::an_open_dispatch_at_max_working_says_so_on_the_dispatch, ::an_open_dispatch_without_a_charter_says_so_on_the_dispatch, ::the_waiting_reason_is_written_once_until_it_changes; spec/scenarios/record-dispatch-waiting*.yaml",
+    "reference": "437222a33"
+  }
+}

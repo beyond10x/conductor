@@ -2,7 +2,7 @@
 format: aep.planning-md/3
 id: story:box-subscription-token
 kind: story
-status: active
+status: implemented
 title: A boxed instance runs its agents on a subscription token
 summary: The runtime in a box reads its model-token slot; a subscription_token there reaches the harness as CLAUDE_CODE_OAUTH_TOKEN
 relations:
@@ -36,10 +36,11 @@ scope:
   path: website/docs/reference/config.md
 - confidence: cited
   path: website/docs/security/operators-and-credentials.md
-revision: 6
+revision: 7
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-15T07:51:40Z", actor: "human:agent", revision: 4, executor: "human:timo"}
 - {from: "proposed", to: "active", at: "2026-11-15T07:51:40Z", actor: "human:agent", revision: 5, executor: "human:timo"}
+- {from: "active", to: "implemented", at: "2026-11-21T01:32:39Z", actor: "human:unknown", revision: 7, decided_on: {"recorded":{"test_result":2}}}
 ---
 ## Why
 

@@ -2,7 +2,7 @@
 format: aep.planning-md/3
 id: story:idle-controller-yields-place
 kind: story
-status: active
+status: implemented
 title: A controller with no open dispatch gives its max_working place to a repository that waits
 summary: When a start needs a place, the cycle stops the longest idle controller with no open dispatch first and names it
 tags:
@@ -20,10 +20,11 @@ scope:
   path: crates/conductor/src/run/dispatch.rs
 - confidence: cited
   path: crates/conductor/tests/run.rs
-revision: 7
+revision: 8
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-19T18:21:29Z", actor: "human:unknown", revision: 3}
 - {from: "proposed", to: "active", at: "2026-11-19T18:21:30Z", actor: "human:unknown", revision: 4}
+- {from: "active", to: "implemented", at: "2026-11-21T01:32:35Z", actor: "human:unknown", revision: 8, decided_on: {"recorded":{"test_result":2}}}
 ---
 ## Why
 

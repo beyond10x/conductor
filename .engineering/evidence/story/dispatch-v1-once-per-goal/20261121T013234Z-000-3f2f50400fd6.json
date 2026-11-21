@@ -1,0 +1,13 @@
+{
+  "at": "2026-11-21T01:32:34Z",
+  "actor": "human:unknown",
+  "artifact": "story:dispatch-v1-once-per-goal",
+  "kind": "story",
+  "revision": 6,
+  "change": {
+    "change": "evidence",
+    "kind": "test_result",
+    "source": "triage 2026-11-21 against main 5d0e5f85b (v1.22.2, task check green on PR #266): delivered by e8b0fe8f0; tests: tests/run.rs::a_repository_with_a_done_dispatch_for_its_goal_is_sent_no_other, ::repositories_waiting_for_a_place_are_taken_oldest_first_not_by_name, ::a_failed_dispatch_does_not_end_the_repository_s_part",
+    "reference": "e8b0fe8f0"
+  }
+}

@@ -2,7 +2,7 @@
 format: aep.planning-md/3
 id: story:spawn-refuses-outside-box
 kind: story
-status: active
+status: implemented
 title: conductor spawn refuses outside a boxed instance's box, naming instance cycle
 summary: A controller of a boxed instance never starts on the host
 refs:
@@ -19,10 +19,11 @@ scope:
   path: crates/conductor/tests/box_session.rs
 - confidence: cited
   path: spec/domains/dispatch.yaml
-revision: 5
+revision: 6
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-19T18:33:49Z", actor: "human:unknown", revision: 2}
 - {from: "proposed", to: "active", at: "2026-11-19T18:33:49Z", actor: "human:unknown", revision: 3}
+- {from: "active", to: "implemented", at: "2026-11-21T01:32:36Z", actor: "human:unknown", revision: 6, decided_on: {"recorded":{"test_result":2}}}
 ---
 ## Why
 

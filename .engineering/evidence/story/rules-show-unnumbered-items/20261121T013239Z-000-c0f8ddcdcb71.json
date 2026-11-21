@@ -1,0 +1,13 @@
+{
+  "at": "2026-11-21T01:32:39Z",
+  "actor": "human:unknown",
+  "artifact": "story:rules-show-unnumbered-items",
+  "kind": "story",
+  "revision": 5,
+  "change": {
+    "change": "evidence",
+    "kind": "test_result",
+    "source": "triage 2026-11-21 against main 5d0e5f85b (v1.22.2, task check green on PR #266): delivered by 907291e1c; tests: tests/rules.rs::a_section_of_unnumbered_bullets_prints_its_items",
+    "reference": "907291e1c"
+  }
+}

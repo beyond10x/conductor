@@ -2,7 +2,7 @@
 format: aep.planning-md/3
 id: story:deliver-gone-and-chartless-dispatch
 kind: story
-status: active
+status: implemented
 title: deliver names a gone session gone, deliver-message leaves the help, a chartless open dispatch ends
 summary: 'Box sessions: a gone session, the unwritten leaf and a dispatch no controller can take'
 refs:
@@ -29,10 +29,11 @@ scope:
   path: crates/conductor/tests/run.rs
 - confidence: cited
   path: website/docs/reference/cli.md
-revision: 4
+revision: 5
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-19T18:33:50Z", actor: "human:unknown", revision: 2}
 - {from: "proposed", to: "active", at: "2026-11-19T18:33:50Z", actor: "human:unknown", revision: 3}
+- {from: "active", to: "implemented", at: "2026-11-21T01:32:39Z", actor: "human:unknown", revision: 5, decided_on: {"recorded":{"test_result":3}}}
 ---
 ## Why
 

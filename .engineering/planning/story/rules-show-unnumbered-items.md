@@ -2,7 +2,7 @@
 format: aep.planning-md/3
 id: story:rules-show-unnumbered-items
 kind: story
-status: active
+status: implemented
 title: rules show reads unnumbered bullets as items and never lists the section it refuses
 summary: 'A rules.md of - bullets: --section prints them, --brief and json too'
 refs:
@@ -21,10 +21,11 @@ scope:
   path: crates/conductor/tests/rules.rs
 - confidence: cited
   path: spec/domains/direction.yaml
-revision: 5
+revision: 6
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-19T18:24:19Z", actor: "human:unknown", revision: 4}
 - {from: "proposed", to: "active", at: "2026-11-19T18:24:19Z", actor: "human:unknown", revision: 5}
+- {from: "active", to: "implemented", at: "2026-11-21T01:32:40Z", actor: "human:unknown", revision: 6, decided_on: {"recorded":{"test_result":2}}}
 ---
 ## Why
 

@@ -1,0 +1,13 @@
+{
+  "at": "2026-11-21T01:32:38Z",
+  "actor": "human:unknown",
+  "artifact": "story:box-subscription-token",
+  "kind": "story",
+  "revision": 6,
+  "change": {
+    "change": "evidence",
+    "kind": "test_result",
+    "source": "triage 2026-11-21 against main 5d0e5f85b (v1.22.2, task check green on PR #266): delivered by a913affb8; tests: tests/placement.rs::a_model_token_slot_is_the_slot_of_a_remote_start_or_of_the_pool; tests/token_pool.rs::in_a_box_a_subscription_token_the_runtime_holds_reaches_the_harness_in_its_variable; tests/config.rs subscription_token validation",
+    "reference": "a913affb8"
+  }
+}
