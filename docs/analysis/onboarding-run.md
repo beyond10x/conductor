@@ -578,3 +578,15 @@ No onboarding run is due: 1.22.2 changes nothing onboarding runs. `conductor con
 instance calls change only the text of the named path or instance item, keeping the file's style
 and comments, and a put the file already holds commits nothing; the supervisor profile carries a
 cap decision out through the config file's owner when the host's own file names one.
+
+## v1.22.3
+
+No onboarding run was made for this release, by the operator's decision, as for 1.17.0. Of what
+onboarding runs, 1.22.3 changes only the wording of one `conductor doctor` line: on a GitLab
+instance on `forge.route: gates`, the `guard controller: denied by ...` line now ends "the bot
+route writes to GitHub only: set `forge.route: direct` there" where it said that writes go through
+the bot route. Doctor's verdict and exit are unchanged (`not ready`, exit 1). `SETUP.md`,
+`conductor setup`, the install path and the prerequisites are as in 1.22.2. The two runs of this
+record need a GitHub and a self-hosted GitLab scratch origin, which the release host does not
+have; they are made again when those are provided. The release also pins a spawned, resumed or
+started session's hooks to the binary that started it and to the instance's config file.

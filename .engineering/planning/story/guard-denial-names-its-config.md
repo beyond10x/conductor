@@ -2,7 +2,7 @@
 format: aep.planning-md/3
 id: story:guard-denial-names-its-config
 kind: story
-status: active
+status: implemented
 title: A denied forge write names the instance's route, its policy and the fix
 summary: a gates route with no policy was read as a credential rule for two hours
 scope:
@@ -14,10 +14,11 @@ scope:
   path: crates/conductor/tests/guard_rules.rs
 - confidence: cited
   path: website/docs/security/the-guard.md
-revision: 7
+revision: 9
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-07T13:21:16Z", actor: "human:timo", revision: 2}
 - {from: "proposed", to: "active", at: "2026-11-07T13:21:17Z", actor: "human:timo", revision: 3}
+- {from: "active", to: "implemented", at: "2026-11-21T03:17:02Z", actor: "human:unknown", revision: 9, decided_on: {"recorded":{"test_result":1}}}
 ---
 ## Why
 
@@ -124,3 +125,7 @@ None of these tests needs a Unix socket; all run locally.
 - `website/docs/security/the-guard.md`: the Forge calls section.
 - Not `crates/conductor/src/config.rs`: `gates_policy` is already on `Instance`, and the guard
   reads it there. That keeps this story off story:spawn-pins-binary-and-config's file.
+
+## Follow-ups from the wave 74 adversary review
+
+- The denial prints the config file's full path (`rules.rs`, `gates_denial`, `self.config.display()`); the guard's other denials print it as `~/…` through `shown`.

@@ -2,7 +2,7 @@
 format: aep.planning-md/3
 id: story:spawn-pins-binary-and-config
 kind: story
-status: active
+status: implemented
 title: A spawned session's hooks run the spawning binary against the instance's config
 scope:
 - confidence: cited
@@ -25,10 +25,11 @@ scope:
   path: website/docs/reference/config.md
 - confidence: cited
   path: website/docs/security/sessions.md
-revision: 22
+revision: 24
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-10T00:18:00Z", actor: "human:timo", revision: 5}
 - {from: "proposed", to: "active", at: "2026-11-10T00:18:01Z", actor: "human:timo", revision: 6}
+- {from: "active", to: "implemented", at: "2026-11-21T03:17:02Z", actor: "human:unknown", revision: 24, decided_on: {"recorded":{"test_result":1}}}
 ---
 ## Why
 
@@ -163,3 +164,12 @@ all run locally.
   `tests/instance_isolation.rs`, `tests/run.rs`, `tests/host_roles.rs`.
 - `spec/domains/{config,session,dispatch}.yaml` (comments), `crates/conductor/http.yaml` (only a
   re-pinned `source_digest`), `website/docs/security/sessions.md`.
+
+## Follow-ups from the wave 74 adversary review
+
+- A session started by a build tree's binary (`target/debug/conductor`) is pinned to it; once that tree's `target/` is reclaimed, or the binary is moved or uninstalled rather than replaced in place, every hook exits 2 and the session is denied every tool call until it is respawned (fails closed). Before, the hook found `conductor` on `PATH`.
+- `first_word` stops early on a role file's hook whose quoted binary path holds `'` followed by a space, so that hook keeps its own binary.
+- The copy is written with `fs::write` (truncate, then write; mode from the umask); a write to a temporary file and a rename would never show a reader a half-written file.
+- An edit to a role's own settings file that already names the instance reaches a session only at its next spawn or resume, no longer live.
+- A hook that starts `FOO=1 conductor …` or `env conductor …` keeps its bare word, as documented.
+- A session's own `conductor` calls from Bash still find `conductor` on `PATH`; with the config file in the copy's `env` they read the instance's config.
